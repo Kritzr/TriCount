@@ -13,6 +13,9 @@
         android:theme="@style/Theme.TriCount">
         <activity android:name=".TricountDetailActivity" />
         <activity android:name=".HomeActivity" />
+        <activity android:name=".TemporaryActivity" />
+        <activity android:name=".AddTricountActivity" />
+        <activity android:name=".JoinTricountActivity" />
         <activity android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
