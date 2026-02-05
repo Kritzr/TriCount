@@ -16,6 +16,35 @@
         <activity android:name=".TemporaryActivity" />
         <activity android:name=".AddTricountActivity" />
         <activity android:name=".JoinTricountActivity" />
+        <!-- Login Activity -->
+        <activity
+            android:name=".LoginActivity"
+            android:exported="false" />
+
+        <!-- Sign Up Activity -->
+        <activity
+            android:name=".SignUpActivity"
+            android:exported="false" />
+
+        <!-- Home Activity -->
+        <activity
+            android:name=".HomeActivity"
+            android:exported="false" />
+
+        <!-- Add Tricount Activity -->
+        <activity
+            android:name=".AddTricountActivity"
+            android:exported="false" />
+
+        <!-- Join Tricount Activity -->
+        <activity
+            android:name=".JoinTricountActivity"
+            android:exported="false" />
+
+        <!-- Tricount Detail Activity (if you have this) -->
+        <activity
+            android:name=".TricountDetailActivity"
+            android:exported="false" />
         <activity android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
