@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,16 +21,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.viewModel.TricountViewModel
 
 class HomeActivity : ComponentActivity() {
+
+    // Add ViewModel reference
+    private val tricountViewModel: TricountViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setContent {
             TriCountTheme {
-                HomeScreen(
+                HomeScreen(  // <- Fixed: was HomeActivity
+                    viewModel = tricountViewModel,  // <- Fixed: was TricountViewModel
                     onTricountClick = { tricountName ->
                         val intent = Intent(
                             this,
@@ -42,11 +49,20 @@ class HomeActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        // Reload tricounts when returning to this activity
+        tricountViewModel.loadTricounts()  // <- Fixed: was TricountViewModel
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onTricountClick: (String) -> Unit) {
+fun HomeScreen(
+    viewModel: TricountViewModel,
+    onTricountClick: (String) -> Unit
+) {
 
     var selectedItem by remember { mutableStateOf(0) }
     val context = LocalContext.current
@@ -87,6 +103,7 @@ fun HomeScreen(onTricountClick: (String) -> Unit) {
         when (selectedItem) {
             0 -> TriCountListScreen(
                 modifier = Modifier.padding(padding),
+                viewModel = viewModel,
                 onTricountClick = onTricountClick
             )
             1 -> ProfileScreen(modifier = Modifier.padding(padding))
@@ -178,45 +195,66 @@ fun HomeScreen(onTricountClick: (String) -> Unit) {
 
 /* ---------- UI SCREENS ---------- */
 
-data class Tricount(
-    val name: String,
-    val description: String
-)
-
 @Composable
 fun TriCountListScreen(
     modifier: Modifier = Modifier,
+    viewModel: TricountViewModel,
     onTricountClick: (String) -> Unit
 ) {
+    // Collect tricounts from ViewModel
+    val tricounts by viewModel.tricounts.collectAsStateWithLifecycle()
 
-    val tricounts = listOf(
-        Tricount("City Trip", "Weekend getaway"),
-        Tricount("Vacation 2024", "Beach expenses"),
-        Tricount("Roommates", "Shared apartment costs")
-    )
-
-    LazyColumn(
-        modifier = modifier.padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        items(tricounts) { tricount ->
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        onTricountClick(tricount.name)
-                    }
+    // Show empty state if no tricounts
+    if (tricounts.isEmpty()) {
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        tricount.name,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        tricount.description,
-                        fontSize = 14.sp
-                    )
+                Text(
+                    text = "No Tricounts yet",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Tap the + button to create one",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(tricounts) { tricount ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onTricountClick(tricount.name)
+                        }
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            tricount.name,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (tricount.description.isNotBlank()) {
+                            Text(
+                                tricount.description,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
         }
