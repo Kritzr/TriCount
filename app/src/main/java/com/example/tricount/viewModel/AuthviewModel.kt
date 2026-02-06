@@ -1,6 +1,7 @@
-package com.example.tricount.viewModel
+package com.example.tricount.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tricount.data.SessionManager
@@ -22,18 +23,23 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     fun signUp(name: String, email: String, password: String) {
         viewModelScope.launch {
             try {
+                Log.d("AuthViewModel", "Starting signup for: $email")
+
                 // Validate inputs
                 if (name.isBlank() || email.isBlank() || password.isBlank()) {
+                    Log.e("AuthViewModel", "Validation failed: empty fields")
                     _authResult.value = AuthResult.Error("All fields are required")
                     return@launch
                 }
 
                 if (!isValidEmail(email)) {
+                    Log.e("AuthViewModel", "Validation failed: invalid email")
                     _authResult.value = AuthResult.Error("Invalid email format")
                     return@launch
                 }
 
                 if (password.length < 6) {
+                    Log.e("AuthViewModel", "Validation failed: password too short")
                     _authResult.value = AuthResult.Error("Password must be at least 6 characters")
                     return@launch
                 }
@@ -41,6 +47,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 // Check if user already exists
                 val existingUser = userDao.getUserByEmail(email)
                 if (existingUser != null) {
+                    Log.e("AuthViewModel", "User already exists: $email")
                     _authResult.value = AuthResult.Error("Email already registered")
                     return@launch
                 }
@@ -51,15 +58,22 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     password = password,  // In production, hash this!
                     name = name
                 )
+
+                Log.d("AuthViewModel", "Attempting to insert user: $newUser")
                 val userId = userDao.insertUser(newUser).toInt()
+                Log.d("AuthViewModel", "User inserted successfully with ID: $userId")
 
                 // Save session
                 sessionManager.saveSession(userId, email, name)
+                Log.d("AuthViewModel", "Session saved for user: $userId")
 
                 _authResult.value = AuthResult.Success(userId)
+                Log.d("AuthViewModel", "Signup completed successfully")
+
             } catch (e: Exception) {
+                Log.e("AuthViewModel", "Signup error: ${e.message}", e)
                 e.printStackTrace()
-                _authResult.value = AuthResult.Error("Registration failed. Please try again.")
+                _authResult.value = AuthResult.Error("Registration failed: ${e.message}")
             }
         }
     }
@@ -68,8 +82,11 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     fun login(email: String, password: String) {
         viewModelScope.launch {
             try {
+                Log.d("AuthViewModel", "Attempting login for: $email")
+
                 // Validate inputs
                 if (email.isBlank() || password.isBlank()) {
+                    Log.e("AuthViewModel", "Login validation failed: empty fields")
                     _authResult.value = AuthResult.Error("Email and password are required")
                     return@launch
                 }
@@ -77,15 +94,18 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 // Attempt login
                 val user = userDao.login(email, password)
                 if (user != null) {
+                    Log.d("AuthViewModel", "Login successful for user: ${user.id}")
                     // Save session
                     sessionManager.saveSession(user.id, user.email, user.name)
                     _authResult.value = AuthResult.Success(user.id)
                 } else {
+                    Log.e("AuthViewModel", "Login failed: invalid credentials")
                     _authResult.value = AuthResult.Error("Invalid email or password")
                 }
             } catch (e: Exception) {
+                Log.e("AuthViewModel", "Login error: ${e.message}", e)
                 e.printStackTrace()
-                _authResult.value = AuthResult.Error("Login failed. Please try again.")
+                _authResult.value = AuthResult.Error("Login failed: ${e.message}")
             }
         }
     }
@@ -93,6 +113,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     // Logout
     fun logout() {
         sessionManager.clearSession()
+        Log.d("AuthViewModel", "User logged out")
     }
 
     // Reset auth result

@@ -3,64 +3,24 @@ package com.example.tricount
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
-import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.data.SessionManager
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        setContent {
-            TriCountTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    LoadingScreen {
-                        startActivity(
-                            Intent(this, HomeActivity::class.java)
-                        )
-                        finish() // remove loading from back stack
-                    }
-                }
-            }
+        val sessionManager = SessionManager(this)
+
+        // Check if user is logged in
+        if (sessionManager.isLoggedIn()) {
+            // User is logged in, go to HomeActivity
+            startActivity(Intent(this, HomeActivity::class.java))
+        } else {
+            // User is not logged in, go to LoginActivity
+            startActivity(Intent(this, LoginActivity::class.java))
         }
-    }
-}
 
-@Composable
-fun LoadingScreen(onLoadingFinished: () -> Unit) {
-
-    LaunchedEffect(Unit) {
-        delay(2000)
-        onLoadingFinished()
-    }
-
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-
-            CircularProgressIndicator()
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Loading TriCount...",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
+        finish()
     }
 }

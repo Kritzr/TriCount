@@ -39,7 +39,11 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             try {
                 val tricount = TricountEntity(
                     name = name,
-                    description = description
+                    description = description,
+                    id = TODO(),
+                    joinCode = TODO(),
+                    creatorId = TODO(),
+                    createdAt = TODO()
                 )
                 tricountDao.insertTricount(tricount)
                 // Reload the list after inserting

@@ -9,5 +9,14 @@ data class TricountEntity(
     val id: Int = 0,
 
     val name: String,
-    val description: String
+    val description: String,
+
+    // Unique code for joining this tricount
+    val joinCode: String,
+
+    // Creator's user ID
+    val creatorId: Int,
+
+    // Timestamp when tricount was created
+    val createdAt: Long = System.currentTimeMillis()
 )
