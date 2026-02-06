@@ -11,11 +11,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.TriCount">
-        <activity android:name=".TricountDetailActivity" />
-        <activity android:name=".HomeActivity" />
         <activity android:name=".TemporaryActivity" />
-        <activity android:name=".AddTricountActivity" />
-        <activity android:name=".JoinTricountActivity" />
         <!-- Login Activity -->
         <activity
             android:name=".LoginActivity"

@@ -66,7 +66,7 @@ dependencies {
     kapt("androidx.room:room-compiler:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     implementation("androidx.activity:activity-ktx:1.9.0") // Or a more recent version
-
+    implementation("androidx.compose.material:material-icons-extended:1.7.6")
 }
 
 
