@@ -1,4 +1,4 @@
-package com.example.tricount.viewmodel
+package com.example.tricount.viewModel
 
 import android.app.Application
 import android.util.Log
@@ -59,7 +59,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     name = name
                 )
 
-                Log.d("AuthViewModel", "Attempting to insert user: $newUser")
+                Log.d("AuthViewModel", "Attempting to insert user")
                 val userId = userDao.insertUser(newUser).toInt()
                 Log.d("AuthViewModel", "User inserted successfully with ID: $userId")
 
