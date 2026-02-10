@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -14,7 +15,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -73,6 +77,11 @@ class LoginActivity : ComponentActivity() {
     }
 }
 
+// Email validation regex
+private fun isValidEmail(email: String): Boolean {
+    return android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
+}
+
 @Composable
 fun LoginScreen(
     onLoginClick: (String, String) -> Unit,
@@ -81,6 +90,16 @@ fun LoginScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+
+    // Real-time email validation
+    val isEmailValid = remember(email) {
+        email.isBlank() || isValidEmail(email)
+    }
+    val showEmailError = remember(email) {
+        email.isNotBlank() && !isValidEmail(email)
+    }
+
+    val focusManager = LocalFocusManager.current
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -119,7 +138,22 @@ fun LoginScreen(
                 leadingIcon = { Icon(Icons.Filled.Email, null) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                isError = showEmailError,
+                supportingText = {
+                    if (showEmailError) {
+                        Text(
+                            text = "Invalid email format",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Email,
+                    imeAction = ImeAction.Next
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                )
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -145,7 +179,18 @@ fun LoginScreen(
                     PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        if (email.isNotBlank() && password.isNotBlank() && isEmailValid) {
+                            focusManager.clearFocus()
+                            onLoginClick(email.trim(), password)
+                        }
+                    }
+                )
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -153,14 +198,14 @@ fun LoginScreen(
             // Login Button
             Button(
                 onClick = {
-                    if (email.isNotBlank() && password.isNotBlank()) {
+                    if (email.isNotBlank() && password.isNotBlank() && isEmailValid) {
                         onLoginClick(email.trim(), password)
                     }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
-                enabled = email.isNotBlank() && password.isNotBlank()
+                enabled = email.isNotBlank() && password.isNotBlank() && isEmailValid
             ) {
                 Text(
                     text = "Login",
