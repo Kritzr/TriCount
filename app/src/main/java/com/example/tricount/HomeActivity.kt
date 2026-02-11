@@ -1,6 +1,8 @@
 package com.example.tricount
 
 import android.content.Intent
+import com.example.tricount.data.ThemePreferenceManager
+import androidx.compose.runtime.mutableStateOf
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -29,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.data.SessionManager
 import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.ui.theme.TriCountThemeWithPreference
 import com.example.tricount.viewModel.AuthViewModel
 import com.example.tricount.viewModel.TricountViewModel
 
@@ -36,18 +39,27 @@ class HomeActivity : ComponentActivity() {
 
     private val tricountViewModel: TricountViewModel by viewModels()
     private val authViewModel: AuthViewModel by viewModels()
+    private lateinit var themePreferenceManager: ThemePreferenceManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge() // Show under status bar
 
         val sessionManager = SessionManager(this)
+        themePreferenceManager = ThemePreferenceManager(this)
 
         setContent {
-            TriCountTheme {
+            var themeMode by remember { mutableStateOf(themePreferenceManager.getThemeMode()) }
+
+            TriCountThemeWithPreference(themeMode = themeMode) {
                 HomeScreen(
                     viewModel = tricountViewModel,
                     sessionManager = sessionManager,
+                    themeMode = themeMode,
+                    onThemeChange = { newMode ->
+                        themeMode = newMode
+                        themePreferenceManager.setThemeMode(newMode)
+                    },
                     onTricountClick = { tricountId, tricountName ->
                         val intent = Intent(
                             this,
@@ -78,6 +90,8 @@ class HomeActivity : ComponentActivity() {
 fun HomeScreen(
     viewModel: TricountViewModel,
     sessionManager: SessionManager,
+    themeMode: String,
+    onThemeChange: (String) -> Unit,
     onTricountClick: (Int, String) -> Unit,
     onLogoutClick: () -> Unit
 ) {
@@ -173,6 +187,8 @@ fun HomeScreen(
                 1 -> ProfileScreen(
                     modifier = Modifier.padding(padding),
                     sessionManager = sessionManager,
+                    themeMode = themeMode,
+                    onThemeChange = onThemeChange,
                     onLogoutClick = onLogoutClick
                 )
             }
@@ -249,7 +265,7 @@ fun HomeScreen(
                                 context.startActivity(intent)
                             },
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
                         )
                     ) {
                         Row(
@@ -262,7 +278,7 @@ fun HomeScreen(
                                 Icons.Filled.PersonAdd,
                                 contentDescription = null,
                                 modifier = Modifier.size(32.dp),
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Spacer(modifier = Modifier.width(16.dp))
                             Column {
@@ -270,12 +286,12 @@ fun HomeScreen(
                                     text = "Join an Existing Tricount",
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                                 Text(
                                     text = "Enter a code to join a friend's Tricount",
                                     fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                 )
                             }
                         }
@@ -543,6 +559,8 @@ fun AnimatedTricountCard(
 fun ProfileScreen(
     modifier: Modifier = Modifier,
     sessionManager: SessionManager,
+    themeMode: String,
+    onThemeChange: (String) -> Unit,
     onLogoutClick: () -> Unit
 ) {
     val userName = sessionManager.getUserName() ?: "User"
@@ -646,11 +664,83 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // Theme Settings Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (themeMode == "dark") Icons.Filled.DarkMode
+                                else if (themeMode == "light") Icons.Filled.LightMode
+                                else Icons.Filled.Brightness4,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Theme",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Theme toggle buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        ThemeButton(
+                            icon = Icons.Filled.LightMode,
+                            label = "Light",
+                            isSelected = themeMode == "light",
+                            onClick = { onThemeChange("light") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        ThemeButton(
+                            icon = Icons.Filled.Brightness4,
+                            label = "Auto",
+                            isSelected = themeMode == "system",
+                            onClick = { onThemeChange("system") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        ThemeButton(
+                            icon = Icons.Filled.DarkMode,
+                            label = "Dark",
+                            isSelected = themeMode == "dark",
+                            onClick = { onThemeChange("dark") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Account Info Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
                 )
             ) {
                 Column(
@@ -686,7 +776,7 @@ fun ProfileScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Email (Primary identifier - no User ID shown)
+                    // Email
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -743,6 +833,63 @@ fun ProfileScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+fun ThemeButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scale by animateFloatAsState(
+        targetValue = if (isSelected) 1.05f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "theme_button_scale"
+    )
+
+    Button(
+        onClick = onClick,
+        modifier = modifier
+            .height(80.dp)
+            .scale(scale),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (isSelected)
+                MaterialTheme.colorScheme.primary
+            else
+                MaterialTheme.colorScheme.surface,
+            contentColor = if (isSelected)
+                MaterialTheme.colorScheme.onPrimary
+            else
+                MaterialTheme.colorScheme.onSurface
+        ),
+        elevation = ButtonDefaults.buttonElevation(
+            defaultElevation = if (isSelected) 4.dp else 1.dp,
+            pressedElevation = 8.dp
+        ),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+            )
         }
     }
 }

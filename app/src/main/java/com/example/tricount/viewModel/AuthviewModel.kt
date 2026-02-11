@@ -34,7 +34,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (!isValidEmail(email)) {
                     Log.e("AuthViewModel", "Validation failed: invalid email")
-                    _authResult.value = AuthResult.Error("Invalid email format")
+                    _authResult.value = AuthResult.Error("please enter a valid mailid format")
                     return@launch
                 }
 

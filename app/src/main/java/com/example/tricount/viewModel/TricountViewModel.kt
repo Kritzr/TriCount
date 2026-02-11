@@ -194,6 +194,23 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     fun getCurrentUserId(): Int {
         return sessionManager.getUserId()
     }
+
+    private val _currentTricount = MutableStateFlow<TricountEntity?>(null)
+    val currentTricount: StateFlow<TricountEntity?> = _currentTricount
+
+    // Add this method
+    fun loadTricountDetails(tricountId: Int) {
+        viewModelScope.launch {
+            try {
+                val tricount = tricountDao.getTricountById(tricountId)
+                _currentTricount.value = tricount
+                Log.d("TricountViewModel", "Loaded tricount details for ID: $tricountId")
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "Error loading tricount details", e)
+                e.printStackTrace()
+            }
+        }
+    }
 }
 
 // Sealed class for join result states
