@@ -1,5 +1,6 @@
 package com.example.tricount
 
+import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -13,6 +14,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -21,11 +25,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.data.SessionManager
 import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.viewModel.AddMemberResult
 import com.example.tricount.viewModel.TricountViewModel
 
 class TricountDetailActivity : ComponentActivity() {
@@ -37,19 +44,24 @@ class TricountDetailActivity : ComponentActivity() {
 
         val tricountId = intent.getIntExtra("TRICOUNT_ID", -1)
         val tricountName = intent.getStringExtra("TRICOUNT_NAME") ?: "Tricount"
+        val sessionManager = SessionManager(this)
 
         setContent {
-            TriCountTheme {
+            TriCountTheme(darkTheme = false) {
                 // Load the specific tricount details
                 LaunchedEffect(tricountId) {
                     tricountViewModel.loadTricountDetails(tricountId)
                 }
 
                 val tricountDetails by tricountViewModel.currentTricount.collectAsStateWithLifecycle()
+                val members by tricountViewModel.tricountMembers.collectAsStateWithLifecycle()
 
                 TricountDetailScreen(
                     tricountName = tricountName,
                     tricountDetails = tricountDetails,
+                    members = members,
+                    currentUserId = sessionManager.getUserId() ?: -1,
+                    viewModel = tricountViewModel,
                     onBackClick = { finish() }
                 )
             }
@@ -68,6 +80,9 @@ data class Expense(
 fun TricountDetailScreen(
     tricountName: String,
     tricountDetails: com.example.tricount.data.entity.TricountEntity?,
+    members: List<com.example.tricount.data.entity.MemberWithDetails>,
+    currentUserId: Int,
+    viewModel: TricountViewModel,
     onBackClick: () -> Unit
 ) {
     var selectedTabIndex by remember { mutableStateOf(0) }
@@ -118,15 +133,27 @@ fun TricountDetailScreen(
             when (selectedTabIndex) {
                 0 -> ExpensesTab()
                 1 -> BalancesTab()
-                2 -> DetailsTab(tricountDetails = tricountDetails)
+                2 -> DetailsTab(
+                    tricountDetails = tricountDetails,
+                    members = members,
+                    currentUserId = currentUserId,
+                    viewModel = viewModel
+                )
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DetailsTab(tricountDetails: com.example.tricount.data.entity.TricountEntity?) {
+fun DetailsTab(
+    tricountDetails: com.example.tricount.data.entity.TricountEntity?,
+    members: List<com.example.tricount.data.entity.MemberWithDetails>,
+    currentUserId: Int,
+    viewModel: TricountViewModel
+) {
     val context = LocalContext.current
+    var showAddMemberDialog by remember { mutableStateOf(false) }
 
     if (tricountDetails == null) {
         Box(
@@ -137,6 +164,8 @@ fun DetailsTab(tricountDetails: com.example.tricount.data.entity.TricountEntity?
         }
         return
     }
+
+    val isCreator = tricountDetails.creatorId == currentUserId
 
     LazyColumn(
         modifier = Modifier
@@ -232,7 +261,10 @@ fun DetailsTab(tricountDetails: com.example.tricount.data.entity.TricountEntity?
         item {
             // Description Card
             Card(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                )
             ) {
                 Column(
                     modifier = Modifier
@@ -262,31 +294,288 @@ fun DetailsTab(tricountDetails: com.example.tricount.data.entity.TricountEntity?
         }
 
         item {
-            // Members Card (placeholder for now)
+            // Members Card
             Card(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(20.dp)
                 ) {
-                    Text(
-                        text = "Members",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Member list coming soon",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Members (${members.size})",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        // Add member button (only for creator)
+                        if (isCreator) {
+                            IconButton(onClick = { showAddMemberDialog = true }) {
+                                Icon(
+                                    Icons.Filled.PersonAdd,
+                                    contentDescription = "Add Member",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (members.isEmpty()) {
+                        Text(
+                            text = "No members yet",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        members.forEach { member ->
+                            MemberItem(
+                                member = member,
+                                isCreator = isCreator,
+                                canRemove = isCreator && !member.isCreator,
+                                onRemoveClick = {
+                                    viewModel.removeMember(member.userId, tricountDetails.id)
+                                }
+                            )
+                            if (member != members.last()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+
+    // Add Member Dialog
+    if (showAddMemberDialog) {
+        AddMemberDialog(
+            tricountId = tricountDetails.id,
+            viewModel = viewModel,
+            onDismiss = { showAddMemberDialog = false }
+        )
+    }
+}
+
+@Composable
+fun MemberItem(
+    member: com.example.tricount.data.entity.MemberWithDetails,
+    isCreator: Boolean,
+    canRemove: Boolean,
+    onRemoveClick: () -> Unit
+) {
+    var showRemoveDialog by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+        ) {
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = CircleShape,
+                color = if (member.isCreator)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.secondary
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        if (member.isCreator) Icons.Filled.Star else Icons.Filled.Person,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = if (member.isCreator)
+                            MaterialTheme.colorScheme.onPrimary
+                        else
+                            MaterialTheme.colorScheme.onSecondary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column {
+                Text(
+                    text = member.name,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = member.email,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        if (member.isCreator) {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+            ) {
+                Text(
+                    text = "CREATOR",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        } else if (canRemove) {
+            IconButton(onClick = { showRemoveDialog = true }) {
+                Icon(
+                    Icons.Filled.RemoveCircle,
+                    contentDescription = "Remove member",
+                    tint = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+    }
+
+    // Remove confirmation dialog
+    if (showRemoveDialog) {
+        AlertDialog(
+            onDismissRequest = { showRemoveDialog = false },
+            title = { Text("Remove Member?") },
+            text = { Text("Are you sure you want to remove ${member.name} from this Tricount?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onRemoveClick()
+                        showRemoveDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddMemberDialog(
+    tricountId: Int,
+    viewModel: TricountViewModel,
+    onDismiss: () -> Unit
+) {
+    var email by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    // Email validation
+    val isValidEmail = remember(email) {
+        val emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
+        email.isBlank() || emailRegex.matches(email)
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!isLoading) onDismiss() },
+        title = { Text("Add Member") },
+        text = {
+            Column {
+                Text(
+                    text = "Enter the email address of the person you want to add:",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Email") },
+                    placeholder = { Text("user@example.com") },
+                    leadingIcon = { Icon(Icons.Filled.Email, null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = !isValidEmail,
+                    supportingText = {
+                        if (!isValidEmail) {
+                            Text(
+                                text = "Please enter a valid email address",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Email,
+                        imeAction = ImeAction.Done
+                    ),
+                    enabled = !isLoading
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (isValidEmail && email.isNotBlank()) {
+                        isLoading = true
+                        viewModel.addMemberByEmail(tricountId, email.trim()) { result ->
+                            isLoading = false
+                            when (result) {
+                                is AddMemberResult.Success -> {
+                                    Toast.makeText(
+                                        context,
+                                        "${result.memberName} added successfully!",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    onDismiss()
+                                }
+                                is AddMemberResult.Error -> {
+                                    Toast.makeText(
+                                        context,
+                                        result.message,
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                        }
+                    }
+                },
+                enabled = isValidEmail && email.isNotBlank() && !isLoading
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text("Add")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isLoading
+            ) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable
@@ -330,6 +619,7 @@ fun ExpensesTab() {
     }
 }
 
+@SuppressLint("DefaultLocale")
 @Composable
 fun ExpenseCard(
     expense: Expense,

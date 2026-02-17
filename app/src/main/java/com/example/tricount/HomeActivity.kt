@@ -1,8 +1,6 @@
 package com.example.tricount
 
 import android.content.Intent
-import com.example.tricount.data.ThemePreferenceManager
-import androidx.compose.runtime.mutableStateOf
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,7 +8,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,7 +20,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -31,7 +27,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.data.SessionManager
 import com.example.tricount.ui.theme.TriCountTheme
-import com.example.tricount.ui.theme.TriCountThemeWithPreference
 import com.example.tricount.viewModel.AuthViewModel
 import com.example.tricount.viewModel.TricountViewModel
 
@@ -39,32 +34,20 @@ class HomeActivity : ComponentActivity() {
 
     private val tricountViewModel: TricountViewModel by viewModels()
     private val authViewModel: AuthViewModel by viewModels()
-    private lateinit var themePreferenceManager: ThemePreferenceManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge() // Show under status bar
+        enableEdgeToEdge()
 
         val sessionManager = SessionManager(this)
-        themePreferenceManager = ThemePreferenceManager(this)
 
         setContent {
-            var themeMode by remember { mutableStateOf(themePreferenceManager.getThemeMode()) }
-
-            TriCountThemeWithPreference(themeMode = themeMode) {
+            TriCountTheme(darkTheme = false) {
                 HomeScreen(
                     viewModel = tricountViewModel,
                     sessionManager = sessionManager,
-                    themeMode = themeMode,
-                    onThemeChange = { newMode ->
-                        themeMode = newMode
-                        themePreferenceManager.setThemeMode(newMode)
-                    },
                     onTricountClick = { tricountId, tricountName ->
-                        val intent = Intent(
-                            this,
-                            TricountDetailActivity::class.java
-                        )
+                        val intent = Intent(this, TricountDetailActivity::class.java)
                         intent.putExtra("TRICOUNT_ID", tricountId)
                         intent.putExtra("TRICOUNT_NAME", tricountName)
                         startActivity(intent)
@@ -90,12 +73,10 @@ class HomeActivity : ComponentActivity() {
 fun HomeScreen(
     viewModel: TricountViewModel,
     sessionManager: SessionManager,
-    themeMode: String,
-    onThemeChange: (String) -> Unit,
     onTricountClick: (Int, String) -> Unit,
     onLogoutClick: () -> Unit
 ) {
-    var selectedItem by remember { mutableStateOf(0) }
+    var selectedBottomTab by remember { mutableStateOf(0) }
     val context = LocalContext.current
     var showBottomSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
@@ -110,12 +91,12 @@ fun HomeScreen(
                         Icon(
                             Icons.Filled.Home,
                             null,
-                            modifier = Modifier.size(if (selectedItem == 0) 28.dp else 24.dp)
+                            modifier = Modifier.size(if (selectedBottomTab == 0) 28.dp else 24.dp)
                         )
                     },
                     label = { Text("TriCounts") },
-                    selected = selectedItem == 0,
-                    onClick = { selectedItem = 0 },
+                    selected = selectedBottomTab == 0,
+                    onClick = { selectedBottomTab = 0 },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -129,12 +110,12 @@ fun HomeScreen(
                         Icon(
                             Icons.Filled.Person,
                             null,
-                            modifier = Modifier.size(if (selectedItem == 1) 28.dp else 24.dp)
+                            modifier = Modifier.size(if (selectedBottomTab == 1) 28.dp else 24.dp)
                         )
                     },
                     label = { Text("Profile") },
-                    selected = selectedItem == 1,
-                    onClick = { selectedItem = 1 },
+                    selected = selectedBottomTab == 1,
+                    onClick = { selectedBottomTab = 1 },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -146,8 +127,7 @@ fun HomeScreen(
             }
         },
         floatingActionButton = {
-            if (selectedItem == 0) {
-                // Animated FAB
+            if (selectedBottomTab == 0) {
                 val scale by animateFloatAsState(
                     targetValue = 1f,
                     animationSpec = spring(
@@ -170,7 +150,7 @@ fun HomeScreen(
     ) { padding ->
 
         AnimatedContent(
-            targetState = selectedItem,
+            targetState = selectedBottomTab,
             transitionSpec = {
                 fadeIn(animationSpec = tween(300)) togetherWith
                         fadeOut(animationSpec = tween(300))
@@ -187,8 +167,6 @@ fun HomeScreen(
                 1 -> ProfileScreen(
                     modifier = Modifier.padding(padding),
                     sessionManager = sessionManager,
-                    themeMode = themeMode,
-                    onThemeChange = onThemeChange,
                     onLogoutClick = onLogoutClick
                 )
             }
@@ -312,37 +290,128 @@ fun TriCountListScreen(
 ) {
     val tricounts by viewModel.tricounts.collectAsStateWithLifecycle()
     val currentUserId = sessionManager.getUserId()
-
     var tricountToDelete by remember { mutableStateOf<Pair<Int, String>?>(null) }
 
+    // Tab state
+    var selectedTab by remember { mutableStateOf(0) }
+    val tabs = listOf("Created", "Joined", "Favorites")
+
+    // Filter tricounts based on selected tab
+    val filteredTricounts = remember(tricounts, selectedTab, currentUserId) {
+        when (selectedTab) {
+            0 -> tricounts.filter { it.creatorId == currentUserId } // Created
+            1 -> tricounts.filter { it.creatorId != currentUserId }  // Joined
+            2 -> emptyList() // Favorites - TODO: implement favorites feature
+            else -> tricounts
+        }
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
-        // Header - Always visible
+        // Header
         Surface(
             color = MaterialTheme.colorScheme.surface,
             shadowElevation = 2.dp
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Spacer(modifier = Modifier.height(40.dp)) // Status bar space
-                Text(
-                    text = "My TriCounts",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "${tricounts.size} active groups",
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // Title section
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                ) {
+                    Spacer(modifier = Modifier.height(40.dp))
+                    Text(
+                        text = "My TriCounts",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "${tricounts.size} total • ${filteredTricounts.size} ${tabs[selectedTab].lowercase()}",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Tabs
+                TabRow(
+                    selectedTabIndex = selectedTab,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary
+                ) {
+                    tabs.forEachIndexed { index, title ->
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = title,
+                                        fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                    if (index != 2) { // Don't show count for Favorites yet
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        val count = when (index) {
+                                            0 -> tricounts.count { it.creatorId == currentUserId }
+                                            1 -> tricounts.count { it.creatorId != currentUserId }
+                                            else -> 0
+                                        }
+                                        if (count > 0) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = if (selectedTab == index)
+                                                    MaterialTheme.colorScheme.primary
+                                                else
+                                                    MaterialTheme.colorScheme.surfaceVariant
+                                            ) {
+                                                Text(
+                                                    text = count.toString(),
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (selectedTab == index)
+                                                        MaterialTheme.colorScheme.onPrimary
+                                                    else
+                                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            icon = {
+                                when (index) {
+                                    0 -> Icon(
+                                        Icons.Filled.Star,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    1 -> Icon(
+                                        Icons.Filled.Group,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    2 -> Icon(
+                                        Icons.Filled.Favorite,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
             }
         }
 
         // Content
-        if (tricounts.isEmpty()) {
+        if (selectedTab == 2) {
+            // Favorites placeholder
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -351,33 +420,72 @@ fun TriCountListScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
-                        Icons.Filled.Inbox,
+                        Icons.Filled.FavoriteBorder,
                         contentDescription = null,
                         modifier = Modifier.size(64.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "No Tricounts yet",
+                        text = "Favorites Coming Soon",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Tap the + button to create one",
+                        text = "Star your favorite Tricounts for quick access",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else if (filteredTricounts.isEmpty()) {
+            // Empty state
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        if (selectedTab == 0) Icons.Filled.AddCircleOutline else Icons.Filled.PersonAdd,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = when (selectedTab) {
+                            0 -> "No Created Tricounts"
+                            1 -> "No Joined Tricounts"
+                            else -> "No Tricounts"
+                        },
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = when (selectedTab) {
+                            0 -> "Tap the + button to create your first Tricount"
+                            1 -> "Ask a friend to share their join code"
+                            else -> ""
+                        },
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         } else {
+            // Tricount list
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(tricounts, key = { it.id }) { tricount ->
+                items(filteredTricounts, key = { it.id }) { tricount ->
                     val isCreator = tricount.creatorId == currentUserId
 
                     AnimatedTricountCard(
@@ -554,13 +662,10 @@ fun AnimatedTricountCard(
     }
 }
 
-
 @Composable
 fun ProfileScreen(
     modifier: Modifier = Modifier,
     sessionManager: SessionManager,
-    themeMode: String,
-    onThemeChange: (String) -> Unit,
     onLogoutClick: () -> Unit
 ) {
     val userName = sessionManager.getUserName() ?: "User"
@@ -570,7 +675,6 @@ fun ProfileScreen(
         modifier = modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Header - Always visible
         Surface(
             color = MaterialTheme.colorScheme.surface,
             shadowElevation = 2.dp,
@@ -582,7 +686,7 @@ fun ProfileScreen(
                     .padding(horizontal = 24.dp, vertical = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(modifier = Modifier.height(40.dp)) // Status bar space
+                Spacer(modifier = Modifier.height(40.dp))
                 Text(
                     text = "Profile",
                     fontSize = 28.sp,
@@ -600,7 +704,6 @@ fun ProfileScreen(
         ) {
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Animated Profile Icon
             val infiniteTransition = rememberInfiniteTransition(label = "profile_anim")
             val scale by infiniteTransition.animateFloat(
                 initialValue = 1f,
@@ -631,19 +734,14 @@ fun ProfileScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-
             Text(
                 text = userName,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
             )
-
             Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Filled.Email,
                     contentDescription = null,
@@ -659,84 +757,9 @@ fun ProfileScreen(
             }
 
             Spacer(modifier = Modifier.height(40.dp))
-
             HorizontalDivider()
-
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Theme Settings Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                if (themeMode == "dark") Icons.Filled.DarkMode
-                                else if (themeMode == "light") Icons.Filled.LightMode
-                                else Icons.Filled.Brightness4,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = "Theme",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Theme toggle buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        ThemeButton(
-                            icon = Icons.Filled.LightMode,
-                            label = "Light",
-                            isSelected = themeMode == "light",
-                            onClick = { onThemeChange("light") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        ThemeButton(
-                            icon = Icons.Filled.Brightness4,
-                            label = "Auto",
-                            isSelected = themeMode == "system",
-                            onClick = { onThemeChange("system") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        ThemeButton(
-                            icon = Icons.Filled.DarkMode,
-                            label = "Dark",
-                            isSelected = themeMode == "dark",
-                            onClick = { onThemeChange("dark") },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Account Info Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -754,10 +777,7 @@ fun ProfileScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary
                     )
-
                     Spacer(modifier = Modifier.height(16.dp))
-
-                    // Full Name
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -773,10 +793,7 @@ fun ProfileScreen(
                             fontWeight = FontWeight.Medium
                         )
                     }
-
                     Spacer(modifier = Modifier.height(12.dp))
-
-                    // Email
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -797,7 +814,6 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Logout Button with animation
             var isLogoutPressed by remember { mutableStateOf(false) }
             val logoutScale by animateFloatAsState(
                 targetValue = if (isLogoutPressed) 0.95f else 1f,
@@ -833,63 +849,6 @@ fun ProfileScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-        }
-    }
-}
-
-@Composable
-fun ThemeButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.05f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "theme_button_scale"
-    )
-
-    Button(
-        onClick = onClick,
-        modifier = modifier
-            .height(80.dp)
-            .scale(scale),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (isSelected)
-                MaterialTheme.colorScheme.primary
-            else
-                MaterialTheme.colorScheme.surface,
-            contentColor = if (isSelected)
-                MaterialTheme.colorScheme.onPrimary
-            else
-                MaterialTheme.colorScheme.onSurface
-        ),
-        elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = if (isSelected) 4.dp else 1.dp,
-            pressedElevation = 8.dp
-        ),
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                modifier = Modifier.size(28.dp)
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = label,
-                fontSize = 12.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-            )
         }
     }
 }

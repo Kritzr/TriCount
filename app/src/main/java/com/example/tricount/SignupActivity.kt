@@ -37,7 +37,7 @@ class SignUpActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            TriCountTheme {
+            TriCountTheme(darkTheme = false) {
                 val authResult by authViewModel.authResult.collectAsStateWithLifecycle()
 
                 // Handle authentication result
@@ -75,9 +75,10 @@ class SignUpActivity : ComponentActivity() {
     }
 }
 
-// Email validation
+// Email validation with custom regex
 private fun isValidEmailSignup(email: String): Boolean {
-    return android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
+    val emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
+    return emailRegex.matches(email)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -125,13 +126,14 @@ fun SignUpScreen(
             )
         }
     ) { padding ->
+        Spacer(modifier = Modifier.height(10.dp))
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Top
         ) {
             Text(
                 text = "Join TriCount",
@@ -148,7 +150,7 @@ fun SignUpScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Name Field
             OutlinedTextField(
@@ -167,7 +169,7 @@ fun SignUpScreen(
                 )
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Email Field
             OutlinedTextField(
@@ -181,7 +183,7 @@ fun SignUpScreen(
                 supportingText = {
                     if (showEmailError) {
                         Text(
-                            text = "Invalid email format",
+                            text = "Please enter a valid email address",
                             color = MaterialTheme.colorScheme.error
                         )
                     }
@@ -195,7 +197,7 @@ fun SignUpScreen(
                 )
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Password Field
             OutlinedTextField(
@@ -227,7 +229,7 @@ fun SignUpScreen(
                 )
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Confirm Password Field
             OutlinedTextField(

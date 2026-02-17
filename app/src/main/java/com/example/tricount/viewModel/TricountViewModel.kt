@@ -7,89 +7,74 @@ import androidx.lifecycle.viewModelScope
 import com.example.tricount.data.SessionManager
 import com.example.tricount.data.database.TricountDatabase
 import com.example.tricount.data.entity.TricountEntity
-import com.example.tricount.data.entity.TricountMemberEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlin.random.Random
+import java.util.*
 
 class TricountViewModel(application: Application) : AndroidViewModel(application) {
 
     private val tricountDao = TricountDatabase.getDatabase(application).tricountDao()
-    private val memberDao = TricountDatabase.getDatabase(application).tricountMemberDao()
     private val sessionManager = SessionManager(application)
 
-    // StateFlow to hold the list of tricounts for current user
     private val _tricounts = MutableStateFlow<List<TricountEntity>>(emptyList())
     val tricounts: StateFlow<List<TricountEntity>> = _tricounts
 
-    // StateFlow for join result
+    private val _currentTricount = MutableStateFlow<TricountEntity?>(null)
+    val currentTricount: StateFlow<TricountEntity?> = _currentTricount
+
+    private val _tricountMembers = MutableStateFlow<List<com.example.tricount.data.entity.MemberWithDetails>>(emptyList())
+    val tricountMembers: StateFlow<List<com.example.tricount.data.entity.MemberWithDetails>> = _tricountMembers
+
     private val _joinResult = MutableStateFlow<JoinResult?>(null)
     val joinResult: StateFlow<JoinResult?> = _joinResult
-
-    init {
-        // Load tricounts when ViewModel is created
-        loadTricounts()
-    }
 
     // Load all tricounts for the current user
     fun loadTricounts() {
         viewModelScope.launch {
             try {
                 val userId = sessionManager.getUserId()
-                if (userId != -1) {
-                    _tricounts.value = tricountDao.getTricountsForUser(userId)
-                    Log.d("TricountViewModel", "Loaded ${_tricounts.value.size} tricounts for user $userId")
+                if (userId != null) {
+                    Log.d("TricountViewModel", "Loading tricounts for user: $userId")
+                    val userTricounts = tricountDao.getTricountsForUser(userId)
+                    _tricounts.value = userTricounts
+                    Log.d("TricountViewModel", "Loaded ${userTricounts.size} tricounts")
+                } else {
+                    Log.e("TricountViewModel", "No user ID found in session")
+                    _tricounts.value = emptyList()
                 }
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Error loading tricounts", e)
-                e.printStackTrace()
+                Log.e("TricountViewModel", "Error loading tricounts: ${e.message}", e)
+                _tricounts.value = emptyList()
             }
         }
     }
 
-    // Generate a unique 6-character join code
-    private fun generateJoinCode(): String {
-        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        return (1..6)
-            .map { chars[Random.nextInt(chars.length)] }
-            .joinToString("")
-    }
-
-    // Insert a new tricount with the current user as creator
+    // Insert a new tricount
     fun insertTricount(name: String, description: String) {
         viewModelScope.launch {
             try {
                 val userId = sessionManager.getUserId()
-                if (userId == -1) {
-                    _joinResult.value = JoinResult.Error("User not logged in")
-                    return@launch
+                if (userId != null) {
+                    val joinCode = generateJoinCode()
+                    val tricount = TricountEntity(
+                        name = name,
+                        description = description,
+                        creatorId = userId,
+                        joinCode = joinCode
+                    )
+
+                    Log.d("TricountViewModel", "Inserting tricount: $name with code: $joinCode")
+                    tricountDao.insertTricount(tricount)
+
+                    // Reload the list immediately after insertion
+                    loadTricounts()
+                    Log.d("TricountViewModel", "Tricount inserted successfully")
+                } else {
+                    Log.e("TricountViewModel", "Cannot insert tricount: No user ID")
                 }
-
-                val joinCode = generateJoinCode()
-                val tricount = TricountEntity(
-                    name = name,
-                    description = description,
-                    joinCode = joinCode,
-                    creatorId = userId
-                )
-                val tricountId = tricountDao.insertTricount(tricount).toInt()
-                Log.d("TricountViewModel", "Created tricount with ID: $tricountId")
-
-                // Add creator as a member
-                val member = TricountMemberEntity(
-                    tricountId = tricountId,
-                    userId = userId,
-                    isCreator = true
-                )
-                memberDao.insertMember(member)
-
-                // Reload the list after inserting
-                loadTricounts()
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Error creating tricount", e)
-                e.printStackTrace()
-                _joinResult.value = JoinResult.Error("Failed to create Tricount")
+                Log.e("TricountViewModel", "Error inserting tricount: ${e.message}", e)
             }
         }
     }
@@ -98,89 +83,161 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     fun deleteTricount(tricountId: Int) {
         viewModelScope.launch {
             try {
-                val userId = sessionManager.getUserId()
-                if (userId == -1) {
-                    Log.e("TricountViewModel", "User not logged in")
-                    return@launch
-                }
+                Log.d("TricountViewModel", "Deleting tricount with ID: $tricountId")
+                tricountDao.deleteTricountById(tricountId)
 
-                // Check if user is the creator
-                val creatorId = memberDao.getCreatorId(tricountId)
-                if (creatorId == userId) {
-                    // User is the creator, delete the entire tricount
-                    tricountDao.deleteTricount(tricountId)
-                    Log.d("TricountViewModel", "Deleted tricount $tricountId (creator)")
-                } else {
-                    // User is just a member, remove them from the tricount
-                    memberDao.removeMember(userId, tricountId)
-                    Log.d("TricountViewModel", "Removed user $userId from tricount $tricountId")
-                }
-
-                // Reload the list after deleting
+                // CRITICAL: Reload the list immediately after deletion
                 loadTricounts()
+                Log.d("TricountViewModel", "Tricount deleted and list reloaded")
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Error deleting tricount", e)
-                e.printStackTrace()
+                Log.e("TricountViewModel", "Error deleting tricount: ${e.message}", e)
             }
         }
     }
 
-    // Join an existing tricount using a code
+    // Load specific tricount details
+    fun loadTricountDetails(tricountId: Int) {
+        viewModelScope.launch {
+            try {
+                Log.d("TricountViewModel", "Loading details for tricount: $tricountId")
+                val tricount = tricountDao.getTricountById(tricountId)
+                _currentTricount.value = tricount
+                Log.d("TricountViewModel", "Tricount details loaded: ${tricount?.name}")
+
+                // Also load members when loading tricount details
+                if (tricount != null) {
+                    loadTricountMembers(tricountId)
+                }
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "Error loading tricount details: ${e.message}", e)
+                _currentTricount.value = null
+            }
+        }
+    }
+
+    // Load members of a tricount
+    fun loadTricountMembers(tricountId: Int) {
+        viewModelScope.launch {
+            try {
+                Log.d("TricountViewModel", "Loading members for tricount: $tricountId")
+                val members = tricountDao.getTricountMembersWithDetails(tricountId)
+                _tricountMembers.value = members
+                Log.d("TricountViewModel", "Loaded ${members.size} members")
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "Error loading members: ${e.message}", e)
+                _tricountMembers.value = emptyList()
+            }
+        }
+    }
+
+    // Add member by email (for creators)
+    fun addMemberByEmail(tricountId: Int, email: String, onResult: (AddMemberResult) -> Unit) {
+        viewModelScope.launch {
+            try {
+                Log.d("TricountViewModel", "Attempting to add member: $email to tricount: $tricountId")
+
+                // Find user by email
+                val user = tricountDao.getUserByEmail(email)
+                if (user == null) {
+                    Log.e("TricountViewModel", "User not found with email: $email")
+                    onResult(AddMemberResult.Error("No user found with this email"))
+                    return@launch
+                }
+
+                // Check if user is already the creator
+                val tricount = tricountDao.getTricountById(tricountId)
+                if (tricount?.creatorId == user.id) {
+                    Log.d("TricountViewModel", "User is the creator")
+                    onResult(AddMemberResult.Error("This user is the creator of this Tricount"))
+                    return@launch
+                }
+
+                // Check if user is already a member
+                val existingMember = tricountDao.getMembership(user.id, tricountId)
+                if (existingMember != null) {
+                    Log.d("TricountViewModel", "User is already a member")
+                    onResult(AddMemberResult.Error("${user.name} is already a member"))
+                    return@launch
+                }
+
+                // Add user as member
+                tricountDao.addMember(user.id, tricountId)
+                Log.d("TricountViewModel", "Member added successfully")
+
+                // Reload members list
+                loadTricountMembers(tricountId)
+
+                onResult(AddMemberResult.Success(user.name))
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "Error adding member: ${e.message}", e)
+                onResult(AddMemberResult.Error("Failed to add member: ${e.message}"))
+            }
+        }
+    }
+
+    // Remove member from tricount
+    fun removeMember(userId: Int, tricountId: Int) {
+        viewModelScope.launch {
+            try {
+                Log.d("TricountViewModel", "Removing member: $userId from tricount: $tricountId")
+                tricountDao.removeMember(userId, tricountId)
+
+                // Reload members list
+                loadTricountMembers(tricountId)
+                Log.d("TricountViewModel", "Member removed successfully")
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "Error removing member: ${e.message}", e)
+            }
+        }
+    }
+
+    // Join a tricount by code
     fun joinTricountByCode(code: String) {
         viewModelScope.launch {
             try {
                 val userId = sessionManager.getUserId()
-                if (userId == -1) {
+                if (userId == null) {
                     _joinResult.value = JoinResult.Error("User not logged in")
                     return@launch
                 }
 
-                val tricount = tricountDao.getTricountByCode(code.uppercase())
-                if (tricount != null) {
-                    // Check if user is already a member
-                    val isMember = memberDao.isMemberOfTricount(userId, tricount.id) > 0
-                    if (isMember) {
-                        _joinResult.value = JoinResult.Error("You are already a member of this Tricount")
-                        return@launch
-                    }
+                Log.d("TricountViewModel", "Attempting to join tricount with code: $code")
 
-                    // Add user as member
-                    val member = TricountMemberEntity(
-                        tricountId = tricount.id,
-                        userId = userId,
-                        isCreator = false
-                    )
-                    memberDao.insertMember(member)
+                // Find tricount by join code
+                val tricount = tricountDao.getTricountByJoinCode(code)
 
-                    _joinResult.value = JoinResult.Success(tricount)
-                    Log.d("TricountViewModel", "User $userId joined tricount ${tricount.id}")
-
-                    // Reload the list to show the joined tricount
-                    loadTricounts()
-                } else {
+                if (tricount == null) {
+                    Log.e("TricountViewModel", "Tricount not found with code: $code")
                     _joinResult.value = JoinResult.Error("Invalid code. Tricount not found.")
+                    return@launch
                 }
-            } catch (e: Exception) {
-                Log.e("TricountViewModel", "Error joining tricount", e)
-                e.printStackTrace()
-                _joinResult.value = JoinResult.Error("An error occurred. Please try again.")
-            }
-        }
-    }
 
-    // Leave a tricount
-    fun leaveTricount(tricountId: Int) {
-        viewModelScope.launch {
-            try {
-                val userId = sessionManager.getUserId()
-                if (userId != -1) {
-                    memberDao.removeMember(userId, tricountId)
-                    loadTricounts()
-                    Log.d("TricountViewModel", "User $userId left tricount $tricountId")
+                // Check if user is already the creator
+                if (tricount.creatorId == userId) {
+                    Log.d("TricountViewModel", "User is already the creator of this tricount")
+                    _joinResult.value = JoinResult.Error("You are already the creator of this Tricount")
+                    return@launch
                 }
+
+                // Check if user is already a member
+                val existingMember = tricountDao.getMembership(userId, tricount.id)
+                if (existingMember != null) {
+                    Log.d("TricountViewModel", "User is already a member")
+                    _joinResult.value = JoinResult.Error("You are already a member of this Tricount")
+                    return@launch
+                }
+
+                // Add user as member
+                tricountDao.addMember(userId, tricount.id)
+                Log.d("TricountViewModel", "User successfully joined tricount")
+
+                // Reload tricounts to show the newly joined one
+                loadTricounts()
+
+                _joinResult.value = JoinResult.Success(tricount)
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Error leaving tricount", e)
-                e.printStackTrace()
+                Log.e("TricountViewModel", "Error joining tricount: ${e.message}", e)
+                _joinResult.value = JoinResult.Error("Failed to join: ${e.message}")
             }
         }
     }
@@ -190,31 +247,23 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         _joinResult.value = null
     }
 
-    // Get current user ID
-    fun getCurrentUserId(): Int {
-        return sessionManager.getUserId()
-    }
-
-    private val _currentTricount = MutableStateFlow<TricountEntity?>(null)
-    val currentTricount: StateFlow<TricountEntity?> = _currentTricount
-
-    // Add this method
-    fun loadTricountDetails(tricountId: Int) {
-        viewModelScope.launch {
-            try {
-                val tricount = tricountDao.getTricountById(tricountId)
-                _currentTricount.value = tricount
-                Log.d("TricountViewModel", "Loaded tricount details for ID: $tricountId")
-            } catch (e: Exception) {
-                Log.e("TricountViewModel", "Error loading tricount details", e)
-                e.printStackTrace()
-            }
-        }
+    // Generate a random 6-character join code
+    private fun generateJoinCode(): String {
+        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        return (1..6)
+            .map { chars.random() }
+            .joinToString("")
     }
 }
 
-// Sealed class for join result states
+// Sealed class for join results
 sealed class JoinResult {
     data class Success(val tricount: TricountEntity) : JoinResult()
     data class Error(val message: String) : JoinResult()
+}
+
+// Sealed class for add member results
+sealed class AddMemberResult {
+    data class Success(val memberName: String) : AddMemberResult()
+    data class Error(val message: String) : AddMemberResult()
 }

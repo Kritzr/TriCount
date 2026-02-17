@@ -4,10 +4,10 @@ import androidx.compose.ui.graphics.Color
 
 // Custom Color Palette
 val DeepTeal = Color(0xFF22577A)
-val Teal = Color(0xFF38A3A5)
-val MintGreen = Color(0xFF57CC99)
-val LightGreen = Color(0xFF80ED99)
-val PaleGreen = Color(0xFFC7F9CC)
+val Teal = Color(0xFF6C3DAF)
+val MintGreen = Color(0xFF5786CC)
+val LightGreen = Color(0xFFAEF5C2)
+val PaleGreen = Color(0xFFFFFFFF)
 
 // Light Theme Colors
 val md_theme_light_primary = Teal
@@ -30,10 +30,10 @@ val md_theme_light_errorContainer = Color(0xFFFFDAD6)
 val md_theme_light_onError = Color.White
 val md_theme_light_onErrorContainer = Color(0xFF410002)
 
-val md_theme_light_background = Color(0xFFFBFDF9)
+val md_theme_light_background = Color(0xFFFFFFFF)
 val md_theme_light_onBackground = Color(0xFF191C1A)
 
-val md_theme_light_surface = Color(0xFFFBFDF9)
+val md_theme_light_surface = Color(0xFFFFFFFF)
 val md_theme_light_onSurface = Color(0xFF191C1A)
 val md_theme_light_surfaceVariant = Color(0xFFDCE5DD)
 val md_theme_light_onSurfaceVariant = Color(0xFF414942)

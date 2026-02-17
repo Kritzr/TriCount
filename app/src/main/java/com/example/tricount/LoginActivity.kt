@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -37,7 +38,7 @@ class LoginActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            TriCountTheme {
+            TriCountTheme(darkTheme = false) {
                 val authResult by authViewModel.authResult.collectAsStateWithLifecycle()
 
                 // Handle authentication result
@@ -77,9 +78,10 @@ class LoginActivity : ComponentActivity() {
     }
 }
 
-// Email validation regex
+// Email validation with custom regex
 private fun isValidEmail(email: String): Boolean {
-    return android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
+    val emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
+    return emailRegex.matches(email)
 }
 
 @Composable
@@ -105,14 +107,16 @@ fun LoginScreen(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
+        Spacer(modifier = Modifier.height(10.dp))
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Top
         ) {
             // App Logo/Title
+            Spacer(modifier = Modifier.height(80.dp))
             Text(
                 text = "TriCount",
                 fontSize = 40.sp,
@@ -142,7 +146,7 @@ fun LoginScreen(
                 supportingText = {
                     if (showEmailError) {
                         Text(
-                            text = "Invalid email format",
+                            text = "Please enter a valid email address",
                             color = MaterialTheme.colorScheme.error
                         )
                     }

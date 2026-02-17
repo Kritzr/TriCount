@@ -34,7 +34,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (!isValidEmail(email)) {
                     Log.e("AuthViewModel", "Validation failed: invalid email")
-                    _authResult.value = AuthResult.Error("please enter a valid mailid format")
+                    _authResult.value = AuthResult.Error("Please enter a valid email address")
                     return@launch
                 }
 
@@ -91,6 +91,13 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
+                // Validate email format first
+                if (!isValidEmail(email)) {
+                    Log.e("AuthViewModel", "Login validation failed: invalid email format")
+                    _authResult.value = AuthResult.Error("Please enter a valid email address")
+                    return@launch
+                }
+
                 // Attempt login
                 val user = userDao.login(email, password)
                 if (user != null) {
@@ -100,7 +107,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     _authResult.value = AuthResult.Success(user.id)
                 } else {
                     Log.e("AuthViewModel", "Login failed: invalid credentials")
-                    _authResult.value = AuthResult.Error("Invalid email or password")
+                    _authResult.value = AuthResult.Error("Incorrect email or password")
                 }
             } catch (e: Exception) {
                 Log.e("AuthViewModel", "Login error: ${e.message}", e)
@@ -121,9 +128,10 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         _authResult.value = null
     }
 
-    // Email validation
+    // Email validation with custom regex
     private fun isValidEmail(email: String): Boolean {
-        return android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
+        val emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
+        return emailRegex.matches(email)
     }
 }
 
