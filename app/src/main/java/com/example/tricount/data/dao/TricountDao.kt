@@ -3,6 +3,7 @@ package com.example.tricount.data.dao
 import androidx.room.*
 import com.example.tricount.data.entity.TricountEntity
 import com.example.tricount.data.entity.TricountMemberCrossRef
+import com.example.tricount.data.entity.UserEntity
 
 @Dao
 interface TricountDao {
@@ -38,28 +39,37 @@ interface TricountDao {
 
     // Add a member to a tricount
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun addMember(crossRef: TricountMemberCrossRef)
+    suspend fun insertMember(crossRef: TricountMemberCrossRef)
 
     // Helper function to add member
     suspend fun addMember(userId: Int, tricountId: Int) {
-        addMember(TricountMemberCrossRef(userId = userId, tricountId = tricountId))
+        insertMember(TricountMemberCrossRef(userId = userId, tricountId = tricountId))
     }
 
     // Check if user is already a member
     @Query("SELECT * FROM tricount_members WHERE userId = :userId AND tricountId = :tricountId")
     suspend fun getMembership(userId: Int, tricountId: Int): TricountMemberCrossRef?
 
-    // Get all members of a tricount
+    // Get all members of a tricount (just the cross-ref)
     @Query("SELECT * FROM tricount_members WHERE tricountId = :tricountId")
     suspend fun getMembersOfTricount(tricountId: Int): List<TricountMemberCrossRef>
 
-    // Get members with their details for a tricount
+    // Get user by email (for adding members)
+    @Query("SELECT * FROM users WHERE email = :email COLLATE NOCASE")
+    suspend fun getUserByEmail(email: String): UserEntity?
+
+    // Remove a member from a tricount
+    @Query("DELETE FROM tricount_members WHERE userId = :userId AND tricountId = :tricountId")
+    suspend fun removeMember(userId: Int, tricountId: Int)
+
+    // Get members with their details - CORRECTED VERSION
+    @Transaction
     @Query("""
         SELECT 
             u.id as userId,
             u.name as name,
             u.email as email,
-            CASE WHEN t.creatorId = u.id THEN 1 ELSE 0 END as isCreator
+            (CASE WHEN t.creatorId = u.id THEN 1 ELSE 0 END) as isCreator
         FROM users u
         INNER JOIN tricount_members tm ON u.id = tm.userId
         INNER JOIN tricounts t ON tm.tricountId = t.id
@@ -73,15 +83,68 @@ interface TricountDao {
         FROM users u
         INNER JOIN tricounts t ON u.id = t.creatorId
         WHERE t.id = :tricountId
-        ORDER BY isCreator DESC, name ASC
     """)
-    suspend fun getTricountMembersWithDetails(tricountId: Int): List<com.example.tricount.data.entity.MemberWithDetails>
+    suspend fun getTricountMembersRaw(tricountId: Int): List<MemberQueryResult>
 
-    // Get user by email (for adding members)
-    @Query("SELECT * FROM users WHERE email = :email")
-    suspend fun getUserByEmail(email: String): com.example.tricount.data.entity.UserEntity?
+    // Wrapper function to convert to MemberWithDetails
+    suspend fun getTricountMembersWithDetails(tricountId: Int): List<com.example.tricount.data.entity.MemberWithDetails> {
+        return getTricountMembersRaw(tricountId).map { result ->
+            com.example.tricount.data.entity.MemberWithDetails(
+                userId = result.userId,
+                name = result.name,
+                email = result.email,
+                isCreator = result.isCreator == 1
+            )
+        }.sortedWith(compareByDescending<com.example.tricount.data.entity.MemberWithDetails> { it.isCreator }.thenBy { it.name })
+    }
 
-    // Remove a member from a tricount
-    @Query("DELETE FROM tricount_members WHERE userId = :userId AND tricountId = :tricountId")
-    suspend fun removeMember(userId: Int, tricountId: Int)
+    // ===== EXPENSE OPERATIONS =====
+
+    // Insert a new expense
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertExpense(expense: com.example.tricount.data.entity.ExpenseEntity): Long
+
+    // Get all expenses for a tricount
+    @Query("SELECT * FROM expenses WHERE tricountId = :tricountId ORDER BY createdAt DESC")
+    suspend fun getExpensesForTricount(tricountId: Int): List<com.example.tricount.data.entity.ExpenseEntity>
+
+    // Get expenses with payer details
+    @Query("""
+        SELECT 
+            e.id as id,
+            e.tricountId as tricountId,
+            e.name as name,
+            e.description as description,
+            e.amount as amount,
+            e.paidBy as paidBy,
+            u.name as paidByName,
+            u.email as paidByEmail,
+            e.createdAt as createdAt,
+            e.category as category
+        FROM expenses e
+        INNER JOIN users u ON e.paidBy = u.id
+        WHERE e.tricountId = :tricountId
+        ORDER BY e.createdAt DESC
+    """)
+    suspend fun getExpensesWithDetails(tricountId: Int): List<com.example.tricount.data.entity.ExpenseWithDetails>
+
+    // Get expense by ID
+    @Query("SELECT * FROM expenses WHERE id = :expenseId")
+    suspend fun getExpenseById(expenseId: Int): com.example.tricount.data.entity.ExpenseEntity?
+
+    // Delete expense
+    @Query("DELETE FROM expenses WHERE id = :expenseId")
+    suspend fun deleteExpense(expenseId: Int)
+
+    // Get total expenses for a tricount
+    @Query("SELECT SUM(amount) FROM expenses WHERE tricountId = :tricountId")
+    suspend fun getTotalExpenses(tricountId: Int): Double?
 }
+
+// Intermediate data class for Room query result
+data class MemberQueryResult(
+    val userId: Int,
+    val name: String,
+    val email: String,
+    val isCreator: Int  // Use Int (0 or 1) instead of Boolean for SQL compatibility
+)

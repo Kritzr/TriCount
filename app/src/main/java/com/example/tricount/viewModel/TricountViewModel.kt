@@ -26,6 +26,9 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     private val _tricountMembers = MutableStateFlow<List<com.example.tricount.data.entity.MemberWithDetails>>(emptyList())
     val tricountMembers: StateFlow<List<com.example.tricount.data.entity.MemberWithDetails>> = _tricountMembers
 
+    private val _expenses = MutableStateFlow<List<com.example.tricount.data.entity.ExpenseWithDetails>>(emptyList())
+    val expenses: StateFlow<List<com.example.tricount.data.entity.ExpenseWithDetails>> = _expenses
+
     private val _joinResult = MutableStateFlow<JoinResult?>(null)
     val joinResult: StateFlow<JoinResult?> = _joinResult
 
@@ -247,6 +250,84 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         _joinResult.value = null
     }
 
+    // Load expenses for a tricount
+    fun loadExpenses(tricountId: Int) {
+        viewModelScope.launch {
+            try {
+                Log.d("TricountViewModel", "Loading expenses for tricount: $tricountId")
+                val expensesList = tricountDao.getExpensesWithDetails(tricountId)
+                _expenses.value = expensesList
+                Log.d("TricountViewModel", "Loaded ${expensesList.size} expenses")
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "Error loading expenses: ${e.message}", e)
+                _expenses.value = emptyList()
+            }
+        }
+    }
+
+    // Add a new expense
+    fun addExpense(
+        tricountId: Int,
+        name: String,
+        description: String,
+        amount: Double,
+        paidBy: Int,
+        category: String = "General",
+        onResult: (AddExpenseResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                Log.d("TricountViewModel", "Adding expense: $name for tricount: $tricountId")
+
+                if (name.isBlank()) {
+                    onResult(AddExpenseResult.Error("Expense name is required"))
+                    return@launch
+                }
+
+                if (amount <= 0) {
+                    onResult(AddExpenseResult.Error("Amount must be greater than 0"))
+                    return@launch
+                }
+
+                val expense = com.example.tricount.data.entity.ExpenseEntity(
+                    tricountId = tricountId,
+                    name = name,
+                    description = description,
+                    amount = amount,
+                    paidBy = paidBy,
+                    category = category
+                )
+
+                tricountDao.insertExpense(expense)
+                Log.d("TricountViewModel", "Expense added successfully")
+
+                // Reload expenses
+                loadExpenses(tricountId)
+
+                onResult(AddExpenseResult.Success)
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "Error adding expense: ${e.message}", e)
+                onResult(AddExpenseResult.Error("Failed to add expense: ${e.message}"))
+            }
+        }
+    }
+
+    // Delete an expense
+    fun deleteExpense(expenseId: Int, tricountId: Int) {
+        viewModelScope.launch {
+            try {
+                Log.d("TricountViewModel", "Deleting expense: $expenseId")
+                tricountDao.deleteExpense(expenseId)
+
+                // Reload expenses
+                loadExpenses(tricountId)
+                Log.d("TricountViewModel", "Expense deleted successfully")
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "Error deleting expense: ${e.message}", e)
+            }
+        }
+    }
+
     // Generate a random 6-character join code
     private fun generateJoinCode(): String {
         val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -266,4 +347,10 @@ sealed class JoinResult {
 sealed class AddMemberResult {
     data class Success(val memberName: String) : AddMemberResult()
     data class Error(val message: String) : AddMemberResult()
+}
+
+// Sealed class for add expense results
+sealed class AddExpenseResult {
+    object Success : AddExpenseResult()
+    data class Error(val message: String) : AddExpenseResult()
 }
