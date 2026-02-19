@@ -357,6 +357,8 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             false
         }
     }
+private val _favoriteTricounts = MutableStateFlow<List<TricountEntity>>(emptyList())
+    val favoriteTricounts: StateFlow<List<TricountEntity>> = _favoriteTricounts
 
     // Load favorite tricounts
     fun loadFavoriteTricounts(userId: Int) {
@@ -364,7 +366,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             try {
                 Log.d("TricountViewModel", "Loading favorite tricounts for user: $userId")
                 val favorites = tricountDao.getFavoriteTricounts(userId)
-                _tricounts.value = favorites
+                _tricounts.value = favorites //replaces the full list?
                 Log.d("TricountViewModel", "Loaded ${favorites.size} favorite tricounts")
             } catch (e: Exception) {
                 Log.e("TricountViewModel", "Error loading favorites: ${e.message}", e)

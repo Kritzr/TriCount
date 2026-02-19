@@ -10,15 +10,18 @@ import com.example.tricount.data.entity.ExpenseEntity
 import com.example.tricount.data.entity.TricountEntity
 import com.example.tricount.data.entity.TricountMemberCrossRef
 import com.example.tricount.data.entity.UserEntity
-
+import com.example.tricount.data.entity.TricountFavorite
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         UserEntity::class,
         TricountEntity::class,
         TricountMemberCrossRef::class,
-        ExpenseEntity::class
+        ExpenseEntity::class,
+        TricountFavorite::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class TricountDatabase : RoomDatabase() {
@@ -29,7 +32,22 @@ abstract class TricountDatabase : RoomDatabase() {
     companion object {
         @Volatile
         private var INSTANCE: TricountDatabase? = null
-
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+            CREATE TABLE IF NOT EXISTS `tricount_favorites` (
+                `userId` INTEGER NOT NULL,
+                `tricountId` INTEGER NOT NULL,
+                `favoritedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`userId`, `tricountId`),
+                FOREIGN KEY(`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+                FOREIGN KEY(`tricountId`) REFERENCES `tricounts`(`id`) ON DELETE CASCADE
+            )
+        """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_tricount_favorites_userId` ON `tricount_favorites` (`userId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_tricount_favorites_tricountId` ON `tricount_favorites` (`tricountId`)")
+            }
+        }
         fun getDatabase(context: Context): TricountDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -37,6 +55,7 @@ abstract class TricountDatabase : RoomDatabase() {
                     TricountDatabase::class.java,
                     "tricount_database"
                 )
+                    .addMigrations(MIGRATION_4_5)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

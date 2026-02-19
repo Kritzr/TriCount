@@ -289,24 +289,24 @@ fun TriCountListScreen(
     onTricountClick: (Int, String) -> Unit
 ) {
     val tricounts by viewModel.tricounts.collectAsStateWithLifecycle()
+    val favoriteTricounts by viewModel.favoriteTricounts.collectAsStateWithLifecycle() // ← NEW
     val currentUserId = sessionManager.getUserId()
     var tricountToDelete by remember { mutableStateOf<Pair<Int, String>?>(null) }
 
-    // Tab state
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = listOf("Created", "Joined", "Favorites")
 
     // Filter tricounts based on selected tab
-    val filteredTricounts = remember(tricounts, selectedTab, currentUserId) {
+    val filteredTricounts = remember(tricounts, favoriteTricounts, selectedTab, currentUserId) {
         when (selectedTab) {
-            0 -> tricounts.filter { it.creatorId == currentUserId } // Created
-            1 -> tricounts.filter { it.creatorId != currentUserId }  // Joined
-            2 -> tricounts // Favorites - will be filtered by loadFavoriteTricounts
+            0 -> tricounts.filter { it.creatorId == currentUserId }
+            1 -> tricounts.filter { it.creatorId != currentUserId }
+            2 -> favoriteTricounts // ← uses separate favorites list, not the full list
             else -> tricounts
         }
     }
 
-    // Load favorites when Favorites tab is selected
+    // Load the right data when tab changes
     LaunchedEffect(selectedTab) {
         if (selectedTab == 2 && currentUserId != null) {
             viewModel.loadFavoriteTricounts(currentUserId)
@@ -316,15 +316,11 @@ fun TriCountListScreen(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        // Header
         Surface(
             color = MaterialTheme.colorScheme.surface,
             shadowElevation = 2.dp
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                // Title section
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -344,7 +340,6 @@ fun TriCountListScreen(
                     )
                 }
 
-                // Tabs
                 TabRow(
                     selectedTabIndex = selectedTab,
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -363,53 +358,40 @@ fun TriCountListScreen(
                                         text = title,
                                         fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
                                     )
-                                    if (index != 2) { // Don't show count for Favorites yet
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        val count = when (index) {
-                                            0 -> tricounts.count { it.creatorId == currentUserId }
-                                            1 -> tricounts.count { it.creatorId != currentUserId }
-                                            else -> 0
-                                        }
-                                        if (count > 0) {
-                                            Surface(
-                                                shape = CircleShape,
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    val count = when (index) {
+                                        0 -> tricounts.count { it.creatorId == currentUserId }
+                                        1 -> tricounts.count { it.creatorId != currentUserId }
+                                        2 -> favoriteTricounts.size // ← correct favorites count
+                                        else -> 0
+                                    }
+                                    if (count > 0) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = if (selectedTab == index)
+                                                MaterialTheme.colorScheme.primary
+                                            else
+                                                MaterialTheme.colorScheme.surfaceVariant
+                                        ) {
+                                            Text(
+                                                text = count.toString(),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
                                                 color = if (selectedTab == index)
-                                                    MaterialTheme.colorScheme.primary
+                                                    MaterialTheme.colorScheme.onPrimary
                                                 else
-                                                    MaterialTheme.colorScheme.surfaceVariant
-                                            ) {
-                                                Text(
-                                                    text = count.toString(),
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = if (selectedTab == index)
-                                                        MaterialTheme.colorScheme.onPrimary
-                                                    else
-                                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
                                     }
                                 }
                             },
                             icon = {
                                 when (index) {
-                                    0 -> Icon(
-                                        Icons.Filled.Star,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    1 -> Icon(
-                                        Icons.Filled.Group,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    2 -> Icon(
-                                        Icons.Filled.Favorite,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                    0 -> Icon(Icons.Filled.Star, contentDescription = null, modifier = Modifier.size(20.dp))
+                                    1 -> Icon(Icons.Filled.Group, contentDescription = null, modifier = Modifier.size(20.dp))
+                                    2 -> Icon(Icons.Filled.Favorite, contentDescription = null, modifier = Modifier.size(20.dp))
                                 }
                             }
                         )
@@ -420,14 +402,8 @@ fun TriCountListScreen(
 
         // Content
         if (selectedTab == 2 && filteredTricounts.isEmpty()) {
-            // Favorites empty state
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
                         Icons.Filled.FavoriteBorder,
                         contentDescription = null,
@@ -452,14 +428,8 @@ fun TriCountListScreen(
                 }
             }
         } else if (filteredTricounts.isEmpty()) {
-            // Empty state
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
                         if (selectedTab == 0) Icons.Filled.AddCircleOutline else Icons.Filled.PersonAdd,
                         contentDescription = null,
@@ -490,7 +460,9 @@ fun TriCountListScreen(
                 }
             }
         } else {
-            // Tricount list
+
+            val favoriteIds = remember(favoriteTricounts) { favoriteTricounts.map { it.id }.toSet() }
+
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
@@ -498,19 +470,25 @@ fun TriCountListScreen(
             ) {
                 items(filteredTricounts, key = { it.id }) { tricount ->
                     val isCreator = tricount.creatorId == currentUserId
-
                     AnimatedTricountCard(
                         tricount = tricount,
                         isCreator = isCreator,
+                        isFavorite = favoriteIds.contains(tricount.id),
                         onClick = { onTricountClick(tricount.id, tricount.name) },
-                        onDeleteClick = { tricountToDelete = Pair(tricount.id, tricount.name) }
+                        onDeleteClick = { tricountToDelete = Pair(tricount.id, tricount.name) },
+                        onFavoriteClick = {
+                            if (currentUserId != null) {
+                                viewModel.toggleFavorite(currentUserId, tricount.id) {
+                                    viewModel.loadFavoriteTricounts(currentUserId)
+                                }
+                            }
+                        }
                     )
                 }
             }
         }
     }
 
-    // Delete dialog
     tricountToDelete?.let { (id, name) ->
         AlertDialog(
             onDismissRequest = { tricountToDelete = null },
@@ -522,17 +500,11 @@ fun TriCountListScreen(
                         viewModel.deleteTricount(id)
                         tricountToDelete = null
                     },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Delete")
-                }
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { tricountToDelete = null }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = { tricountToDelete = null }) { Text("Cancel") }
             }
         )
     }
@@ -542,8 +514,10 @@ fun TriCountListScreen(
 fun AnimatedTricountCard(
     tricount: com.example.tricount.data.entity.TricountEntity,
     isCreator: Boolean,
+    isFavorite: Boolean,
     onClick: () -> Unit,
-    onDeleteClick: () -> Unit
+    onDeleteClick: () -> Unit,
+    onFavoriteClick:() ->Unit
 ) {
     var isPressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -574,41 +548,30 @@ fun AnimatedTricountCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Badge
             Surface(
                 modifier = Modifier.size(40.dp),
                 shape = CircleShape,
-                color = if (isCreator)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.secondary
+                color = if (isCreator) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         if (isCreator) Icons.Filled.Star else Icons.Filled.Group,
                         contentDescription = null,
                         modifier = Modifier.size(24.dp),
-                        tint = if (isCreator)
-                            MaterialTheme.colorScheme.onPrimary
-                        else
-                            MaterialTheme.colorScheme.onSecondary
+                        tint = if (isCreator) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondary
                     )
                 }
             }
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // Content
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         tricount.name,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (isCreator)
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        else
-                            MaterialTheme.colorScheme.onSecondaryContainer
+                        color = if (isCreator) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Surface(
@@ -623,10 +586,7 @@ fun AnimatedTricountCard(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (isCreator)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.secondary
+                            color = if (isCreator) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                         )
                     }
                 }
@@ -648,26 +608,27 @@ fun AnimatedTricountCard(
                     "Code: ${tricount.joinCode}",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
-                    color = if (isCreator)
-                        MaterialTheme.colorScheme.primary
-                    else
-                        MaterialTheme.colorScheme.secondary
+                    color = if (isCreator) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                 )
             }
 
-            // Action buttons column
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                IconButton(onClick = onDeleteClick) {
+                IconButton(onClick = onFavoriteClick) {
                     Icon(
-                        Icons.Filled.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error
+                        if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                        contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
+                        tint = if (isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                IconButton(onClick = onDeleteClick) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                }
             }
+
+
         }
     }
 
@@ -733,9 +694,7 @@ fun ProfileScreen(
             )
 
             Surface(
-                modifier = Modifier
-                    .size(100.dp)
-                    .scale(scale),
+                modifier = Modifier.size(100.dp).scale(scale),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primaryContainer,
                 shadowElevation = 4.dp
@@ -751,26 +710,12 @@ fun ProfileScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                text = userName,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
+            Text(text = userName, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Filled.Email,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Icon(Icons.Filled.Email, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = userEmail,
-                    fontSize = 16.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text(text = userEmail, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Spacer(modifier = Modifier.height(40.dp))
@@ -779,52 +724,19 @@ fun ProfileScreen(
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                )
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp)
-                ) {
-                    Text(
-                        text = "Account Information",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                    Text(text = "Account Information", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Name:",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = userName,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(text = "Name:", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(text = userName, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
                     Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Email:",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = userEmail,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(text = "Email:", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(text = userEmail, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -839,30 +751,16 @@ fun ProfileScreen(
             )
 
             Button(
-                onClick = {
-                    isLogoutPressed = true
-                    onLogoutClick()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .scale(logoutScale),
+                onClick = { isLogoutPressed = true; onLogoutClick() },
+                modifier = Modifier.fillMaxWidth().height(56.dp).scale(logoutScale),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.error,
                     contentColor = MaterialTheme.colorScheme.onError
                 )
             ) {
-                Icon(
-                    Icons.Filled.ExitToApp,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
+                Icon(Icons.Filled.ExitToApp, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Logout",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text(text = "Logout", fontSize = 16.sp, fontWeight = FontWeight.Medium)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
