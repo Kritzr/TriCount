@@ -328,6 +328,51 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // ===== FAVORITES OPERATIONS =====
+
+    // Toggle favorite status
+    fun toggleFavorite(userId: Int, tricountId: Int, onToggled: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                Log.d("TricountViewModel", "Toggling favorite for tricount: $tricountId")
+                val isFavorited = tricountDao.toggleFavorite(userId, tricountId)
+
+                // Reload tricounts to update UI
+                loadTricounts()
+
+                onToggled(isFavorited)
+                Log.d("TricountViewModel", "Favorite toggled: $isFavorited")
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "Error toggling favorite: ${e.message}", e)
+            }
+        }
+    }
+
+    // Check if tricount is favorite
+    suspend fun isFavorite(userId: Int, tricountId: Int): Boolean {
+        return try {
+            tricountDao.isFavorite(userId, tricountId)
+        } catch (e: Exception) {
+            Log.e("TricountViewModel", "Error checking favorite: ${e.message}", e)
+            false
+        }
+    }
+
+    // Load favorite tricounts
+    fun loadFavoriteTricounts(userId: Int) {
+        viewModelScope.launch {
+            try {
+                Log.d("TricountViewModel", "Loading favorite tricounts for user: $userId")
+                val favorites = tricountDao.getFavoriteTricounts(userId)
+                _tricounts.value = favorites
+                Log.d("TricountViewModel", "Loaded ${favorites.size} favorite tricounts")
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "Error loading favorites: ${e.message}", e)
+                _tricounts.value = emptyList()
+            }
+        }
+    }
+
     // Generate a random 6-character join code
     private fun generateJoinCode(): String {
         val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"

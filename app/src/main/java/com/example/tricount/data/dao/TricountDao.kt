@@ -139,6 +139,45 @@ interface TricountDao {
     // Get total expenses for a tricount
     @Query("SELECT SUM(amount) FROM expenses WHERE tricountId = :tricountId")
     suspend fun getTotalExpenses(tricountId: Int): Double?
+
+    // ===== FAVORITES OPERATIONS =====
+
+    // Add tricount to favorites
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun addToFavorites(favorite: com.example.tricount.data.entity.TricountFavorite)
+
+    // Helper function
+    suspend fun addToFavorites(userId: Int, tricountId: Int) {
+        addToFavorites(com.example.tricount.data.entity.TricountFavorite(userId, tricountId))
+    }
+
+    // Remove from favorites
+    @Query("DELETE FROM tricount_favorites WHERE userId = :userId AND tricountId = :tricountId")
+    suspend fun removeFromFavorites(userId: Int, tricountId: Int)
+
+    // Check if tricount is favorited by user
+    @Query("SELECT EXISTS(SELECT 1 FROM tricount_favorites WHERE userId = :userId AND tricountId = :tricountId)")
+    suspend fun isFavorite(userId: Int, tricountId: Int): Boolean
+
+    // Get favorite tricounts for user
+    @Query("""
+        SELECT DISTINCT t.* FROM tricounts t
+        INNER JOIN tricount_favorites tf ON t.id = tf.tricountId
+        WHERE tf.userId = :userId
+        ORDER BY tf.favoritedAt DESC
+    """)
+    suspend fun getFavoriteTricounts(userId: Int): List<TricountEntity>
+
+    // Toggle favorite (returns true if now favorited, false if unfavorited)
+    suspend fun toggleFavorite(userId: Int, tricountId: Int): Boolean {
+        return if (isFavorite(userId, tricountId)) {
+            removeFromFavorites(userId, tricountId)
+            false
+        } else {
+            addToFavorites(userId, tricountId)
+            true
+        }
+    }
 }
 
 // Intermediate data class for Room query result

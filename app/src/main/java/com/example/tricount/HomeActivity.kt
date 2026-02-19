@@ -301,8 +301,17 @@ fun TriCountListScreen(
         when (selectedTab) {
             0 -> tricounts.filter { it.creatorId == currentUserId } // Created
             1 -> tricounts.filter { it.creatorId != currentUserId }  // Joined
-            2 -> emptyList() // Favorites - TODO: implement favorites feature
+            2 -> tricounts // Favorites - will be filtered by loadFavoriteTricounts
             else -> tricounts
+        }
+    }
+
+    // Load favorites when Favorites tab is selected
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == 2 && currentUserId != null) {
+            viewModel.loadFavoriteTricounts(currentUserId)
+        } else if (currentUserId != null) {
+            viewModel.loadTricounts()
         }
     }
 
@@ -410,8 +419,8 @@ fun TriCountListScreen(
         }
 
         // Content
-        if (selectedTab == 2) {
-            // Favorites placeholder
+        if (selectedTab == 2 && filteredTricounts.isEmpty()) {
+            // Favorites empty state
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -427,16 +436,18 @@ fun TriCountListScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Favorites Coming Soon",
+                        text = "No Favorites Yet",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Star your favorite Tricounts for quick access",
+                        text = "Tap the ❤️ icon on a Tricount to add it to favorites",
                         fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 32.dp)
                     )
                 }
             }
@@ -644,12 +655,18 @@ fun AnimatedTricountCard(
                 )
             }
 
-            IconButton(onClick = onDeleteClick) {
-                Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.error
-                )
+            // Action buttons column
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                IconButton(onClick = onDeleteClick) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         }
     }
