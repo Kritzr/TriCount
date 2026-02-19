@@ -14,9 +14,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -32,8 +33,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.data.SessionManager
 import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.viewModel.AddExpenseResult
 import com.example.tricount.viewModel.AddMemberResult
 import com.example.tricount.viewModel.TricountViewModel
+import java.text.SimpleDateFormat
+import java.util.*
 
 class TricountDetailActivity : ComponentActivity() {
 
@@ -48,18 +52,21 @@ class TricountDetailActivity : ComponentActivity() {
 
         setContent {
             TriCountTheme(darkTheme = false) {
-                // Load the specific tricount details
+                // Load tricount details and expenses
                 LaunchedEffect(tricountId) {
                     tricountViewModel.loadTricountDetails(tricountId)
+                    tricountViewModel.loadExpenses(tricountId)
                 }
 
                 val tricountDetails by tricountViewModel.currentTricount.collectAsStateWithLifecycle()
                 val members by tricountViewModel.tricountMembers.collectAsStateWithLifecycle()
+                val expenses by tricountViewModel.expenses.collectAsStateWithLifecycle()
 
                 TricountDetailScreen(
                     tricountName = tricountName,
                     tricountDetails = tricountDetails,
                     members = members,
+                    expenses = expenses,
                     currentUserId = sessionManager.getUserId() ?: -1,
                     viewModel = tricountViewModel,
                     onBackClick = { finish() }
@@ -69,23 +76,19 @@ class TricountDetailActivity : ComponentActivity() {
     }
 }
 
-data class Expense(
-    val name: String,
-    val description: String,
-    val totalCost: Double
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TricountDetailScreen(
     tricountName: String,
     tricountDetails: com.example.tricount.data.entity.TricountEntity?,
     members: List<com.example.tricount.data.entity.MemberWithDetails>,
+    expenses: List<com.example.tricount.data.entity.ExpenseWithDetails>,
     currentUserId: Int,
     viewModel: TricountViewModel,
     onBackClick: () -> Unit
 ) {
     var selectedTabIndex by remember { mutableStateOf(0) }
+    var showAddExpenseDialog by remember { mutableStateOf(false) }
     val tabs = listOf("Expenses", "Balances", "Details")
     val context = LocalContext.current
 
@@ -100,7 +103,6 @@ fun TricountDetailScreen(
                         }
                     },
                     actions = {
-                        // Share button
                         IconButton(
                             onClick = {
                                 tricountDetails?.let { tricount ->
@@ -123,6 +125,18 @@ fun TricountDetailScreen(
                     }
                 }
             }
+        },
+        floatingActionButton = {
+            // Show FAB only on Expenses tab
+            if (selectedTabIndex == 0 && tricountDetails != null) {
+                FloatingActionButton(
+                    onClick = { showAddExpenseDialog = true },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = "Add Expense")
+                }
+            }
         }
     ) { padding ->
         Column(
@@ -131,7 +145,15 @@ fun TricountDetailScreen(
                 .fillMaxSize()
         ) {
             when (selectedTabIndex) {
-                0 -> ExpensesTab()
+                0 -> ExpensesTab(
+                    expenses = expenses,
+                    currentUserId = currentUserId,
+                    onDeleteExpense = { expenseId ->
+                        tricountDetails?.id?.let { tricountId ->
+                            viewModel.deleteExpense(expenseId, tricountId)
+                        }
+                    }
+                )
                 1 -> BalancesTab()
                 2 -> DetailsTab(
                     tricountDetails = tricountDetails,
@@ -140,6 +162,460 @@ fun TricountDetailScreen(
                     viewModel = viewModel
                 )
             }
+        }
+    }
+
+    // Add Expense Dialog
+    if (showAddExpenseDialog && tricountDetails != null) {
+        AddExpenseDialog(
+            tricountId = tricountDetails.id,
+            currentUserId = currentUserId,
+            members = members,
+            viewModel = viewModel,
+            onDismiss = { showAddExpenseDialog = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddExpenseDialog(
+    tricountId: Int,
+    currentUserId: Int,
+    members: List<com.example.tricount.data.entity.MemberWithDetails>,
+    viewModel: TricountViewModel,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("") }
+    var selectedPayerId by remember { mutableStateOf(currentUserId) }
+    var expanded by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = { if (!isLoading) onDismiss() },
+        title = { Text("Add Expense") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Expense Name
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Expense Name") },
+                    placeholder = { Text("e.g., Dinner, Hotel") },
+                    leadingIcon = { Icon(Icons.Filled.ShoppingCart, null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    enabled = !isLoading
+                )
+
+                // Amount
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = {
+                        if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d{0,2}$"))) {
+                            amount = it
+                        }
+                    },
+                    label = { Text("Amount") },
+                    placeholder = { Text("0.00") },
+                    leadingIcon = {
+                        Text(
+                            "$",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Decimal,
+                        imeAction = ImeAction.Next
+                    ),
+                    enabled = !isLoading
+                )
+
+                // Who Paid - Dropdown
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded && !isLoading }
+                ) {
+                    OutlinedTextField(
+                        value = members.find { it.userId == selectedPayerId }?.name ?: "Select",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Paid By") },
+                        leadingIcon = { Icon(Icons.Filled.Person, null) },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(),
+                        enabled = !isLoading
+                    )
+
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        members.forEach { member ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            if (member.isCreator) Icons.Filled.Star else Icons.Filled.Person,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp),
+                                            tint = if (member.isCreator)
+                                                MaterialTheme.colorScheme.primary
+                                            else
+                                                MaterialTheme.colorScheme.secondary
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(member.name)
+                                    }
+                                },
+                                onClick = {
+                                    selectedPayerId = member.userId
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Description
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description (Optional)") },
+                    placeholder = { Text("Add details...") },
+                    leadingIcon = { Icon(Icons.Filled.Description, null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 3,
+                    enabled = !isLoading
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val amountDouble = amount.toDoubleOrNull()
+                    if (name.isNotBlank() && amountDouble != null && amountDouble > 0) {
+                        isLoading = true
+                        viewModel.addExpense(
+                            tricountId = tricountId,
+                            name = name.trim(),
+                            description = description.trim(),
+                            amount = amountDouble,
+                            paidBy = selectedPayerId
+                        ) { result ->
+                            isLoading = false
+                            when (result) {
+                                is AddExpenseResult.Success -> {
+                                    Toast.makeText(
+                                        context,
+                                        "Expense added successfully!",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    onDismiss()
+                                }
+                                is AddExpenseResult.Error -> {
+                                    Toast.makeText(
+                                        context,
+                                        result.message,
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                        }
+                    }
+                },
+                enabled = name.isNotBlank() &&
+                        amount.toDoubleOrNull() != null &&
+                        amount.toDoubleOrNull()!! > 0 &&
+                        !isLoading
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text("Add Expense")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isLoading
+            ) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun ExpensesTab(
+    expenses: List<com.example.tricount.data.entity.ExpenseWithDetails>,
+    currentUserId: Int,
+    onDeleteExpense: (Int) -> Unit
+) {
+    if (expenses.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Receipt,
+                    contentDescription = null,
+                    modifier = Modifier.size(80.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    "No expenses yet",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Tap the + button to add your first expense",
+                    fontSize = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Total summary card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                "Total Expenses",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "$${String.format("%.2f", expenses.sumOf { it.amount })}",
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary
+                        ) {
+                            Icon(
+                                Icons.Filled.AccountBalance,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .padding(12.dp)
+                                    .size(32.dp),
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Expense items
+            items(expenses, key = { it.id }) { expense ->
+                ExpenseCard(
+                    expense = expense,
+                    isUserExpense = expense.paidBy == currentUserId,
+                    onDeleteClick = { onDeleteExpense(expense.id) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ExpenseCard(
+    expense: com.example.tricount.data.entity.ExpenseWithDetails,
+    isUserExpense: Boolean,
+    onDeleteClick: () -> Unit
+) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isUserExpense)
+                MaterialTheme.colorScheme.secondaryContainer
+            else
+                MaterialTheme.colorScheme.surfaceVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    expense.name,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                if (expense.description.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        expense.description,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.Person,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "Paid by ${expense.paidByName}",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Spacer(Modifier.height(4.dp))
+
+                Text(
+                    formatDate(expense.createdAt),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        "$${String.format("%.2f", expense.amount)}",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                if (isUserExpense) {
+                    IconButton(onClick = { showDeleteDialog = true }) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Expense?") },
+            text = {
+                Text("Are you sure you want to delete \"${expense.name}\"? This action cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteClick()
+                        showDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun BalancesTab() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Filled.AccountBalance,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "Balances Coming Soon",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "We'll calculate who owes whom",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -578,104 +1054,11 @@ fun AddMemberDialog(
     )
 }
 
-@Composable
-fun ExpensesTab() {
-    val context = LocalContext.current
-
-    val expenses = remember {
-        listOf(
-            Expense(
-                name = "Taxi",
-                description = "Airport to hotel ride",
-                totalCost = 45.50
-            ),
-            Expense(
-                name = "Hotel",
-                description = "3 nights accommodation",
-                totalCost = 350.00
-            )
-        )
-    }
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        items(expenses) { expense ->
-            ExpenseCard(
-                expense = expense,
-                onClick = {
-                    val intent = Intent(context, TemporaryActivity::class.java).apply {
-                        putExtra("EXPENSE_NAME", expense.name)
-                        putExtra("EXPENSE_DESCRIPTION", expense.description)
-                        putExtra("EXPENSE_COST", expense.totalCost)
-                    }
-                    context.startActivity(intent)
-                }
-            )
-        }
-    }
-}
-
-@SuppressLint("DefaultLocale")
-@Composable
-fun ExpenseCard(
-    expense: Expense,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = expense.name,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = expense.description,
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Text(
-                text = "$${String.format("%.2f", expense.totalCost)}",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-    }
-}
-
-@Composable
-fun BalancesTab() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "Balances will be displayed here",
-            fontSize = 16.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
+// Helper function to format date
+@SuppressLint("SimpleDateFormat")
+private fun formatDate(timestamp: Long): String {
+    val sdf = SimpleDateFormat("MMM dd, yyyy 'at' hh:mm a", Locale.getDefault())
+    return sdf.format(Date(timestamp))
 }
 
 // Helper functions
