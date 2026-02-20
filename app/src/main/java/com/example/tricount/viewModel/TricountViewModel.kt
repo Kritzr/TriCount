@@ -338,7 +338,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 val isFavorited = tricountDao.toggleFavorite(userId, tricountId)
 
                 // Reload tricounts to update UI
-                loadTricounts()
+                loadFavoriteTricounts(userId)
 
                 onToggled(isFavorited)
                 Log.d("TricountViewModel", "Favorite toggled: $isFavorited")
@@ -366,11 +366,11 @@ private val _favoriteTricounts = MutableStateFlow<List<TricountEntity>>(emptyLis
             try {
                 Log.d("TricountViewModel", "Loading favorite tricounts for user: $userId")
                 val favorites = tricountDao.getFavoriteTricounts(userId)
-                _tricounts.value = favorites //replaces the full list?
+                _favoriteTricounts.value = favorites //replaces the full list?  was _tricounts.value
                 Log.d("TricountViewModel", "Loaded ${favorites.size} favorite tricounts")
             } catch (e: Exception) {
                 Log.e("TricountViewModel", "Error loading favorites: ${e.message}", e)
-                _tricounts.value = emptyList()
+                _favoriteTricounts.value = emptyList()
             }
         }
     }

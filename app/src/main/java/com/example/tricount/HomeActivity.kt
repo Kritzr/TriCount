@@ -479,7 +479,7 @@ fun TriCountListScreen(
                         onFavoriteClick = {
                             if (currentUserId != null) {
                                 viewModel.toggleFavorite(currentUserId, tricount.id) {
-                                    viewModel.loadFavoriteTricounts(currentUserId)
+                                    //viewModel.loadFavoriteTricounts(currentUserId) //ISFAVORITED; BOOLEAN - USE OF WANT TO SHOW SNACKBAR OR SOMETHING
                                 }
                             }
                         }
