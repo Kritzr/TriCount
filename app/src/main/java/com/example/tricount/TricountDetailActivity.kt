@@ -10,7 +10,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,16 +27,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.data.SessionManager
+import com.example.tricount.data.entity.ExpenseWithDetails
+import com.example.tricount.data.entity.MemberWithDetails
+import com.example.tricount.data.entity.TricountEntity
 import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.AddExpenseResult
 import com.example.tricount.viewModel.AddMemberResult
 import com.example.tricount.viewModel.TricountViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.material3.VerticalDivider
 
 class TricountDetailActivity : ComponentActivity() {
 
@@ -52,7 +56,6 @@ class TricountDetailActivity : ComponentActivity() {
 
         setContent {
             TriCountTheme(darkTheme = false) {
-                // Load tricount details and expenses
                 LaunchedEffect(tricountId) {
                     tricountViewModel.loadTricountDetails(tricountId)
                     tricountViewModel.loadExpenses(tricountId)
@@ -80,9 +83,9 @@ class TricountDetailActivity : ComponentActivity() {
 @Composable
 fun TricountDetailScreen(
     tricountName: String,
-    tricountDetails: com.example.tricount.data.entity.TricountEntity?,
-    members: List<com.example.tricount.data.entity.MemberWithDetails>,
-    expenses: List<com.example.tricount.data.entity.ExpenseWithDetails>,
+    tricountDetails: TricountEntity?,
+    members: List<MemberWithDetails>,
+    expenses: List<ExpenseWithDetails>,
     currentUserId: Int,
     viewModel: TricountViewModel,
     onBackClick: () -> Unit
@@ -114,7 +117,6 @@ fun TricountDetailScreen(
                         }
                     }
                 )
-
                 TabRow(selectedTabIndex = selectedTabIndex) {
                     tabs.forEachIndexed { index, title ->
                         Tab(
@@ -127,7 +129,6 @@ fun TricountDetailScreen(
             }
         },
         floatingActionButton = {
-            // Show FAB only on Expenses tab
             if (selectedTabIndex == 0 && tricountDetails != null) {
                 FloatingActionButton(
                     onClick = { showAddExpenseDialog = true },
@@ -165,7 +166,6 @@ fun TricountDetailScreen(
         }
     }
 
-    // Add Expense Dialog
     if (showAddExpenseDialog && tricountDetails != null) {
         AddExpenseDialog(
             tricountId = tricountDetails.id,
@@ -177,12 +177,16 @@ fun TricountDetailScreen(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Add Expense Dialog (with share ratios — defaults to 1 per person)
+// ─────────────────────────────────────────────────────────────────────────────
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddExpenseDialog(
     tricountId: Int,
     currentUserId: Int,
-    members: List<com.example.tricount.data.entity.MemberWithDetails>,
+    members: List<MemberWithDetails>,
     viewModel: TricountViewModel,
     onDismiss: () -> Unit
 ) {
@@ -193,6 +197,13 @@ fun AddExpenseDialog(
     var expanded by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    // Default: 1 share per member (equal split)
+    val sharesInput = remember {
+        mutableStateMapOf<Int, String>().also { map ->
+            members.forEach { map[it.userId] = "1" }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
@@ -227,11 +238,7 @@ fun AddExpenseDialog(
                     label = { Text("Amount") },
                     placeholder = { Text("0.00") },
                     leadingIcon = {
-                        Text(
-                            "$",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Text("$", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
@@ -259,7 +266,6 @@ fun AddExpenseDialog(
                             .menuAnchor(),
                         enabled = !isLoading
                     )
-
                     ExposedDropdownMenu(
                         expanded = expanded,
                         onDismissRequest = { expanded = false }
@@ -302,20 +308,117 @@ fun AddExpenseDialog(
                     maxLines = 3,
                     enabled = !isLoading
                 )
+
+                // ── Share Ratios ──
+                HorizontalDivider()
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Split Ratios",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    val totalShares = sharesInput.values.mapNotNull { it.toIntOrNull() }.sum()
+                    Text(
+                        "$totalShares parts total",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Text(
+                    "How many parts does each person owe? (e.g. 1 & 2 means one pays ⅓, other pays ⅔)",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                members.forEach { member ->
+                    val isCurrentUser = member.userId == currentUserId
+                    val totalShares = sharesInput.values
+                        .mapNotNull { it.toIntOrNull() }.sum().coerceAtLeast(1)
+                    val memberShares = sharesInput[member.userId]?.toIntOrNull() ?: 0
+                    val previewAmount = amount.toDoubleOrNull()?.let {
+                        if (memberShares > 0) (memberShares.toDouble() / totalShares) * it else null
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(36.dp),
+                            shape = CircleShape,
+                            color = if (isCurrentUser)
+                                MaterialTheme.colorScheme.primaryContainer
+                            else
+                                MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    member.name.first().uppercase(),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = if (isCurrentUser)
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    else
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                if (isCurrentUser) "You" else member.name,
+                                fontSize = 14.sp,
+                                fontWeight = if (isCurrentUser) FontWeight.Bold else FontWeight.Normal
+                            )
+                            if (previewAmount != null) {
+                                Text(
+                                    "≈ $${"%.2f".format(previewAmount)}",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = sharesInput[member.userId] ?: "1",
+                            onValueChange = { value ->
+                                sharesInput[member.userId] = value.filter { it.isDigit() }
+                            },
+                            modifier = Modifier.width(80.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            suffix = { Text("pt", fontSize = 11.sp) },
+                            enabled = !isLoading
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     val amountDouble = amount.toDoubleOrNull()
-                    if (name.isNotBlank() && amountDouble != null && amountDouble > 0) {
+                    val sharesMap = sharesInput
+                        .mapValues { it.value.toIntOrNull() ?: 0 }
+                        .filter { it.value > 0 }
+
+                    if (name.isNotBlank() && amountDouble != null && amountDouble > 0 && sharesMap.isNotEmpty()) {
                         isLoading = true
                         viewModel.addExpense(
                             tricountId = tricountId,
                             name = name.trim(),
                             description = description.trim(),
                             amount = amountDouble,
-                            paidBy = selectedPayerId
+                            paidBy = selectedPayerId,
+                            sharesMap = sharesMap
                         ) { result ->
                             isLoading = false
                             when (result) {
@@ -341,6 +444,7 @@ fun AddExpenseDialog(
                 enabled = name.isNotBlank() &&
                         amount.toDoubleOrNull() != null &&
                         amount.toDoubleOrNull()!! > 0 &&
+                        sharesInput.values.any { (it.toIntOrNull() ?: 0) > 0 } &&
                         !isLoading
             ) {
                 if (isLoading) {
@@ -355,19 +459,20 @@ fun AddExpenseDialog(
             }
         },
         dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !isLoading
-            ) {
+            TextButton(onClick = onDismiss, enabled = !isLoading) {
                 Text("Cancel")
             }
         }
     )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Expenses Tab
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 fun ExpensesTab(
-    expenses: List<com.example.tricount.data.entity.ExpenseWithDetails>,
+    expenses: List<ExpenseWithDetails>,
     currentUserId: Int,
     onDeleteExpense: (Int) -> Unit
 ) {
@@ -398,7 +503,7 @@ fun ExpensesTab(
                     "Tap the + button to add your first expense",
                     fontSize = 16.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
             }
         }
@@ -408,7 +513,7 @@ fun ExpensesTab(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Total summary card
+            // REPLACE the existing summary card item with this:
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -416,45 +521,58 @@ fun ExpensesTab(
                         containerColor = MaterialTheme.colorScheme.primaryContainer
                     )
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(20.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(20.dp)
                     ) {
-                        Column {
-                            Text(
-                                "Total Expenses",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "$${String.format("%.2f", expenses.sumOf { it.amount })}",
-                                fontSize = 32.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary
+                        // Top row: My Expenses | Total Expenses
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(
-                                Icons.Filled.AccountBalance,
-                                contentDescription = null,
+                            Column {
+                                Text(
+                                    "My Expenses",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "$${String.format("%.2f", expenses
+                                        .filter { it.paidBy == currentUserId }
+                                        .sumOf { it.amount })}",
+                                    fontSize = 26.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            VerticalDivider(
                                 modifier = Modifier
-                                    .padding(12.dp)
-                                    .size(32.dp),
-                                tint = MaterialTheme.colorScheme.onPrimary
+                                    .height(56.dp)
+                                    .padding(horizontal = 8.dp),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f)
                             )
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    "Total Expenses",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "$${String.format("%.2f", expenses.sumOf { it.amount })}",
+                                    fontSize = 26.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
                         }
                     }
                 }
             }
-
-            // Expense items
             items(expenses, key = { it.id }) { expense ->
                 ExpenseCard(
                     expense = expense,
@@ -466,9 +584,13 @@ fun ExpensesTab(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Expense Card
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 fun ExpenseCard(
-    expense: com.example.tricount.data.entity.ExpenseWithDetails,
+    expense: ExpenseWithDetails,
     isUserExpense: Boolean,
     onDeleteClick: () -> Unit
 ) {
@@ -498,7 +620,6 @@ fun ExpenseCard(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-
                 if (expense.description.isNotBlank()) {
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -507,9 +628,7 @@ fun ExpenseCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-
                 Spacer(Modifier.height(8.dp))
-
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Filled.Person,
@@ -525,9 +644,7 @@ fun ExpenseCard(
                         fontWeight = FontWeight.Medium
                     )
                 }
-
                 Spacer(Modifier.height(4.dp))
-
                 Text(
                     formatDate(expense.createdAt),
                     fontSize = 12.sp,
@@ -539,15 +656,12 @@ fun ExpenseCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End
             ) {
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        "$${String.format("%.2f", expense.amount)}",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
+                Text(
+                    "$${String.format("%.2f", expense.amount)}",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
                 if (isUserExpense) {
                     IconButton(onClick = { showDeleteDialog = true }) {
                         Icon(
@@ -577,18 +691,18 @@ fun ExpenseCard(
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error
                     )
-                ) {
-                    Text("Delete")
-                }
+                ) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
             }
         )
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Balances Tab
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun BalancesTab() {
@@ -620,11 +734,15 @@ fun BalancesTab() {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Details Tab
+// ─────────────────────────────────────────────────────────────────────────────
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailsTab(
-    tricountDetails: com.example.tricount.data.entity.TricountEntity?,
-    members: List<com.example.tricount.data.entity.MemberWithDetails>,
+    tricountDetails: TricountEntity?,
+    members: List<MemberWithDetails>,
     currentUserId: Int,
     viewModel: TricountViewModel
 ) {
@@ -632,10 +750,7 @@ fun DetailsTab(
     var showAddMemberDialog by remember { mutableStateOf(false) }
 
     if (tricountDetails == null) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
         return
@@ -650,7 +765,6 @@ fun DetailsTab(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            // Join Code Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -682,16 +796,10 @@ fun DetailsTab(
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
-
-                        // Copy button
                         IconButton(
                             onClick = {
                                 copyToClipboard(context, tricountDetails.joinCode)
-                                Toast.makeText(
-                                    context,
-                                    "Code copied!",
-                                    Toast.LENGTH_SHORT
-                                ).show()
+                                Toast.makeText(context, "Code copied!", Toast.LENGTH_SHORT).show()
                             }
                         ) {
                             Icon(
@@ -703,9 +811,9 @@ fun DetailsTab(
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f))
-
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f)
+                    )
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
@@ -713,14 +821,10 @@ fun DetailsTab(
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                     )
-
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Share button
                     Button(
-                        onClick = {
-                            shareTricount(context, tricountDetails.name, tricountDetails.joinCode)
-                        },
+                        onClick = { shareTricount(context, tricountDetails.name, tricountDetails.joinCode) },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary
@@ -735,7 +839,6 @@ fun DetailsTab(
         }
 
         item {
-            // Description Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -770,7 +873,6 @@ fun DetailsTab(
         }
 
         item {
-            // Members Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -793,8 +895,6 @@ fun DetailsTab(
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary
                         )
-
-                        // Add member button (only for creator)
                         if (isCreator) {
                             IconButton(onClick = { showAddMemberDialog = true }) {
                                 Icon(
@@ -834,7 +934,6 @@ fun DetailsTab(
         }
     }
 
-    // Add Member Dialog
     if (showAddMemberDialog) {
         AddMemberDialog(
             tricountId = tricountDetails.id,
@@ -844,9 +943,13 @@ fun DetailsTab(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Member Item
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 fun MemberItem(
-    member: com.example.tricount.data.entity.MemberWithDetails,
+    member: MemberWithDetails,
     isCreator: Boolean,
     canRemove: Boolean,
     onRemoveClick: () -> Unit
@@ -882,15 +985,9 @@ fun MemberItem(
                     )
                 }
             }
-
             Spacer(modifier = Modifier.width(12.dp))
-
             Column {
-                Text(
-                    text = member.name,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text(text = member.name, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 Text(
                     text = member.email,
                     fontSize = 12.sp,
@@ -923,7 +1020,6 @@ fun MemberItem(
         }
     }
 
-    // Remove confirmation dialog
     if (showRemoveDialog) {
         AlertDialog(
             onDismissRequest = { showRemoveDialog = false },
@@ -938,18 +1034,18 @@ fun MemberItem(
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error
                     )
-                ) {
-                    Text("Remove")
-                }
+                ) { Text("Remove") }
             },
             dismissButton = {
-                TextButton(onClick = { showRemoveDialog = false }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = { showRemoveDialog = false }) { Text("Cancel") }
             }
         )
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Add Member Dialog
+// ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -962,7 +1058,6 @@ fun AddMemberDialog(
     var isLoading by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    // Email validation
     val isValidEmail = remember(email) {
         val emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
         email.isBlank() || emailRegex.matches(email)
@@ -1034,34 +1129,28 @@ fun AddMemberDialog(
                 enabled = isValidEmail && email.isNotBlank() && !isLoading
             ) {
                 if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp
-                    )
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text("Add")
             }
         },
         dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !isLoading
-            ) {
-                Text("Cancel")
-            }
+            TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") }
         }
     )
 }
 
-// Helper function to format date
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
 @SuppressLint("SimpleDateFormat")
 private fun formatDate(timestamp: Long): String {
     val sdf = SimpleDateFormat("MMM dd, yyyy 'at' hh:mm a", Locale.getDefault())
     return sdf.format(Date(timestamp))
 }
 
-// Helper functions
 private fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     val clip = ClipData.newPlainText("Tricount Code", text)
@@ -1082,6 +1171,5 @@ private fun shareTricount(context: Context, tricountName: String, joinCode: Stri
         putExtra(Intent.EXTRA_SUBJECT, "Join $tricountName on TriCount")
         putExtra(Intent.EXTRA_TEXT, shareText)
     }
-
     context.startActivity(Intent.createChooser(intent, "Share Tricount"))
 }

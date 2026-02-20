@@ -4,6 +4,7 @@ import androidx.room.*
 import com.example.tricount.data.entity.TricountEntity
 import com.example.tricount.data.entity.TricountMemberCrossRef
 import com.example.tricount.data.entity.UserEntity
+import com.example.tricount.data.entity.ExpenseSplitEntity
 
 @Dao
 interface TricountDao {
@@ -62,7 +63,7 @@ interface TricountDao {
     @Query("DELETE FROM tricount_members WHERE userId = :userId AND tricountId = :tricountId")
     suspend fun removeMember(userId: Int, tricountId: Int)
 
-    // Get members with their details - CORRECTED VERSION
+    // Get members with their details
     @Transaction
     @Query("""
         SELECT 
@@ -86,7 +87,6 @@ interface TricountDao {
     """)
     suspend fun getTricountMembersRaw(tricountId: Int): List<MemberQueryResult>
 
-    // Wrapper function to convert to MemberWithDetails
     suspend fun getTricountMembersWithDetails(tricountId: Int): List<com.example.tricount.data.entity.MemberWithDetails> {
         return getTricountMembersRaw(tricountId).map { result ->
             com.example.tricount.data.entity.MemberWithDetails(
@@ -100,15 +100,12 @@ interface TricountDao {
 
     // ===== EXPENSE OPERATIONS =====
 
-    // Insert a new expense
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExpense(expense: com.example.tricount.data.entity.ExpenseEntity): Long
 
-    // Get all expenses for a tricount
     @Query("SELECT * FROM expenses WHERE tricountId = :tricountId ORDER BY createdAt DESC")
     suspend fun getExpensesForTricount(tricountId: Int): List<com.example.tricount.data.entity.ExpenseEntity>
 
-    // Get expenses with payer details
     @Query("""
         SELECT 
             e.id as id,
@@ -128,38 +125,76 @@ interface TricountDao {
     """)
     suspend fun getExpensesWithDetails(tricountId: Int): List<com.example.tricount.data.entity.ExpenseWithDetails>
 
-    // Get expense by ID
     @Query("SELECT * FROM expenses WHERE id = :expenseId")
     suspend fun getExpenseById(expenseId: Int): com.example.tricount.data.entity.ExpenseEntity?
 
-    // Delete expense
     @Query("DELETE FROM expenses WHERE id = :expenseId")
     suspend fun deleteExpense(expenseId: Int)
 
-    // Get total expenses for a tricount
     @Query("SELECT SUM(amount) FROM expenses WHERE tricountId = :tricountId")
     suspend fun getTotalExpenses(tricountId: Int): Double?
 
+    // ===== EXPENSE SPLIT OPERATIONS =====
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertExpenseSplit(split: ExpenseSplitEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertExpenseSplits(splits: List<ExpenseSplitEntity>)
+
+    @Query("DELETE FROM expense_splits WHERE expenseId = :expenseId")
+    suspend fun deleteExpenseSplits(expenseId: Int)
+
+    /** Raw split rows for one expense */
+    @Query("""
+        SELECT 
+            es.userId as userId,
+            u.name as userName,
+            u.email as userEmail,
+            es.shares as shares
+        FROM expense_splits es
+        INNER JOIN users u ON es.userId = u.id
+        WHERE es.expenseId = :expenseId
+        ORDER BY u.name ASC
+    """)
+    suspend fun getExpenseSplitsRaw(expenseId: Int): List<SplitQueryResult>
+
+    /** Returns splits with computed amount per person */
+    suspend fun getExpenseSplitsWithAmounts(
+        expenseId: Int,
+        totalAmount: Double,
+        payerId: Int
+    ): List<com.example.tricount.data.entity.ExpenseSplitWithUser> {
+        val raw = getExpenseSplitsRaw(expenseId)
+        val totalShares = raw.sumOf { it.shares }.takeIf { it > 0 } ?: 1
+        return raw.map { r ->
+            val amount = (r.shares.toDouble() / totalShares) * totalAmount
+            com.example.tricount.data.entity.ExpenseSplitWithUser(
+                userId = r.userId,
+                userName = r.userName,
+                userEmail = r.userEmail,
+                shares = r.shares,
+                amount = amount,
+                isPayerToo = r.userId == payerId
+            )
+        }
+    }
+
     // ===== FAVORITES OPERATIONS =====
 
-    // Add tricount to favorites
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun addToFavorites(favorite: com.example.tricount.data.entity.TricountFavorite)
 
-    // Helper function
     suspend fun addToFavorites(userId: Int, tricountId: Int) {
         addToFavorites(com.example.tricount.data.entity.TricountFavorite(userId, tricountId))
     }
 
-    // Remove from favorites
     @Query("DELETE FROM tricount_favorites WHERE userId = :userId AND tricountId = :tricountId")
     suspend fun removeFromFavorites(userId: Int, tricountId: Int)
 
-    // Check if tricount is favorited by user
     @Query("SELECT EXISTS(SELECT 1 FROM tricount_favorites WHERE userId = :userId AND tricountId = :tricountId)")
     suspend fun isFavorite(userId: Int, tricountId: Int): Boolean
 
-    // Get favorite tricounts for user
     @Query("""
         SELECT DISTINCT t.* FROM tricounts t
         INNER JOIN tricount_favorites tf ON t.id = tf.tricountId
@@ -168,7 +203,6 @@ interface TricountDao {
     """)
     suspend fun getFavoriteTricounts(userId: Int): List<TricountEntity>
 
-    // Toggle favorite (returns true if now favorited, false if unfavorited)
     suspend fun toggleFavorite(userId: Int, tricountId: Int): Boolean {
         return if (isFavorite(userId, tricountId)) {
             removeFromFavorites(userId, tricountId)
@@ -180,10 +214,16 @@ interface TricountDao {
     }
 }
 
-// Intermediate data class for Room query result
 data class MemberQueryResult(
     val userId: Int,
     val name: String,
     val email: String,
-    val isCreator: Int  // Use Int (0 or 1) instead of Boolean for SQL compatibility
+    val isCreator: Int
+)
+
+data class SplitQueryResult(
+    val userId: Int,
+    val userName: String,
+    val userEmail: String,
+    val shares: Int
 )
