@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import java.util.*
 
 class TricountViewModel(application: Application) : AndroidViewModel(application) {
+    annotation class calculateSettlements(val value: Int)
 
     private val tricountDao = TricountDatabase.getDatabase(application).tricountDao()
     private val sessionManager = SessionManager(application)
