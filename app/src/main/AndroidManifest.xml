@@ -37,7 +37,8 @@
             android:name=".JoinTricountActivity"
             android:exported="false" />
 
-        <activity android:name=".SummaryActivity" />
+        <activity android:name=".ExpensesActivity" android:exported="false" />
+        <activity android:name=".SummaryActivity"  android:exported="false" />
 
         <!-- Tricount Detail Activity (if you have this) -->
         <activity

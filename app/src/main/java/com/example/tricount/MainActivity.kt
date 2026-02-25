@@ -9,7 +9,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+        //shared preferences => stores login state => stores the userId, and checks if
         val sessionManager = SessionManager(this)
 
         // Check if user is logged in

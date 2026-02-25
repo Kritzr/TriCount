@@ -289,24 +289,22 @@ fun TriCountListScreen(
     onTricountClick: (Int, String) -> Unit
 ) {
     val tricounts by viewModel.tricounts.collectAsStateWithLifecycle()
-    val favoriteTricounts by viewModel.favoriteTricounts.collectAsStateWithLifecycle() // ← NEW
+    val favoriteTricounts by viewModel.favoriteTricounts.collectAsStateWithLifecycle()
     val currentUserId = sessionManager.getUserId()
     var tricountToDelete by remember { mutableStateOf<Pair<Int, String>?>(null) }
 
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = listOf("Created", "Joined", "Favorites")
 
-    // Filter tricounts based on selected tab
     val filteredTricounts = remember(tricounts, favoriteTricounts, selectedTab, currentUserId) {
         when (selectedTab) {
             0 -> tricounts.filter { it.creatorId == currentUserId }
             1 -> tricounts.filter { it.creatorId != currentUserId }
-            2 -> favoriteTricounts // ← uses separate favorites list, not the full list
+            2 -> favoriteTricounts
             else -> tricounts
         }
     }
 
-    // Load the right data when tab changes
     LaunchedEffect(selectedTab) {
         if (selectedTab == 2 && currentUserId != null) {
             viewModel.loadFavoriteTricounts(currentUserId)
@@ -350,42 +348,10 @@ fun TriCountListScreen(
                             selected = selectedTab == index,
                             onClick = { selectedTab = index },
                             text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = title,
-                                        fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    val count = when (index) {
-                                        0 -> tricounts.count { it.creatorId == currentUserId }
-                                        1 -> tricounts.count { it.creatorId != currentUserId }
-                                        2 -> favoriteTricounts.size // ← correct favorites count
-                                        else -> 0
-                                    }
-                                    if (count > 0) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = if (selectedTab == index)
-                                                MaterialTheme.colorScheme.primary
-                                            else
-                                                MaterialTheme.colorScheme.surfaceVariant
-                                        ) {
-                                            Text(
-                                                text = count.toString(),
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (selectedTab == index)
-                                                    MaterialTheme.colorScheme.onPrimary
-                                                else
-                                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
+                                Text(
+                                    text = title,
+                                    fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
+                                )
                             },
                             icon = {
                                 when (index) {
@@ -419,7 +385,7 @@ fun TriCountListScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Tap the ❤️ icon on a Tricount to add it to favorites",
+                        text = "Tap the heart icon on a Tricount to add it to favorites",
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -460,7 +426,6 @@ fun TriCountListScreen(
                 }
             }
         } else {
-
             val favoriteIds = remember(favoriteTricounts) { favoriteTricounts.map { it.id }.toSet() }
 
             LazyColumn(
@@ -478,9 +443,7 @@ fun TriCountListScreen(
                         onDeleteClick = { tricountToDelete = Pair(tricount.id, tricount.name) },
                         onFavoriteClick = {
                             if (currentUserId != null) {
-                                viewModel.toggleFavorite(currentUserId, tricount.id) {
-                                    //viewModel.loadFavoriteTricounts(currentUserId) //ISFAVORITED; BOOLEAN - USE OF WANT TO SHOW SNACKBAR OR SOMETHING
-                                }
+                                viewModel.toggleFavorite(currentUserId, tricount.id)
                             }
                         }
                     )
@@ -517,7 +480,7 @@ fun AnimatedTricountCard(
     isFavorite: Boolean,
     onClick: () -> Unit,
     onDeleteClick: () -> Unit,
-    onFavoriteClick:() ->Unit
+    onFavoriteClick: () -> Unit
 ) {
     var isPressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -566,30 +529,15 @@ fun AnimatedTricountCard(
             Spacer(modifier = Modifier.width(16.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        tricount.name,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isCreator) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Surface(
-                        shape = MaterialTheme.shapes.small,
-                        color = if (isCreator)
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                        else
-                            MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)
-                    ) {
-                        Text(
-                            text = if (isCreator) "CREATOR" else "MEMBER",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isCreator) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
-                        )
-                    }
-                }
+                Text(
+                    tricount.name,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isCreator)
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                )
 
                 if (tricount.description.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -627,8 +575,6 @@ fun AnimatedTricountCard(
                     Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
                 }
             }
-
-
         }
     }
 
@@ -694,7 +640,9 @@ fun ProfileScreen(
             )
 
             Surface(
-                modifier = Modifier.size(100.dp).scale(scale),
+                modifier = Modifier
+                    .size(100.dp)
+                    .scale(scale),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primaryContainer,
                 shadowElevation = 4.dp
@@ -752,7 +700,10 @@ fun ProfileScreen(
 
             Button(
                 onClick = { isLogoutPressed = true; onLogoutClick() },
-                modifier = Modifier.fillMaxWidth().height(56.dp).scale(logoutScale),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .scale(logoutScale),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.error,
                     contentColor = MaterialTheme.colorScheme.onError
