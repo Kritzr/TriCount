@@ -38,7 +38,14 @@
             android:exported="false" />
 
         <activity android:name=".ExpensesActivity" android:exported="false" />
-        <activity android:name=".SummaryActivity"  android:exported="false" />
+        <!-- Remove this -->
+
+
+        <!-- Add this -->
+        <activity android:name=".BalancesTabActivity" android:exported="false" />
+        <activity
+            android:name=".AddExpenseActivity"
+            android:exported="false" />
 
         <!-- Tricount Detail Activity (if you have this) -->
         <activity

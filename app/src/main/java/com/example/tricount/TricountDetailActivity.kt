@@ -268,8 +268,8 @@ fun ExpensesTab(
 
         // ── Expense rows ──
         items(expenses, key = { it.id }) { expense ->
-            val expenseItemCard = ExpenseItemCard(
-                expense = expense,
+            ExpenseCard(
+                expense       = expense,
                 isUserExpense = expense.paidBy == currentUserId,
                 onDeleteClick = { onDeleteExpense(expense.id) }
             )
@@ -279,7 +279,7 @@ fun ExpensesTab(
 
 @SuppressLint("SimpleDateFormat")
 @Composable
-fun ExpenseItemCard(
+private fun ExpenseCard(
     expense       : ExpenseWithDetails,
     isUserExpense : Boolean,
     onDeleteClick : () -> Unit
@@ -521,73 +521,7 @@ fun BalancesTab(
             }
         }
 
-        // ── Settle up ──
-        item {
-            Text("Settle Up", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary)
-        }
-        item {
-            if (settlements.isEmpty()) {
-                Card(modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = green.copy(alpha = 0.08f))) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(20.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment     = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.CheckCircle, null,
-                            tint = green, modifier = Modifier.size(26.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Text("All settled up! 🎉", fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium, color = green)
-                    }
-                }
-            } else {
-                Card(modifier = Modifier.fillMaxWidth(),
-                    colors    = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-                    elevation = CardDefaults.cardElevation(2.dp)) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        settlements.forEachIndexed { idx, s ->
-                            val isDebtor   = s.fromUserId == currentUserId
-                            val isCreditor = s.toUserId   == currentUserId
-                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    if (isDebtor) "You" else s.fromUserName,
-                                    fontSize   = 14.sp,
-                                    modifier   = Modifier.weight(1f),
-                                    fontWeight = if (isDebtor) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isDebtor) MaterialTheme.colorScheme.error
-                                    else MaterialTheme.colorScheme.onTertiaryContainer
-                                )
-                                Column(horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier.padding(horizontal = 8.dp)) {
-                                    Icon(Icons.Filled.ArrowForward, null,
-                                        modifier = Modifier.size(16.dp),
-                                        tint     = MaterialTheme.colorScheme.tertiary)
-                                    Text("${"$"}${"%.2f".format(s.amount)}", fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color      = MaterialTheme.colorScheme.tertiary)
-                                }
-                                Text(
-                                    if (isCreditor) "You" else s.toUserName,
-                                    fontSize   = 14.sp,
-                                    modifier   = Modifier.weight(1f),
-                                    fontWeight = if (isCreditor) FontWeight.Bold else FontWeight.Normal,
-                                    textAlign  = TextAlign.End,
-                                    color = if (isCreditor) green
-                                    else MaterialTheme.colorScheme.onTertiaryContainer
-                                )
-                            }
-                            if (idx < settlements.lastIndex)
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer
-                                        .copy(alpha = 0.15f))
-                        }
-                    }
-                }
-            }
-        }
+
     }
 }
 
