@@ -9,43 +9,42 @@ import androidx.room.PrimaryKey
     tableName = "expenses",
     foreignKeys = [
         ForeignKey(
-            entity = TricountEntity::class,
+            entity     = TricountEntity::class,
             parentColumns = ["id"],
-            childColumns = ["tricountId"],
-            onDelete = ForeignKey.CASCADE
+            childColumns  = ["tricountId"],
+            onDelete   = ForeignKey.CASCADE
         ),
         ForeignKey(
-            entity = UserEntity::class,
+            entity     = UserEntity::class,
             parentColumns = ["id"],
-            childColumns = ["paidBy"],
-            onDelete = ForeignKey.CASCADE
+            childColumns  = ["paidBy"],
+            onDelete   = ForeignKey.CASCADE
         )
     ],
     indices = [Index("tricountId"), Index("paidBy")]
 )
 data class ExpenseEntity(
     @PrimaryKey(autoGenerate = true)
-    val id: Int = 0,
-
-    val tricountId: Int,
-    val name: String,
-    val description: String,
-    val amount: Double,
-    val paidBy: Int, // User ID who paid
-    val createdAt: Long = System.currentTimeMillis(),
-    val category: String = "General" // Optional category
+    val id          : Int    = 0,
+    val tricountId  : Int,
+    val name        : String,
+    val description : String,
+    val amount      : Double,
+    val paidBy      : Int,                          // User ID who paid
+    val createdAt   : Long   = System.currentTimeMillis(),
+    val category    : String = "General"
 )
 
-// Data class for displaying expense with payer details
+/** Flat result class returned by the DAO JOIN query — no @Embedded needed. */
 data class ExpenseWithDetails(
-    val id: Int,
-    val tricountId: Int,
-    val name: String,
-    val description: String,
-    val amount: Double,
-    val paidBy: Int,
-    val paidByName: String,
-    val paidByEmail: String,
-    val createdAt: Long,
-    val category: String
+    val id           : Int,
+    val tricountId   : Int,
+    val name         : String,
+    val description  : String,
+    val amount       : Double,
+    val paidBy       : Int,
+    val paidByName   : String,
+    val paidByEmail  : String,
+    val createdAt    : Long,
+    val category     : String
 )

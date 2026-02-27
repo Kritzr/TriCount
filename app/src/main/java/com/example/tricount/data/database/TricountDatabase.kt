@@ -22,9 +22,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TricountMemberCrossRef::class,
         ExpenseEntity::class,
         TricountFavorite::class,
-        ExpenseSplitEntity::class   // ← NEW
+        ExpenseSplitEntity::class
     ],
-    version = 6,                    // ← bumped from 5
+    version      = 7,           // ← bumped from 6
     exportSchema = false
 )
 abstract class TricountDatabase : RoomDatabase() {
@@ -36,38 +36,47 @@ abstract class TricountDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: TricountDatabase? = null
 
+        // ── 4 → 5 : tricount_favorites table ────────────────────────────────
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("""
                     CREATE TABLE IF NOT EXISTS `tricount_favorites` (
-                        `userId` INTEGER NOT NULL,
-                        `tricountId` INTEGER NOT NULL,
+                        `userId`      INTEGER NOT NULL,
+                        `tricountId`  INTEGER NOT NULL,
                         `favoritedAt` INTEGER NOT NULL,
                         PRIMARY KEY(`userId`, `tricountId`),
-                        FOREIGN KEY(`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+                        FOREIGN KEY(`userId`)     REFERENCES `users`(`id`)     ON DELETE CASCADE,
                         FOREIGN KEY(`tricountId`) REFERENCES `tricounts`(`id`) ON DELETE CASCADE
                     )
                 """)
-                database.execSQL("CREATE INDEX IF NOT EXISTS `index_tricount_favorites_userId` ON `tricount_favorites` (`userId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_tricount_favorites_userId`     ON `tricount_favorites` (`userId`)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS `index_tricount_favorites_tricountId` ON `tricount_favorites` (`tricountId`)")
             }
         }
 
-        // ← NEW migration: adds expense_splits table
+        // ── 5 → 6 : expense_splits table ────────────────────────────────────
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("""
                     CREATE TABLE IF NOT EXISTS `expense_splits` (
                         `expenseId` INTEGER NOT NULL,
-                        `userId` INTEGER NOT NULL,
-                        `shares` INTEGER NOT NULL DEFAULT 1,
+                        `userId`    INTEGER NOT NULL,
+                        `shares`    INTEGER NOT NULL DEFAULT 1,
                         PRIMARY KEY(`expenseId`, `userId`),
                         FOREIGN KEY(`expenseId`) REFERENCES `expenses`(`id`) ON DELETE CASCADE,
-                        FOREIGN KEY(`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE
+                        FOREIGN KEY(`userId`)    REFERENCES `users`(`id`)    ON DELETE CASCADE
                     )
                 """)
                 database.execSQL("CREATE INDEX IF NOT EXISTS `index_expense_splits_expenseId` ON `expense_splits` (`expenseId`)")
-                database.execSQL("CREATE INDEX IF NOT EXISTS `index_expense_splits_userId` ON `expense_splits` (`userId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_expense_splits_userId`    ON `expense_splits` (`userId`)")
+            }
+        }
+
+        // ── 6 → 7 : nickname + photoUri columns on users ────────────────────
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE `users` ADD COLUMN `nickname` TEXT DEFAULT NULL")
+                database.execSQL("ALTER TABLE `users` ADD COLUMN `photoUri` TEXT DEFAULT NULL")
             }
         }
 
@@ -78,7 +87,7 @@ abstract class TricountDatabase : RoomDatabase() {
                     TricountDatabase::class.java,
                     "tricount_database"
                 )
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6)  // ← added new migration
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
