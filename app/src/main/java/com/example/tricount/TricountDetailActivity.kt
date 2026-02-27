@@ -130,8 +130,8 @@ fun TricountDetailScreen(
                     onClick        = {
                         context.startActivity(
                             Intent(context, ExpensesActivity::class.java).apply {
-                                putExtra(ExpensesActivity.EXTRA_TRICOUNT_ID,   tricountId)
-                                putExtra(ExpensesActivity.EXTRA_TRICOUNT_NAME, tricountName)
+                                putExtra("extra_tricount_id",   tricountId)
+                                putExtra("extra_tricount_name", tricountName)
                             }
                         )
                     }
@@ -147,9 +147,9 @@ fun TricountDetailScreen(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     onClick        = {
                         context.startActivity(
-                            Intent(context, SummaryActivity::class.java).apply {
-                                putExtra(SummaryActivity.EXTRA_TRICOUNT_ID,   tricountId)
-                                putExtra(SummaryActivity.EXTRA_TRICOUNT_NAME, tricountName)
+                            Intent(context, BalancesTabActivity::class.java).apply {
+                                putExtra("extra_tricount_id",   tricountId)
+                                putExtra("extra_tricount_name", tricountName)
                             }
                         )
                     }

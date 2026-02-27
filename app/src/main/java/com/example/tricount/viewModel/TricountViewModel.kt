@@ -70,7 +70,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                     joinCode    = generateJoinCode()
                 )
                 val tricountId = tricountDao.insertTricount(tricount).toInt()
-                // Auto-add the creator as the first member
+                // Auto-add creator as first member
                 tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = tricountId))
                 loadTricounts()
             } catch (e: Exception) {
@@ -116,10 +116,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     // MEMBERS
     // ===============================
 
-    /**
-     * Looks up a registered user by [email] and adds them to the tricount.
-     * Reports back via [onResult] on the main thread.
-     */
     fun addMemberByEmail(
         tricountId : Int,
         email      : String,
@@ -146,7 +142,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** Removes a member from a tricount (creator-only action enforced in UI). */
     fun removeMember(userId: Int, tricountId: Int) {
         viewModelScope.launch {
             try {
@@ -197,21 +192,32 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     ) {
         viewModelScope.launch {
             try {
-                if (name.isBlank()) { onResult(AddExpenseResult.Error("Expense name is required")); return@launch }
-                if (amount <= 0)    { onResult(AddExpenseResult.Error("Amount must be greater than 0")); return@launch }
+                if (name.isBlank()) {
+                    onResult(AddExpenseResult.Error("Expense name is required"))
+                    return@launch
+                }
+                if (amount <= 0) {
+                    onResult(AddExpenseResult.Error("Amount must be greater than 0"))
+                    return@launch
+                }
                 if (sharesMap.values.all { it == 0 }) {
-                    onResult(AddExpenseResult.Error("At least one member must have shares > 0")); return@launch
+                    onResult(AddExpenseResult.Error("At least one member must have shares > 0"))
+                    return@launch
                 }
 
                 val expense = ExpenseEntity(
-                    tricountId  = tricountId, name = name, description = description,
-                    amount      = amount, paidBy = paidBy, category = category
+                    tricountId  = tricountId,
+                    name        = name,
+                    description = description,
+                    amount      = amount,
+                    paidBy      = paidBy,
+                    category    = category
                 )
                 val expenseId = tricountDao.insertExpense(expense).toInt()
 
                 val splits = sharesMap
                     .filter { it.value > 0 }
-                    .map    { (userId, shares) ->
+                    .map { (userId, shares) ->
                         ExpenseSplitEntity(expenseId = expenseId, userId = userId, shares = shares)
                     }
                 tricountDao.insertExpenseSplits(splits)
@@ -265,8 +271,10 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             val (debtorId,   debtAmt)   = debtors[di]
             val settled = minOf(creditAmt, debtAmt)
             result.add(Settlement(
-                fromUserId   = debtorId,   fromUserName = nameMap[debtorId]   ?: "",
-                toUserId     = creditorId, toUserName   = nameMap[creditorId] ?: "",
+                fromUserId   = debtorId,
+                fromUserName = nameMap[debtorId]   ?: "",
+                toUserId     = creditorId,
+                toUserName   = nameMap[creditorId] ?: "",
                 amount       = settled
             ))
             creditors[ci] = creditorId to (creditAmt - settled)
@@ -332,7 +340,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     fun resetJoinResult() { _joinResult.value = null }
 
     // ===============================
-    // PROFILE — nickname & photo
+    // PROFILE — nickname & photo (DB-backed)
     // ===============================
 
     fun saveNickname(nickname: String, onDone: () -> Unit = {}) {
@@ -361,7 +369,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** Call once from HomeActivity.onCreate() to pull DB values into SharedPreferences. */
     fun syncProfileFromDb() {
         val userId = sessionManager.getUserId() ?: return
         viewModelScope.launch {
