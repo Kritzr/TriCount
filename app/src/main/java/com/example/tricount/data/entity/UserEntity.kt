@@ -6,10 +6,10 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "users")
 data class UserEntity(
     @PrimaryKey(autoGenerate = true)
-    val id: Int = 0,
-
-    val email: String,
-    val password: String,  // In production, this should be hashed
-    val name: String,
-    val createdAt: Long = System.currentTimeMillis()
+    val id       : Int    = 0,
+    val name     : String,
+    val email    : String,
+    val password : String,
+    val nickname : String? = null,   // stored as TEXT, nullable
+    val photoUri : String? = null    // URI string e.g. "content://media/..." NOT the image itself
 )

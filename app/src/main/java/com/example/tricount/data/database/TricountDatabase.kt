@@ -88,14 +88,14 @@ abstract class TricountDatabase : RoomDatabase() {
                     "tricount_database"
                 )
                     .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
-                    .fallbackToDestructiveMigration()
+
                     .build()
                 INSTANCE = instance
                 instance
             }
         }
 
-        fun clearInstance() {
+        fun clearInstance() { 
             INSTANCE = null
         }
     }
