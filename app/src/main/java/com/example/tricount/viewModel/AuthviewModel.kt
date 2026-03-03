@@ -19,123 +19,138 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     private val _authResult = MutableStateFlow<AuthResult?>(null)
     val authResult: StateFlow<AuthResult?> = _authResult
 
-    // Sign up new user
+    // -------------------------
+    // SIGN UP
+    // -------------------------
     fun signUp(name: String, email: String, password: String) {
         viewModelScope.launch {
             try {
                 Log.d("AuthViewModel", "Starting signup for: $email")
 
-                // Validate inputs
-                if (name.isBlank() || email.isBlank() || password.isBlank()) {
-                    Log.e("AuthViewModel", "Validation failed: empty fields")
+                val trimmedName = name.trim()
+                val trimmedEmail = email.trim()
+                val trimmedPassword = password.trim()
+
+                // Validation
+                if (trimmedName.isBlank() || trimmedEmail.isBlank() || trimmedPassword.isBlank()) {
                     _authResult.value = AuthResult.Error("All fields are required")
                     return@launch
                 }
 
-                if (!isValidEmail(email)) {
-                    Log.e("AuthViewModel", "Validation failed: invalid email")
+                if (!isValidEmail(trimmedEmail)) {
                     _authResult.value = AuthResult.Error("Please enter a valid email address")
                     return@launch
                 }
 
-                if (password.length < 6) {
-                    Log.e("AuthViewModel", "Validation failed: password too short")
+                if (trimmedPassword.length < 6) {
                     _authResult.value = AuthResult.Error("Password must be at least 6 characters")
                     return@launch
                 }
 
-                // Check if user already exists
-                val existingUser = userDao.getUserByEmail(email)
+                // Check existing user
+                val existingUser = userDao.getUserByEmail(trimmedEmail)
                 if (existingUser != null) {
-                    Log.e("AuthViewModel", "User already exists: $email")
                     _authResult.value = AuthResult.Error("Email already registered")
                     return@launch
                 }
 
-                // Create new user
+                // Create user
                 val newUser = UserEntity(
-                    email = email,
-                    password = password,  // In production, hash this!
-                    name = name
+                    email = trimmedEmail,
+                    password = trimmedPassword, // ⚠️ Hash in production
+                    name = trimmedName
                 )
 
-                Log.d("AuthViewModel", "Attempting to insert user")
                 val userId = userDao.insertUser(newUser).toInt()
-                Log.d("AuthViewModel", "User inserted successfully with ID: $userId")
 
-                // Save session
-                sessionManager.saveSession(userId, email, name)
-                Log.d("AuthViewModel", "Session saved for user: $userId")
-
-                _authResult.value = AuthResult.Success(userId)
-                Log.d("AuthViewModel", "Signup completed successfully")
+                if (userId > 0) {
+                    // Save session BEFORE success
+                    sessionManager.saveSession(userId, trimmedEmail, trimmedName)
+                    _authResult.value = AuthResult.Success(userId)
+                    Log.d("AuthViewModel", "Signup successful for userId: $userId")
+                } else {
+                    _authResult.value = AuthResult.Error("Failed to create account")
+                }
 
             } catch (e: Exception) {
-                Log.e("AuthViewModel", "Signup error: ${e.message}", e)
-                e.printStackTrace()
-                _authResult.value = AuthResult.Error("Registration failed: ${e.message}")
+                Log.e("AuthViewModel", "Signup Error: ${e.message}", e)
+                _authResult.value =
+                    AuthResult.Error("Registration failed: ${e.localizedMessage}")
             }
         }
     }
 
-    // Login existing user
+    // -------------------------
+    // LOGIN
+    // -------------------------
     fun login(email: String, password: String) {
         viewModelScope.launch {
             try {
                 Log.d("AuthViewModel", "Attempting login for: $email")
 
-                // Validate inputs
-                if (email.isBlank() || password.isBlank()) {
-                    Log.e("AuthViewModel", "Login validation failed: empty fields")
-                    _authResult.value = AuthResult.Error("Email and password are required")
+                val trimmedEmail = email.trim()
+                val trimmedPassword = password.trim()
+
+                if (trimmedEmail.isBlank() || trimmedPassword.isBlank()) {
+                    _authResult.value =
+                        AuthResult.Error("Email and password are required")
                     return@launch
                 }
 
-                // Validate email format first
-                if (!isValidEmail(email)) {
-                    Log.e("AuthViewModel", "Login validation failed: invalid email format")
-                    _authResult.value = AuthResult.Error("Please enter a valid email address")
+                if (!isValidEmail(trimmedEmail)) {
+                    _authResult.value =
+                        AuthResult.Error("Please enter a valid email address")
                     return@launch
                 }
 
-                // Attempt login
-                val user = userDao.login(email, password)
+                val user = userDao.login(trimmedEmail, trimmedPassword)
+
                 if (user != null) {
-                    Log.d("AuthViewModel", "Login successful for user: ${user.id}")
-                    // Save session
+                    // Save session BEFORE success
                     sessionManager.saveSession(user.id, user.email, user.name)
                     _authResult.value = AuthResult.Success(user.id)
+                    Log.d("AuthViewModel", "Login successful for userId: ${user.id}")
                 } else {
-                    Log.e("AuthViewModel", "Login failed: invalid credentials")
-                    _authResult.value = AuthResult.Error("Incorrect email or password")
+                    _authResult.value =
+                        AuthResult.Error("Incorrect email or password")
                 }
+
             } catch (e: Exception) {
-                Log.e("AuthViewModel", "Login error: ${e.message}", e)
-                e.printStackTrace()
-                _authResult.value = AuthResult.Error("Login failed: ${e.message}")
+                Log.e("AuthViewModel", "Login Error: ${e.message}", e)
+                _authResult.value =
+                    AuthResult.Error("Login failed: ${e.localizedMessage}")
             }
         }
     }
 
-    // Logout
+    // -------------------------
+    // LOGOUT
+    // -------------------------
     fun logout() {
         sessionManager.clearSession()
         Log.d("AuthViewModel", "User logged out")
     }
 
-    // Reset auth result
+    // -------------------------
+    // RESET AUTH STATE
+    // -------------------------
     fun resetAuthResult() {
         _authResult.value = null
     }
 
-    // Email validation with custom regex
+    // -------------------------
+    // EMAIL VALIDATION
+    // -------------------------
     private fun isValidEmail(email: String): Boolean {
-        val emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
+        val emailRegex =
+            "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
         return emailRegex.matches(email)
     }
 }
 
-// Sealed class for authentication results
+// -------------------------
+// AUTH RESULT SEALED CLASS
+// -------------------------
 sealed class AuthResult {
     data class Success(val userId: Int) : AuthResult()
     data class Error(val message: String) : AuthResult()

@@ -10,6 +10,7 @@ data class UserEntity(
     val name     : String,
     val email    : String,
     val password : String,
-    val nickname : String? = null,   // stored as TEXT, nullable
-    val photoUri : String? = null    // URI string e.g. "content://media/..." NOT the image itself
+    val createdAt: Long   = System.currentTimeMillis(),
+    val nickname : String? = null,
+    val photoUri : String? = null
 )

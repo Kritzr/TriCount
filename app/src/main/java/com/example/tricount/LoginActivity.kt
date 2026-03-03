@@ -7,7 +7,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -19,10 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,29 +35,42 @@ class LoginActivity : ComponentActivity() {
 
         setContent {
             TriCountTheme(darkTheme = false) {
+
                 val authResult by authViewModel.authResult.collectAsStateWithLifecycle()
 
-                // Handle authentication result
+                //  Proper auth result handler
                 LaunchedEffect(authResult) {
-                    when (authResult) {
-                        is AuthResult.Success -> {
-                            Toast.makeText(
-                                this@LoginActivity,
-                                "Welcome back!",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            startActivity(Intent(this@LoginActivity, HomeActivity::class.java))
-                            finish()
+                    authResult?.let { result ->
+                        when (result) {
+                            is AuthResult.Success -> {
+                                Toast.makeText(
+                                    this@LoginActivity,
+                                    "Welcome back!",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+
+                                val intent = Intent(
+                                    this@LoginActivity,
+                                    HomeActivity::class.java
+                                ).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                            Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                }
+
+                                startActivity(intent)
+                                finish()
+                            }
+
+                            is AuthResult.Error -> {
+                                Toast.makeText(
+                                    this@LoginActivity,
+                                    result.message,
+                                    Toast.LENGTH_LONG
+                                ).show()
+
+                                authViewModel.resetAuthResult()
+                            }
                         }
-                        is AuthResult.Error -> {
-                            Toast.makeText(
-                                this@LoginActivity,
-                                (authResult as AuthResult.Error).message,
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            authViewModel.resetAuthResult()
-                        }
-                        null -> { /* Do nothing */ }
                     }
                 }
 
@@ -70,7 +79,9 @@ class LoginActivity : ComponentActivity() {
                         authViewModel.login(email, password)
                     },
                     onSignUpClick = {
-                        startActivity(Intent(this, SignUpActivity::class.java))
+                        startActivity(
+                            Intent(this@LoginActivity, SignUpActivity::class.java)
+                        )
                     }
                 )
             }
@@ -78,9 +89,9 @@ class LoginActivity : ComponentActivity() {
     }
 }
 
-// Email validation with custom regex
 private fun isValidEmail(email: String): Boolean {
-    val emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
+    val emailRegex =
+        "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
     return emailRegex.matches(email)
 }
 
@@ -93,13 +104,8 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
 
-    // Real-time email validation
-    val isEmailValid = remember(email) {
-        email.isBlank() || isValidEmail(email)
-    }
-    val showEmailError = remember(email) {
-        email.isNotBlank() && !isValidEmail(email)
-    }
+    val isEmailValid = email.isBlank() || isValidEmail(email)
+    val showEmailError = email.isNotBlank() && !isValidEmail(email)
 
     val focusManager = LocalFocusManager.current
 
@@ -107,7 +113,6 @@ fun LoginScreen(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
-        Spacer(modifier = Modifier.height(10.dp))
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -115,8 +120,9 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top
         ) {
-            // App Logo/Title
+
             Spacer(modifier = Modifier.height(80.dp))
+
             Text(
                 text = "TriCount",
                 fontSize = 40.sp,
@@ -134,7 +140,7 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            // Email Field
+            // EMAIL FIELD
             OutlinedTextField(
                 value = email,
                 onValueChange = { email = it },
@@ -162,7 +168,7 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Password Field
+            // PASSWORD FIELD
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
@@ -173,14 +179,13 @@ fun LoginScreen(
                         Icon(
                             if (passwordVisible) Icons.Filled.Visibility
                             else Icons.Filled.VisibilityOff,
-                            contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                            contentDescription = null
                         )
                     }
                 },
-                visualTransformation = if (passwordVisible)
-                    VisualTransformation.None
-                else
-                    PasswordVisualTransformation(),
+                visualTransformation =
+                    if (passwordVisible) VisualTransformation.None
+                    else PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
@@ -189,7 +194,10 @@ fun LoginScreen(
                 ),
                 keyboardActions = KeyboardActions(
                     onDone = {
-                        if (email.isNotBlank() && password.isNotBlank() && isEmailValid) {
+                        if (email.isNotBlank() &&
+                            password.isNotBlank() &&
+                            isEmailValid
+                        ) {
                             focusManager.clearFocus()
                             onLoginClick(email.trim(), password)
                         }
@@ -199,17 +207,22 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Login Button
+            // LOGIN BUTTON
             Button(
                 onClick = {
-                    if (email.isNotBlank() && password.isNotBlank() && isEmailValid) {
+                    if (email.isNotBlank() &&
+                        password.isNotBlank() &&
+                        isEmailValid
+                    ) {
                         onLoginClick(email.trim(), password)
                     }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
-                enabled = email.isNotBlank() && password.isNotBlank() && isEmailValid
+                enabled = email.isNotBlank() &&
+                        password.isNotBlank() &&
+                        isEmailValid
             ) {
                 Text(
                     text = "Login",
@@ -220,10 +233,7 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Sign Up Link
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "Don't have an account?",
                     fontSize = 14.sp,
