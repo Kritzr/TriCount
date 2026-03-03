@@ -29,9 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.data.SessionManager
-import com.example.tricount.data.entity.MemberWithDetails
 import com.example.tricount.data.entity.ExpenseWithDetails
+import com.example.tricount.data.entity.MemberWithDetails
 import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.viewModel.AddExpenseResult
 import com.example.tricount.viewModel.TricountViewModel
 import java.text.SimpleDateFormat
 import java.util.*
@@ -96,7 +97,7 @@ fun ExpensesScreen(
     viewModel     : TricountViewModel,
     onBackClick   : () -> Unit
 ) {
-    val context = LocalContext.current
+    var showAddDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -117,14 +118,7 @@ fun ExpensesScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = {
-                    context.startActivity(
-                        android.content.Intent(context, AddExpenseActivity::class.java).apply {
-                            putExtra("extra_tricount_id",   tricountId)
-                            putExtra("extra_tricount_name", tricountName)
-                        }
-                    )
-                },
+                onClick = { showAddDialog = true },
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor   = MaterialTheme.colorScheme.onPrimaryContainer
             ) {
@@ -142,6 +136,15 @@ fun ExpensesScreen(
         )
     }
 
+    if (showAddDialog && members.isNotEmpty()) {
+        ExpenseAddDialog(
+            tricountId    = tricountId,
+            currentUserId = currentUserId,
+            members       = members,
+            viewModel     = viewModel,
+            onDismiss     = { showAddDialog = false }
+        )
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -173,6 +176,26 @@ fun ExpensesContent(
             }
         }
         return
+    }
+
+    // Group expenses by date label, sorted newest first
+    val grouped = remember(expenses) {
+        expenses
+            .sortedByDescending { it.createdAt }
+            .groupBy { expense ->
+                val cal = java.util.Calendar.getInstance()
+                val today = cal.clone() as java.util.Calendar
+                cal.timeInMillis = expense.createdAt
+                val yesterday = java.util.Calendar.getInstance().also { it.add(java.util.Calendar.DAY_OF_YEAR, -1) }
+                when {
+                    cal.get(java.util.Calendar.YEAR)       == today.get(java.util.Calendar.YEAR) &&
+                            cal.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR) -> "Today"
+                    cal.get(java.util.Calendar.YEAR)       == yesterday.get(java.util.Calendar.YEAR) &&
+                            cal.get(java.util.Calendar.DAY_OF_YEAR) == yesterday.get(java.util.Calendar.DAY_OF_YEAR) -> "Yesterday"
+                    else -> java.text.SimpleDateFormat("MMMM dd, yyyy", java.util.Locale.getDefault())
+                        .format(java.util.Date(expense.createdAt))
+                }
+            }
     }
 
     LazyColumn(
@@ -220,13 +243,43 @@ fun ExpensesContent(
             }
         }
 
-        // Expense rows
-        items(expenses, key = { it.id }) { expense ->
-            ExpenseItemCard(
-                expense       = expense,
-                isUserExpense = expense.paidBy == currentUserId,
-                onDeleteClick = { onDeleteExpense(expense.id) }
-            )
+        // Expenses grouped by date
+        grouped.forEach { (dateLabel, dayExpenses) ->
+            // Date header
+            item(key = "header_$dateLabel") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        dateLabel,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    HorizontalDivider(
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                    )
+                    // Daily total
+                    Text(
+                        "  $${String.format("%.2f", dayExpenses.sumOf { it.amount })}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                    )
+                }
+            }
+            // Expense cards for that day
+            items(dayExpenses, key = { it.id }) { expense ->
+                ExpenseItemCard(
+                    expense       = expense,
+                    isUserExpense = expense.paidBy == currentUserId,
+                    onDeleteClick = { onDeleteExpense(expense.id) }
+                )
+            }
         }
     }
 }
@@ -308,7 +361,199 @@ fun ExpenseItemCard(
             }
         )
     }
-}@SuppressLint("SimpleDateFormat")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Add Expense Dialog
+// ─────────────────────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ExpenseAddDialog(
+    tricountId    : Int,
+    currentUserId : Int,
+    members       : List<MemberWithDetails>,
+    viewModel     : TricountViewModel,
+    onDismiss     : () -> Unit
+) {
+    var name            by remember { mutableStateOf("") }
+    var description     by remember { mutableStateOf("") }
+    var amount          by remember { mutableStateOf("") }
+    var selectedPayerId by remember { mutableStateOf(currentUserId) }
+    var expanded        by remember { mutableStateOf(false) }
+    var isLoading       by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    val sharesInput = remember {
+        mutableStateMapOf<Int, String>().also { map ->
+            members.forEach { map[it.userId] = "1" }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!isLoading) onDismiss() },
+        title = { Text("Add Expense") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it },
+                    label = { Text("Expense Name") },
+                    placeholder = { Text("e.g., Dinner, Hotel") },
+                    leadingIcon = { Icon(Icons.Filled.ShoppingCart, null) },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !isLoading
+                )
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d{0,2}$"))) amount = it },
+                    label = { Text("Amount") },
+                    placeholder = { Text("0.00") },
+                    leadingIcon = { Text("$", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
+                    enabled = !isLoading
+                )
+
+                // Payer dropdown
+                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded && !isLoading }) {
+                    OutlinedTextField(
+                        value = members.find { it.userId == selectedPayerId }?.name ?: "Select",
+                        onValueChange = {}, readOnly = true,
+                        label = { Text("Paid By") },
+                        leadingIcon = { Icon(Icons.Filled.Person, null) },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(), enabled = !isLoading
+                    )
+                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        members.forEach { member ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            if (member.isCreator) Icons.Filled.Star else Icons.Filled.Person,
+                                            contentDescription = null, modifier = Modifier.size(20.dp),
+                                            tint = if (member.isCreator) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.secondary
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(member.name)
+                                    }
+                                },
+                                onClick = { selectedPayerId = member.userId; expanded = false }
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = description, onValueChange = { description = it },
+                    label = { Text("Description (Optional)") },
+                    placeholder = { Text("Add details...") },
+                    leadingIcon = { Icon(Icons.Filled.Description, null) },
+                    modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3, enabled = !isLoading
+                )
+
+                HorizontalDivider()
+
+                // Shares header
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Split Ratios", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary)
+                    Text("${sharesInput.values.mapNotNull { it.toIntOrNull() }.sum()} parts total",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text("How many parts does each person owe? (e.g. 1 & 2 → one pays ⅓, other pays ⅔)",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                // Per-member share row
+                members.forEach { member ->
+                    val isCurrentUser = member.userId == currentUserId
+                    val totalShares   = sharesInput.values.mapNotNull { it.toIntOrNull() }.sum().coerceAtLeast(1)
+                    val memberShares  = sharesInput[member.userId]?.toIntOrNull() ?: 0
+                    val preview       = amount.toDoubleOrNull()?.let {
+                        if (memberShares > 0) (memberShares.toDouble() / totalShares) * it else null
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(modifier = Modifier.size(36.dp), shape = CircleShape,
+                            color = if (isCurrentUser) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.secondaryContainer) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(member.name.first().uppercase(), fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                                    color = if (isCurrentUser) MaterialTheme.colorScheme.onPrimaryContainer
+                                    else MaterialTheme.colorScheme.onSecondaryContainer)
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(if (isCurrentUser) "You" else member.name, fontSize = 14.sp,
+                                fontWeight = if (isCurrentUser) FontWeight.Bold else FontWeight.Normal)
+                            if (preview != null) {
+                                Text("≈ ${"$"}${"%.2f".format(preview)}", fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        OutlinedTextField(
+                            value = sharesInput[member.userId] ?: "1",
+                            onValueChange = { v -> sharesInput[member.userId] = v.filter { it.isDigit() } },
+                            modifier = Modifier.width(80.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true, suffix = { Text("pt", fontSize = 11.sp) }, enabled = !isLoading
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val amountDouble = amount.toDoubleOrNull()
+                    val sharesMap    = sharesInput.mapValues { it.value.toIntOrNull() ?: 0 }.filter { it.value > 0 }
+                    if (name.isNotBlank() && amountDouble != null && amountDouble > 0 && sharesMap.isNotEmpty()) {
+                        isLoading = true
+                        viewModel.addExpense(
+                            tricountId  = tricountId,
+                            name        = name.trim(),
+                            description = description.trim(),
+                            amount      = amountDouble,
+                            paidBy      = selectedPayerId,
+                            sharesMap   = sharesMap
+                        ) { result ->
+                            isLoading = false
+                            when (result) {
+                                is AddExpenseResult.Success ->
+                                { Toast.makeText(context, "Expense added!", Toast.LENGTH_SHORT).show(); onDismiss() }
+                                is AddExpenseResult.Error ->
+                                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                },
+                enabled = name.isNotBlank() && amount.toDoubleOrNull() != null &&
+                        amount.toDoubleOrNull()!! > 0 &&
+                        sharesInput.values.any { (it.toIntOrNull() ?: 0) > 0 } && !isLoading
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text("Add Expense")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") }
+        }
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+@SuppressLint("SimpleDateFormat")
 private fun formatExpenseDate(timestamp: Long): String =
     SimpleDateFormat("MMM dd, yyyy 'at' hh:mm a", Locale.getDefault()).format(Date(timestamp))
-
