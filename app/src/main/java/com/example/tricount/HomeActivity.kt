@@ -97,6 +97,7 @@ class HomeActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         tricountViewModel.loadTricounts()
+        tricountViewModel.syncProfileFromDb()
     }
 }
 
@@ -194,6 +195,7 @@ fun HomeScreen(
                 )
                 1 -> ProfileScreen(
                     modifier             = Modifier.padding(padding),
+                    viewModel            = viewModel,
                     sessionManager       = sessionManager,
                     isDarkMode           = isDarkMode,
                     onDarkModeToggle     = onDarkModeToggle,
@@ -530,6 +532,7 @@ private val LANGUAGES = listOf(
 @Composable
 fun ProfileScreen(
     modifier             : Modifier = Modifier,
+    viewModel            : TricountViewModel,
     sessionManager       : SessionManager,
     isDarkMode           : Boolean,
     onDarkModeToggle     : (Boolean) -> Unit,
@@ -563,6 +566,7 @@ fun ProfileScreen(
             } catch (_: Exception) { /* permission may already be held */ }
             photoUriString = it.toString()
             sessionManager.setProfilePhotoUri(it.toString())
+            viewModel.savePhotoUri(it.toString())
             Toast.makeText(context, "Photo updated!", Toast.LENGTH_SHORT).show()
         }
     }
@@ -858,6 +862,7 @@ fun ProfileScreen(
                 Button(onClick = {
                     nickname = temp.trim()
                     sessionManager.setNickname(nickname)
+                    viewModel.saveNickname(nickname)
                     showEditNickname = false
                     Toast.makeText(context, "Nickname updated!", Toast.LENGTH_SHORT).show()
                 }) { Text("Save") }
