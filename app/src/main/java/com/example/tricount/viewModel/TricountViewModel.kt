@@ -243,6 +243,17 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun archiveExpense(expenseId: Int, tricountId: Int) {
+        viewModelScope.launch {
+            try {
+                tricountDao.archiveExpense(expenseId)
+                loadExpenses(tricountId)
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "Archive expense error", e)
+            }
+        }
+    }
+
     // ===============================
     // SETTLEMENT LOGIC
     // ===============================

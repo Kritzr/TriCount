@@ -30,7 +30,6 @@ interface TricountDao {
     @Query("DELETE FROM tricounts WHERE id = :tricountId")
     suspend fun deleteTricountById(tricountId: Int)
 
-    /** All tricounts the user belongs to (created or joined). */
     @Query("""
         SELECT t.* FROM tricounts t
         INNER JOIN tricount_members tm ON t.id = tm.tricountId
@@ -69,14 +68,18 @@ interface TricountDao {
     @Query("DELETE FROM expenses WHERE id = :expenseId")
     suspend fun deleteExpense(expenseId: Int)
 
-    /** Expenses for a tricount joined with payer name/email. */
+    // ← isArchived = 1, does NOT delete from DB, just hides from list
+    @Query("UPDATE expenses SET isArchived = 1 WHERE id = :expenseId")
+    suspend fun archiveExpense(expenseId: Int)
+
+    /** Expenses for a tricount joined with payer name/email. Excludes archived. */
     @Query("""
         SELECT e.id, e.tricountId, e.name, e.description, e.amount,
                e.paidBy, u.name AS paidByName, u.email AS paidByEmail,
-               e.createdAt, e.category
+               e.createdAt, e.category, e.isArchived
         FROM expenses e
         INNER JOIN users u ON e.paidBy = u.id
-        WHERE e.tricountId = :tricountId
+        WHERE e.tricountId = :tricountId AND e.isArchived = 0
         ORDER BY e.createdAt DESC
     """)
     suspend fun getExpensesWithDetails(tricountId: Int): List<ExpenseWithDetails>
@@ -101,7 +104,6 @@ interface TricountDao {
     """)
     suspend fun getExpenseSplitsRaw(expenseId: Int, payerId: Int): List<ExpenseSplitWithUser>
 
-    /** Wraps getExpenseSplitsRaw and fills in the computed dollar amount per split. */
     suspend fun getExpenseSplitsWithAmounts(
         expenseId   : Int,
         totalAmount : Double,

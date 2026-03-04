@@ -37,6 +37,11 @@ import com.example.tricount.viewModel.TricountViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.FilledIconButton
 
 class ExpensesActivity : ComponentActivity() {
 
@@ -127,11 +132,14 @@ fun ExpensesScreen(
         }
     ) { padding ->
         ExpensesContent(
-            modifier      = Modifier.padding(padding),
-            expenses      = expenses,
-            currentUserId = currentUserId,
-            onDeleteExpense = { expenseId ->
+            modifier         = Modifier.padding(padding),
+            expenses         = expenses,
+            currentUserId    = currentUserId,
+            onDeleteExpense  = { expenseId ->
                 viewModel.deleteExpense(expenseId, tricountId)
+            },
+            onArchiveExpense = { expenseId ->
+                viewModel.archiveExpense(expenseId, tricountId)
             }
         )
     }
@@ -153,10 +161,11 @@ fun ExpensesScreen(
 
 @Composable
 fun ExpensesContent(
-    modifier      : Modifier = Modifier,
-    expenses      : List<ExpenseWithDetails>,
-    currentUserId : Int,
-    onDeleteExpense: (Int) -> Unit
+    modifier        : Modifier = Modifier,
+    expenses        : List<ExpenseWithDetails>,
+    currentUserId   : Int,
+    onDeleteExpense : (Int) -> Unit,
+    onArchiveExpense: (Int) -> Unit = {}
 ) {
     if (expenses.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -274,10 +283,11 @@ fun ExpensesContent(
             }
             // Expense cards for that day
             items(dayExpenses, key = { it.id }) { expense ->
-                ExpenseItemCard(
-                    expense       = expense,
-                    isUserExpense = expense.paidBy == currentUserId,
-                    onDeleteClick = { onDeleteExpense(expense.id) }
+                SwipeableExpenseCard(
+                    expense         = expense,
+                    isUserExpense   = expense.paidBy == currentUserId,
+                    onDeleteClick   = { onDeleteExpense(expense.id) },
+                    onArchiveClick  = { onArchiveExpense(expense.id) }
                 )
             }
         }
@@ -285,31 +295,148 @@ fun ExpensesContent(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Expense card
+// Swipeable expense card
+// Swipe LEFT  → confirm delete
+// Swipe RIGHT → confirm archive
 // ─────────────────────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExpenseItemCard(
-    expense       : ExpenseWithDetails,
-    isUserExpense : Boolean,
-    onDeleteClick : () -> Unit
+fun SwipeableExpenseCard(
+    expense        : ExpenseWithDetails,
+    isUserExpense  : Boolean,
+    onDeleteClick  : () -> Unit,
+    onArchiveClick : () -> Unit
 ) {
-    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog  by remember { mutableStateOf(false) }
+    var showArchiveDialog by remember { mutableStateOf(false) }
 
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (!isUserExpense) return@rememberSwipeToDismissBoxState false
+            when (value) {
+                SwipeToDismissBoxValue.EndToStart   -> { showDeleteDialog  = true; false }
+                SwipeToDismissBoxValue.StartToEnd   -> { showArchiveDialog = true; false }
+                SwipeToDismissBoxValue.Settled      -> false
+            }
+        }
+    )
+
+    SwipeToDismissBox(
+        state                       = dismissState,
+        enableDismissFromStartToEnd = isUserExpense,
+        enableDismissFromEndToStart = isUserExpense,
+        backgroundContent = {
+            val direction = dismissState.dismissDirection
+            // Left swipe background = red (delete)
+            // Right swipe background = amber (archive)
+            val (bgColor, icon, label) = when (direction) {
+                SwipeToDismissBoxValue.EndToStart ->
+                    Triple(MaterialTheme.colorScheme.errorContainer,
+                        Icons.Filled.Delete, "Delete")
+                SwipeToDismissBoxValue.StartToEnd ->
+                    Triple(MaterialTheme.colorScheme.secondaryContainer,
+                        Icons.Filled.Archive, "Archive")
+                else ->
+                    Triple(MaterialTheme.colorScheme.surface,
+                        Icons.Filled.Delete, "")
+            }
+            val arrangement = if (direction == SwipeToDismissBoxValue.EndToStart)
+                Arrangement.End else Arrangement.Start
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    modifier              = Modifier.fillMaxSize(),
+                    horizontalArrangement = arrangement,
+                    verticalAlignment     = Alignment.CenterVertically
+                ) {
+                    if (direction == SwipeToDismissBoxValue.StartToEnd) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .padding(4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(icon, contentDescription = label,
+                                tint     = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(28.dp))
+                        }
+                    }
+                    if (direction == SwipeToDismissBoxValue.EndToStart) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .padding(4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(icon, contentDescription = label,
+                                tint     = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(28.dp))
+                        }
+                    }
+                }
+            }
+        }
+    ) {
+        ExpenseItemCard(expense = expense)
+    }
+
+    // Delete confirmation
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title   = { Text("Delete Expense?") },
+            text    = { Text("Are you sure you want to delete \"${expense.name}\"? This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = { onDeleteClick(); showDeleteDialog = false },
+                    colors  = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Archive confirmation
+    if (showArchiveDialog) {
+        AlertDialog(
+            onDismissRequest = { showArchiveDialog = false },
+            title   = { Text("Archive Expense?") },
+            text    = { Text("Archive \"${expense.name}\"? It will be hidden from the list.") },
+            confirmButton = {
+                TextButton(
+                    onClick = { onArchiveClick(); showArchiveDialog = false }
+                ) { Text("Archive") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showArchiveDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+// Plain card — no swipe, no colour differentiation
+@Composable
+fun ExpenseItemCard(expense: ExpenseWithDetails) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isUserExpense)
-                MaterialTheme.colorScheme.secondaryContainer
-            else
-                MaterialTheme.colorScheme.surfaceVariant
+        modifier  = Modifier.fillMaxWidth(),
+        colors    = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment     = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(expense.name, fontSize = 18.sp, fontWeight = FontWeight.Bold,
@@ -322,44 +449,23 @@ fun ExpenseItemCard(
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Person, contentDescription = null,
-                        modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        modifier = Modifier.size(16.dp),
+                        tint     = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(4.dp))
                     Text("Paid by ${expense.paidByName}", fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                        color      = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium)
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(formatExpenseDate(expense.createdAt), fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("$${String.format("%.2f", expense.amount)}", fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                if (isUserExpense) {
-                    IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
+            Text(
+                "$${String.format("%.2f", expense.amount)}",
+                fontSize   = 22.sp, fontWeight = FontWeight.Bold,
+                color      = MaterialTheme.colorScheme.primary
+            )
         }
-    }
-
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title   = { Text("Delete Expense?") },
-            text    = { Text("Are you sure you want to delete \"${expense.name}\"? This cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = { onDeleteClick(); showDeleteDialog = false },
-                    colors  = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
-            }
-        )
     }
 }
 

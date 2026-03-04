@@ -9,33 +9,34 @@ import androidx.room.PrimaryKey
     tableName = "expenses",
     foreignKeys = [
         ForeignKey(
-            entity     = TricountEntity::class,
+            entity = TricountEntity::class,
             parentColumns = ["id"],
-            childColumns  = ["tricountId"],
-            onDelete   = ForeignKey.CASCADE
+            childColumns = ["tricountId"],
+            onDelete = ForeignKey.CASCADE
         ),
         ForeignKey(
-            entity     = UserEntity::class,
+            entity = UserEntity::class,
             parentColumns = ["id"],
-            childColumns  = ["paidBy"],
-            onDelete   = ForeignKey.CASCADE
+            childColumns = ["paidBy"],
+            onDelete = ForeignKey.CASCADE
         )
     ],
     indices = [Index("tricountId"), Index("paidBy")]
 )
 data class ExpenseEntity(
     @PrimaryKey(autoGenerate = true)
-    val id          : Int    = 0,
-    val tricountId  : Int,
-    val name        : String,
-    val description : String,
-    val amount      : Double,
-    val paidBy      : Int,                          // User ID who paid
-    val createdAt   : Long   = System.currentTimeMillis(),
-    val category    : String = "General"
+    val id         : Int    = 0,
+    val tricountId : Int,
+    val name       : String,
+    val description: String,
+    val amount     : Double,
+    val paidBy     : Int,
+    val createdAt  : Long   = System.currentTimeMillis(),
+    val category   : String = "General",
+    val isArchived : Boolean = false   // ← new column
 )
 
-/** Flat result class returned by the DAO JOIN query — no @Embedded needed. */
+// Data class for displaying expense with payer details
 data class ExpenseWithDetails(
     val id           : Int,
     val tricountId   : Int,
@@ -46,5 +47,6 @@ data class ExpenseWithDetails(
     val paidByName   : String,
     val paidByEmail  : String,
     val createdAt    : Long,
-    val category     : String
+    val category     : String,
+    val isArchived   : Boolean = false  // ← new field
 )

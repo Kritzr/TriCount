@@ -24,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TricountFavorite::class,
         ExpenseSplitEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class TricountDatabase : RoomDatabase() {
@@ -47,7 +47,8 @@ abstract class TricountDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_4_5,
                         MIGRATION_5_6,
-                        MIGRATION_6_7
+                        MIGRATION_6_7,
+                        MIGRATION_7_8
                     )
                     .fallbackToDestructiveMigration()
                     .build()
@@ -98,6 +99,15 @@ abstract class TricountDatabase : RoomDatabase() {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE `users` ADD COLUMN `nickname` TEXT DEFAULT 'NULL'")
                 database.execSQL("ALTER TABLE `users` ADD COLUMN `photoUri` TEXT DEFAULT 'NULL'")
+            }
+        }
+
+        // 7 → 8 : isArchived column on expenses
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE `expenses` ADD COLUMN `isArchived` INTEGER NOT NULL DEFAULT 0"
+                )
             }
         }
 

@@ -29,10 +29,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.data.SessionManager
+import com.example.tricount.data.entity.ExpenseSplitWithUser
+import com.example.tricount.data.entity.ExpenseWithDetails
 import com.example.tricount.data.entity.MemberWithDetails
 import com.example.tricount.data.entity.TricountEntity
 import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.AddMemberResult
+import com.example.tricount.viewModel.Settlement
 import com.example.tricount.viewModel.TricountViewModel
 
 class TricountDetailActivity : ComponentActivity() {
@@ -50,10 +53,14 @@ class TricountDetailActivity : ComponentActivity() {
             TriCountTheme(darkTheme = false) {
                 LaunchedEffect(tricountId) {
                     tricountViewModel.loadTricountDetails(tricountId)
+                    tricountViewModel.loadExpenses(tricountId)
                 }
 
                 val tricountDetails by tricountViewModel.currentTricount.collectAsStateWithLifecycle()
                 val members         by tricountViewModel.tricountMembers.collectAsStateWithLifecycle()
+                val expenses        by tricountViewModel.expenses.collectAsStateWithLifecycle()
+                val expenseSplits   by tricountViewModel.expenseSplits.collectAsStateWithLifecycle()
+                val settlements     by tricountViewModel.settlements.collectAsStateWithLifecycle()
                 val currentUserId   = sessionManager.getUserId() ?: -1
 
                 TricountDetailScreen(
@@ -61,6 +68,9 @@ class TricountDetailActivity : ComponentActivity() {
                     tricountName    = tricountName,
                     tricountDetails = tricountDetails,
                     members         = members,
+                    expenses        = expenses,
+                    expenseSplits   = expenseSplits,
+                    settlements     = settlements,
                     currentUserId   = currentUserId,
                     viewModel       = tricountViewModel,
                     onBackClick     = { finish() }
@@ -70,9 +80,7 @@ class TricountDetailActivity : ComponentActivity() {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Screen — hub with nav cards + inline details
-// ─────────────────────────────────────────────────────────────────────────────
+private data class TabItem(val icon: ImageVector, val title: String)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,165 +89,126 @@ fun TricountDetailScreen(
     tricountName    : String,
     tricountDetails : TricountEntity?,
     members         : List<MemberWithDetails>,
+    expenses        : List<ExpenseWithDetails>,
+    expenseSplits   : Map<Int, List<ExpenseSplitWithUser>>,
+    settlements     : List<Settlement>,
     currentUserId   : Int,
     viewModel       : TricountViewModel,
     onBackClick     : () -> Unit
 ) {
     val context = LocalContext.current
+    var selectedTab by remember { mutableStateOf(0) }
+
+    val tabs = listOf(
+        TabItem(Icons.Filled.Receipt,        "Expenses"),
+        TabItem(Icons.Filled.AccountBalance, "Summary"),
+        TabItem(Icons.Filled.Info,           "Details")
+    )
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(tricountName) },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+            Column {
+                TopAppBar(
+                    title = { Text(tricountName, fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = onBackClick) {
+                            Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = {
+                            tricountDetails?.let { shareTricount(context, it.name, it.joinCode) }
+                        }) {
+                            Icon(Icons.Filled.Share, contentDescription = "Share")
+                        }
                     }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        tricountDetails?.let { shareTricount(context, it.name, it.joinCode) }
-                    }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Share")
+                )
+                TabRow(selectedTabIndex = selectedTab) {
+                    tabs.forEachIndexed { index, tab ->
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick  = { selectedTab = index },
+                            text     = { Text(tab.title, fontSize = 12.sp) },
+                            icon     = {
+                                Icon(tab.icon, contentDescription = tab.title,
+                                    modifier = Modifier.size(18.dp))
+                            }
+                        )
                     }
                 }
-            )
+            }
+        },
+        floatingActionButton = {
+            if (selectedTab == 0) {
+                FloatingActionButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(context, AddExpenseActivity::class.java).apply {
+                                putExtra("extra_tricount_id",   tricountId)
+                                putExtra("extra_tricount_name", tricountName)
+                            }
+                        )
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor   = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = "Add Expense")
+                }
+            }
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-
-            item {
-                Text("Sections", fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 4.dp))
-            }
-
-            // Expenses nav card
-            item {
-                NavCard(
-                    icon           = Icons.Filled.Receipt,
-                    title          = "Expenses",
-                    subtitle       = "View and add expenses",
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    onClick        = {
-                        context.startActivity(
-                            Intent(context, ExpensesActivity::class.java).apply {
-                                putExtra("extra_tricount_id",   tricountId)
-                                putExtra("extra_tricount_name", tricountName)
-                            }
-                        )
-                    }
-                )
-            }
-
-            // Summary nav card
-            item {
-                NavCard(
-                    icon           = Icons.Filled.AccountBalance,
-                    title          = "Summary",
-                    subtitle       = "Balances and settlements",
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    onClick        = {
-                        context.startActivity(
-                            Intent(context, BalancesTabActivity::class.java).apply {
-                                putExtra("extra_tricount_id",   tricountId)
-                                putExtra("extra_tricount_name", tricountName)
-                            }
-                        )
-                    }
-                )
-            }
-
-            // Inline details
-            item {
-                Spacer(Modifier.height(4.dp))
-                Text("Details", fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 4.dp))
-            }
-
-            item {
-                DetailsSection(
-                    tricountDetails = tricountDetails,
-                    members         = members,
-                    currentUserId   = currentUserId,
-                    viewModel       = viewModel
-                )
-            }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Navigation card
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun NavCard(
-    icon           : ImageVector,
-    title          : String,
-    subtitle       : String,
-    containerColor : androidx.compose.ui.graphics.Color,
-    onClick        : () -> Unit
-) {
-    Card(
-        modifier  = Modifier.fillMaxWidth(),
-        onClick   = onClick,
-        colors    = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                modifier = Modifier.size(48.dp),
-                shape    = CircleShape,
-                color    = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, contentDescription = null, modifier = Modifier.size(26.dp),
-                        tint = MaterialTheme.colorScheme.onSurface)
+        when (selectedTab) {
+            0 -> ExpensesContent(
+                modifier         = Modifier.padding(padding),
+                expenses         = expenses,
+                currentUserId    = currentUserId,
+                onDeleteExpense  = { expenseId ->
+                    viewModel.deleteExpense(expenseId, tricountId)
+                },
+                onArchiveExpense = { expenseId ->
+                    viewModel.archiveExpense(expenseId, tricountId)
                 }
-            }
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, fontSize = 17.sp, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface)
-                Text(subtitle, fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-            }
-            Icon(Icons.Filled.ChevronRight, contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+            )
+            1 -> BalancesContent(
+                modifier      = Modifier.padding(padding),
+                expenses      = expenses,
+                expenseSplits = expenseSplits,
+                settlements   = settlements,
+                currentUserId = currentUserId,
+                memberCount   = members.size,
+                expenseCount  = expenses.size
+            )
+            2 -> DetailsTab(
+                modifier        = Modifier.padding(padding),
+                tricountDetails = tricountDetails,
+                members         = members,
+                currentUserId   = currentUserId,
+                viewModel       = viewModel,
+                tricountId      = tricountId
+            )
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Inline details (join code + members)
+// Details tab
 // ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DetailsSection(
+private fun DetailsTab(
+    modifier        : Modifier = Modifier,
     tricountDetails : TricountEntity?,
     members         : List<MemberWithDetails>,
     currentUserId   : Int,
+    tricountId      : Int,
     viewModel       : TricountViewModel
 ) {
     val context = LocalContext.current
     var showAddMemberDialog by remember { mutableStateOf(false) }
 
     if (tricountDetails == null) {
-        Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
         return
@@ -247,88 +216,111 @@ private fun DetailsSection(
 
     val isCreator = tricountDetails.creatorId == currentUserId
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-
-        // Join code
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors   = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("Join Code", fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                        Spacer(Modifier.height(4.dp))
-                        Text(tricountDetails.joinCode, fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold, letterSpacing = 4.sp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                    IconButton(onClick = {
-                        copyToClipboard(context, tricountDetails.joinCode)
-                        Toast.makeText(context, "Code copied!", Toast.LENGTH_SHORT).show()
-                    }) {
-                        Icon(Icons.Filled.ContentCopy, contentDescription = "Copy",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                Button(
-                    onClick   = { shareTricount(context, tricountDetails.name, tricountDetails.joinCode) },
-                    modifier  = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Filled.Share, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Share Tricount")
-                }
-            }
-        }
-
-        // Description
-        if (tricountDetails.description.isNotBlank()) {
-            Card(modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+    LazyColumn(
+        modifier       = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors   = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
-                    Text("Description", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(8.dp))
-                    Text(tricountDetails.description, fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface)
-                }
-            }
-        }
-
-        // Members
-        Card(modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-            Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text("Members (${members.size})", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary)
-                    if (isCreator) {
-                        IconButton(onClick = { showAddMemberDialog = true }) {
-                            Icon(Icons.Filled.PersonAdd, contentDescription = "Add Member",
-                                tint = MaterialTheme.colorScheme.primary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Join Code", fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                tricountDetails.joinCode,
+                                fontSize = 32.sp, fontWeight = FontWeight.Bold,
+                                letterSpacing = 4.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                        IconButton(onClick = {
+                            copyToClipboard(context, tricountDetails.joinCode)
+                            Toast.makeText(context, "Code copied!", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(Icons.Filled.ContentCopy, contentDescription = "Copy",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                     }
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick  = { shareTricount(context, tricountDetails.name, tricountDetails.joinCode) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Filled.Share, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Share Tricount")
+                    }
                 }
-                Spacer(Modifier.height(12.dp))
-                if (members.isEmpty()) {
-                    Text("No members yet", fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    members.forEach { member ->
-                        MemberItem(
-                            member        = member,
-                            isCreator     = isCreator,
-                            canRemove     = isCreator && !member.isCreator,
-                            onRemoveClick = { viewModel.removeMember(member.userId, tricountDetails.id) }
-                        )
-                        if (member != members.last()) Spacer(Modifier.height(8.dp))
+            }
+        }
+
+        if (tricountDetails.description.isNotBlank()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors   = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                        Text("Description", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.height(8.dp))
+                        Text(tricountDetails.description, fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors   = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Members (${members.size})", fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary)
+                        if (isCreator) {
+                            IconButton(onClick = { showAddMemberDialog = true }) {
+                                Icon(Icons.Filled.PersonAdd, contentDescription = "Add Member",
+                                    tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    if (members.isEmpty()) {
+                        Text("No members yet", fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        members.forEach { member ->
+                            MemberItem(
+                                member        = member,
+                                isCreator     = isCreator,
+                                canRemove     = isCreator && !member.isCreator,
+                                onRemoveClick = {
+                                    viewModel.removeMember(member.userId, tricountDetails.id)
+                                }
+                            )
+                            if (member != members.last()) Spacer(Modifier.height(8.dp))
+                        }
                     }
                 }
             }
@@ -336,8 +328,11 @@ private fun DetailsSection(
     }
 
     if (showAddMemberDialog) {
-        AddMemberDialog(tricountId = tricountDetails.id, viewModel = viewModel,
-            onDismiss = { showAddMemberDialog = false })
+        AddMemberDialog(
+            tricountId = tricountId,
+            viewModel  = viewModel,
+            onDismiss  = { showAddMemberDialog = false }
+        )
     }
 }
 
@@ -354,13 +349,17 @@ fun MemberItem(
 ) {
     var showRemoveDialog by remember { mutableStateOf(false) }
 
-    Row(modifier = Modifier.fillMaxWidth(),
+    Row(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically) {
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-            Surface(modifier = Modifier.size(40.dp), shape = CircleShape,
+            Surface(
+                modifier = Modifier.size(40.dp), shape = CircleShape,
                 color = if (member.isCreator) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.secondary) {
+                else MaterialTheme.colorScheme.secondary
+            ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         if (member.isCreator) Icons.Filled.Star else Icons.Filled.Person,
@@ -373,13 +372,17 @@ fun MemberItem(
             Spacer(Modifier.width(12.dp))
             Column {
                 Text(member.name, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                Text(member.email, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(member.email, fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (member.isCreator) {
-            Surface(shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)) {
-                Text("CREATOR", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+            ) {
+                Text("CREATOR",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     fontSize = 10.sp, fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary)
             }
@@ -399,7 +402,8 @@ fun MemberItem(
             confirmButton = {
                 TextButton(
                     onClick = { onRemoveClick(); showRemoveDialog = false },
-                    colors  = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    colors  = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error)
                 ) { Text("Remove") }
             },
             dismissButton = {
@@ -438,15 +442,22 @@ fun AddMemberDialog(
                     fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(16.dp))
                 OutlinedTextField(
-                    value = email, onValueChange = { email = it },
-                    label = { Text("Email") }, placeholder = { Text("user@example.com") },
-                    leadingIcon = { Icon(Icons.Filled.Email, null) },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true,
-                    isError = !isValidEmail,
-                    supportingText = {
-                        if (!isValidEmail) Text("Invalid email", color = MaterialTheme.colorScheme.error)
+                    value           = email,
+                    onValueChange   = { email = it },
+                    label           = { Text("Email") },
+                    placeholder     = { Text("user@example.com") },
+                    leadingIcon     = { Icon(Icons.Filled.Email, null) },
+                    modifier        = Modifier.fillMaxWidth(),
+                    singleLine      = true,
+                    isError         = !isValidEmail,
+                    supportingText  = {
+                        if (!isValidEmail)
+                            Text("Invalid email", color = MaterialTheme.colorScheme.error)
                     },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Email,
+                        imeAction    = ImeAction.Done
+                    ),
                     enabled = !isLoading
                 )
             }
@@ -460,11 +471,13 @@ fun AddMemberDialog(
                             isLoading = false
                             when (result) {
                                 is AddMemberResult.Success -> {
-                                    Toast.makeText(context, "${result.memberName} added!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context,
+                                        "${result.memberName} added!", Toast.LENGTH_SHORT).show()
                                     onDismiss()
                                 }
                                 is AddMemberResult.Error ->
-                                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context,
+                                        result.message, Toast.LENGTH_LONG).show()
                             }
                         }
                     }

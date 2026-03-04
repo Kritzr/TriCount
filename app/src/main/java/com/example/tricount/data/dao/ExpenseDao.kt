@@ -24,4 +24,7 @@ interface ExpenseDao {
 
     @Query("DELETE FROM expenses")
     suspend fun deleteAllExpenses()
+
+    @Query("UPDATE expenses SET isArchived = 1 WHERE id = :expenseId")
+    suspend fun archiveExpense(expenseId: Int)
 }
