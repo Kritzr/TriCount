@@ -15,6 +15,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -97,7 +98,6 @@ class HomeActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         tricountViewModel.loadTricounts()
-        tricountViewModel.syncProfileFromDb()
     }
 }
 
@@ -195,7 +195,6 @@ fun HomeScreen(
                 )
                 1 -> ProfileScreen(
                     modifier             = Modifier.padding(padding),
-                    viewModel            = viewModel,
                     sessionManager       = sessionManager,
                     isDarkMode           = isDarkMode,
                     onDarkModeToggle     = onDarkModeToggle,
@@ -291,23 +290,30 @@ fun TriCountListScreen(
     val favoriteTricounts by viewModel.favoriteTricounts.collectAsStateWithLifecycle()
     val currentUserId     = sessionManager.getUserId()
     var tricountToDelete  by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    var tricountToEdit    by remember { mutableStateOf<com.example.tricount.data.entity.TricountEntity?>(null) }
     var selectedTab       by remember { mutableStateOf(0) }
-    val tabs              = listOf("Created", "Joined", "Favorites")
+    val tabs              = listOf("Created", "Joined", "Favorites", "Archived")
 
-    val filteredTricounts = remember(tricounts, favoriteTricounts, selectedTab, currentUserId) {
-        when (selectedTab) {
-            0    -> tricounts.filter { it.creatorId == currentUserId }
-            1    -> tricounts.filter { it.creatorId != currentUserId }
-            2    -> favoriteTricounts
-            else -> tricounts
+    val archivedTricounts by viewModel.archivedTricounts.collectAsStateWithLifecycle()
+
+    val userId: Int = currentUserId ?: -1
+    val filteredTricounts: List<com.example.tricount.data.entity.TricountEntity> =
+        remember(tricounts, favoriteTricounts, archivedTricounts, selectedTab, userId) {
+            when (selectedTab) {
+                0    -> tricounts.filter { it.creatorId == userId && !it.isArchived }
+                1    -> tricounts.filter { it.creatorId != userId && !it.isArchived }
+                2    -> favoriteTricounts.filter { !it.isArchived }
+                3    -> archivedTricounts
+                else -> tricounts
+            }
         }
-    }
 
     LaunchedEffect(selectedTab) {
-        if (selectedTab == 2 && currentUserId != null)
-            viewModel.loadFavoriteTricounts(currentUserId)
-        else if (currentUserId != null)
-            viewModel.loadTricounts()
+        when (selectedTab) {
+            2    -> if (currentUserId != null) viewModel.loadFavoriteTricounts(currentUserId)
+            3    -> viewModel.loadArchivedTricounts()
+            else -> if (currentUserId != null) viewModel.loadTricounts()
+        }
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -321,9 +327,11 @@ fun TriCountListScreen(
                     Text("${tricounts.size} total • ${filteredTricounts.size} ${tabs[selectedTab].lowercase()}",
                         fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                TabRow(selectedTabIndex = selectedTab,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor   = MaterialTheme.colorScheme.primary) {
+                ScrollableTabRow(
+                    selectedTabIndex = selectedTab,
+                    containerColor   = MaterialTheme.colorScheme.surface,
+                    contentColor     = MaterialTheme.colorScheme.primary
+                ) {
                     tabs.forEachIndexed { index, title ->
                         Tab(
                             selected = selectedTab == index,
@@ -331,13 +339,15 @@ fun TriCountListScreen(
                             text     = {
                                 Text(title,
                                     fontWeight = if (selectedTab == index)
-                                        FontWeight.Bold else FontWeight.Normal)
+                                        FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 13.sp)
                             },
                             icon = {
                                 when (index) {
-                                    0 -> Icon(Icons.Filled.Star, null, modifier = Modifier.size(20.dp))
-                                    1 -> Icon(Icons.Filled.Group, null, modifier = Modifier.size(20.dp))
-                                    2 -> Icon(Icons.Filled.Favorite, null, modifier = Modifier.size(20.dp))
+                                    0 -> Icon(Icons.Filled.Star,     null, modifier = Modifier.size(18.dp))
+                                    1 -> Icon(Icons.Filled.Group,    null, modifier = Modifier.size(18.dp))
+                                    2 -> Icon(Icons.Filled.Favorite, null, modifier = Modifier.size(18.dp))
+                                    3 -> Icon(Icons.Filled.Archive,  null, modifier = Modifier.size(18.dp))
                                 }
                             }
                         )
@@ -357,6 +367,23 @@ fun TriCountListScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
                         Text("Tap the heart icon on a Tricount to add it to favorites",
+                            fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier  = Modifier.padding(horizontal = 32.dp))
+                    }
+                }
+            }
+            selectedTab == 3 && filteredTricounts.isEmpty() -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Filled.Archive, null, modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                        Spacer(Modifier.height(16.dp))
+                        Text("No Archived Tricounts", fontSize = 20.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Long-press a Tricount and tap Archive to hide it here",
                             fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
                             modifier  = Modifier.padding(horizontal = 32.dp))
@@ -396,12 +423,15 @@ fun TriCountListScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(filteredTricounts, key = { it.id }) { tricount ->
                         AnimatedTricountCard(
-                            tricount        = tricount,
-                            isCreator       = tricount.creatorId == currentUserId,
-                            isFavorite      = favoriteIds.contains(tricount.id),
-                            onClick         = { onTricountClick(tricount.id, tricount.name) },
-                            onDeleteClick   = { tricountToDelete = Pair(tricount.id, tricount.name) },
-                            onFavoriteClick = {
+                            tricount         = tricount,
+                            isCreator        = tricount.creatorId == userId,
+                            isFavorite       = favoriteIds.contains(tricount.id),
+                            onClick          = { onTricountClick(tricount.id, tricount.name) },
+                            onDeleteClick    = { tricountToDelete = Pair(tricount.id, tricount.name) },
+                            onArchiveClick   = { viewModel.archiveTricount(tricount.id) },
+                            onEditClick      = { tricountToEdit = tricount },
+                            onDuplicateClick = { viewModel.duplicateTricount(tricount.id) },
+                            onFavoriteClick  = {
                                 if (currentUserId != null)
                                     viewModel.toggleFavorite(currentUserId, tricount.id)
                             }
@@ -429,6 +459,45 @@ fun TriCountListScreen(
             }
         )
     }
+
+    // Edit dialog
+    tricountToEdit?.let { tricount ->
+        var editName by remember(tricount.id) { mutableStateOf(tricount.name) }
+        var editDesc by remember(tricount.id) { mutableStateOf(tricount.description) }
+        AlertDialog(
+            onDismissRequest = { tricountToEdit = null },
+            title = { Text("Edit Tricount") },
+            text  = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value         = editName,
+                        onValueChange = { editName = it },
+                        label         = { Text("Name") },
+                        modifier      = Modifier.fillMaxWidth(),
+                        singleLine    = true
+                    )
+                    OutlinedTextField(
+                        value         = editDesc,
+                        onValueChange = { editDesc = it },
+                        label         = { Text("Description") },
+                        modifier      = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.editTricount(tricount.id, editName.trim(), editDesc.trim())
+                        tricountToEdit = null
+                    },
+                    enabled = editName.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { tricountToEdit = null }) { Text("Cancel") }
+            }
+        )
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -442,9 +511,14 @@ fun AnimatedTricountCard(
     isFavorite      : Boolean,
     onClick         : () -> Unit,
     onDeleteClick   : () -> Unit,
+    onArchiveClick  : () -> Unit,
+    onEditClick     : () -> Unit,
+    onDuplicateClick: () -> Unit,
     onFavoriteClick : () -> Unit
 ) {
-    var isPressed by remember { mutableStateOf(false) }
+    var isPressed        by remember { mutableStateOf(false) }
+    var showContextMenu  by remember { mutableStateOf(false) }
+
     val scale by animateFloatAsState(
         targetValue   = if (isPressed) 0.95f else 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
@@ -454,67 +528,128 @@ fun AnimatedTricountCard(
     Card(
         modifier  = Modifier.fillMaxWidth().scale(scale),
         colors    = CardDefaults.cardColors(
-            containerColor = if (isCreator)
-                MaterialTheme.colorScheme.primaryContainer
-            else
-                MaterialTheme.colorScheme.secondaryContainer),
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth()
-                .clickable { isPressed = true; onClick() }
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick      = { isPressed = true; onClick() },
+                    onLongClick  = { showContextMenu = true }
+                )
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(modifier = Modifier.size(40.dp), shape = CircleShape,
-                color = if (isCreator) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.secondary) {
+            Surface(
+                modifier = Modifier.size(44.dp),
+                shape    = CircleShape,
+                color    = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+            ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(if (isCreator) Icons.Filled.Star else Icons.Filled.Group,
+                    Icon(
+                        if (isCreator) Icons.Filled.Star else Icons.Filled.Group,
                         null, modifier = Modifier.size(24.dp),
-                        tint = if (isCreator) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSecondary)
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(tricount.name, fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                    color = if (isCreator) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.onSecondaryContainer)
+                Text(
+                    tricount.name, fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
                 if (tricount.description.isNotBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(tricount.description, fontSize = 14.sp,
-                        color = if (isCreator)
-                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                        else
-                            MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f))
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        tricount.description, fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                Spacer(Modifier.height(6.dp))
-                Text("Code: ${tricount.joinCode}", fontSize = 12.sp,
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Code: ${tricount.joinCode}", fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
-                    color = if (isCreator) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.secondary)
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
-            Column(horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                IconButton(onClick = onFavoriteClick) {
+            // Favorite + chevron
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                IconButton(onClick = onFavoriteClick, modifier = Modifier.size(36.dp)) {
                     Icon(
                         if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                        contentDescription = if (isFavorite) "Remove from favorites"
-                        else "Add to favorites",
+                        contentDescription = null,
                         tint = if (isFavorite) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurfaceVariant)
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
-                IconButton(onClick = onDeleteClick) {
-                    Icon(Icons.Filled.Delete, "Delete",
-                        tint = MaterialTheme.colorScheme.error)
-                }
+                Icon(
+                    Icons.Filled.ChevronRight, null,
+                    modifier = Modifier.size(20.dp).padding(end = 4.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
             }
         }
     }
 
+    // Long-press context menu
+    if (showContextMenu) {
+        AlertDialog(
+            onDismissRequest = { showContextMenu = false },
+            title = { Text(tricount.name, fontWeight = FontWeight.Bold) },
+            text  = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ContextMenuOption(Icons.Filled.Edit, "Edit") {
+                        showContextMenu = false; onEditClick()
+                    }
+                    ContextMenuOption(Icons.Filled.ContentCopy, "Duplicate") {
+                        showContextMenu = false; onDuplicateClick()
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    ContextMenuOption(Icons.Filled.Archive, "Archive",
+                        tint = MaterialTheme.colorScheme.secondary) {
+                        showContextMenu = false; onArchiveClick()
+                    }
+                    ContextMenuOption(Icons.Filled.Delete, "Delete",
+                        tint = MaterialTheme.colorScheme.error) {
+                        showContextMenu = false; onDeleteClick()
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showContextMenu = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     LaunchedEffect(isPressed) {
         if (isPressed) { kotlinx.coroutines.delay(100); isPressed = false }
+    }
+}
+
+@Composable
+private fun ContextMenuOption(
+    icon    : androidx.compose.ui.graphics.vector.ImageVector,
+    label   : String,
+    tint    : androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface,
+    onClick : () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(16.dp))
+        Text(label, fontSize = 15.sp, color = tint)
     }
 }
 
@@ -532,7 +667,6 @@ private val LANGUAGES = listOf(
 @Composable
 fun ProfileScreen(
     modifier             : Modifier = Modifier,
-    viewModel            : TricountViewModel,
     sessionManager       : SessionManager,
     isDarkMode           : Boolean,
     onDarkModeToggle     : (Boolean) -> Unit,
@@ -566,7 +700,6 @@ fun ProfileScreen(
             } catch (_: Exception) { /* permission may already be held */ }
             photoUriString = it.toString()
             sessionManager.setProfilePhotoUri(it.toString())
-            viewModel.savePhotoUri(it.toString())
             Toast.makeText(context, "Photo updated!", Toast.LENGTH_SHORT).show()
         }
     }
@@ -862,7 +995,6 @@ fun ProfileScreen(
                 Button(onClick = {
                     nickname = temp.trim()
                     sessionManager.setNickname(nickname)
-                    viewModel.saveNickname(nickname)
                     showEditNickname = false
                     Toast.makeText(context, "Nickname updated!", Toast.LENGTH_SHORT).show()
                 }) { Text("Save") }

@@ -95,10 +95,10 @@ class BalancesTabActivity : ComponentActivity() {
 // UI — all composables live here, no separate BalancesTab.kt needed
 // ─────────────────────────────────────────────────────────────────────────────
 
-private data class BalanceRow(val userId: Int, val name: String, val net: Double)
+data class BalanceRow(val userId: Int, val name: String, val net: Double)
 
 @Composable
-private fun BalancesContent(
+fun BalancesContent(
     modifier      : Modifier = Modifier,
     expenses      : List<ExpenseWithDetails>,
     expenseSplits : Map<Int, List<ExpenseSplitWithUser>>,
@@ -339,7 +339,7 @@ private fun BalancesContent(
 }
 
 @Composable
-private fun StatItem(label: String, value: String) {
+fun StatItem(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, fontSize = 20.sp, fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onPrimaryContainer)

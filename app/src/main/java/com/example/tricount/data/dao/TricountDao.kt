@@ -30,13 +30,29 @@ interface TricountDao {
     @Query("DELETE FROM tricounts WHERE id = :tricountId")
     suspend fun deleteTricountById(tricountId: Int)
 
+    @Query("UPDATE tricounts SET isArchived = 1 WHERE id = :tricountId")
+    suspend fun archiveTricount(tricountId: Int)
+
+    @Query("UPDATE tricounts SET name = :name, description = :description WHERE id = :tricountId")
+    suspend fun updateTricount(tricountId: Int, name: String, description: String)
+
+    /** All non-archived tricounts the user belongs to. */
     @Query("""
         SELECT t.* FROM tricounts t
         INNER JOIN tricount_members tm ON t.id = tm.tricountId
-        WHERE tm.userId = :userId
+        WHERE tm.userId = :userId AND t.isArchived = 0
         ORDER BY t.id DESC
     """)
     suspend fun getTricountsForUser(userId: Int): List<TricountEntity>
+
+    /** Archived tricounts for the user. */
+    @Query("""
+        SELECT t.* FROM tricounts t
+        INNER JOIN tricount_members tm ON t.id = tm.tricountId
+        WHERE tm.userId = :userId AND t.isArchived = 1
+        ORDER BY t.id DESC
+    """)
+    suspend fun getArchivedTricountsForUser(userId: Int): List<TricountEntity>
 
     // ── Members ──────────────────────────────────────────────────────────────
 
