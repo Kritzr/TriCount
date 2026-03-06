@@ -38,7 +38,7 @@
             android:exported="false" />
 
         <activity android:name=".ExpensesActivity" android:exported="false" />
-        <!-- Remove this -->
+        <activity android:name=".ArchivedTricountsActivity" />
 
 
         <!-- Add this -->
