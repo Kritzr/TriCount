@@ -25,13 +25,14 @@ class AddTricountActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            // ✅ Force Light Theme
-            TriCountTheme(darkTheme = false) {
+
+            TriCountTheme() {
                 AddTricountScreen(
                     onBackClick = { finish() },
                     onSaveClick = { name, description ->
-                        tricountViewModel.insertTricount(name, description)
-                        finish()
+                        tricountViewModel.insertTricount(name, description) {
+                            finish()
+                        }
                     }
                 )
             }

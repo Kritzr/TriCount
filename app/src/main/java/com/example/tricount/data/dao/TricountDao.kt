@@ -33,6 +33,9 @@ interface TricountDao {
     @Query("UPDATE tricounts SET isArchived = 1 WHERE id = :tricountId")
     suspend fun archiveTricount(tricountId: Int)
 
+    @Query("UPDATE tricounts SET isArchived = 0 WHERE id = :tricountId")
+    suspend fun unarchiveTricount(tricountId: Int)
+
     @Query("UPDATE tricounts SET name = :name, description = :description WHERE id = :tricountId")
     suspend fun updateTricount(tricountId: Int, name: String, description: String)
 

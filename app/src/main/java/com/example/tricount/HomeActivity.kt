@@ -14,8 +14,8 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -121,6 +121,11 @@ fun HomeScreen(
     var showBottomSheet   by remember { mutableStateOf(false) }
     val sheetState        = rememberModalBottomSheetState()
 
+    // Reload tricounts when returning from Add/Join screens
+    val addTricountLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { viewModel.loadTricounts() }
+
     Scaffold(
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
@@ -191,7 +196,8 @@ fun HomeScreen(
                     modifier        = Modifier.padding(padding),
                     viewModel       = viewModel,
                     sessionManager  = sessionManager,
-                    onTricountClick = onTricountClick
+                    onTricountClick = onTricountClick,
+                    onArchivedClick = { context.startActivity(android.content.Intent(context, ArchivedTricountsActivity::class.java)) }
                 )
                 1 -> ProfileScreen(
                     modifier             = Modifier.padding(padding),
@@ -222,7 +228,7 @@ fun HomeScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth().clickable {
                             showBottomSheet = false
-                            context.startActivity(Intent(context, AddTricountActivity::class.java))
+                            addTricountLauncher.launch(Intent(context, AddTricountActivity::class.java))
                         },
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer)
@@ -248,7 +254,7 @@ fun HomeScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth().clickable {
                             showBottomSheet = false
-                            context.startActivity(Intent(context, JoinTricountActivity::class.java))
+                            addTricountLauncher.launch(Intent(context, JoinTricountActivity::class.java))
                         },
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer)
@@ -284,26 +290,24 @@ fun TriCountListScreen(
     modifier        : Modifier = Modifier,
     viewModel       : TricountViewModel,
     sessionManager  : SessionManager,
-    onTricountClick : (Int, String) -> Unit
+    onTricountClick : (Int, String) -> Unit,
+    onArchivedClick : () -> Unit = {}
 ) {
     val tricounts         by viewModel.tricounts.collectAsStateWithLifecycle()
     val favoriteTricounts by viewModel.favoriteTricounts.collectAsStateWithLifecycle()
     val currentUserId     = sessionManager.getUserId()
+    val userId            : Int = currentUserId ?: -1
     var tricountToDelete  by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var tricountToEdit    by remember { mutableStateOf<com.example.tricount.data.entity.TricountEntity?>(null) }
     var selectedTab       by remember { mutableStateOf(0) }
-    val tabs              = listOf("Created", "Joined", "Favorites", "Archived")
+    val tabs              = listOf("Created", "Joined", "Favorites")
 
-    val archivedTricounts by viewModel.archivedTricounts.collectAsStateWithLifecycle()
-
-    val userId: Int = currentUserId ?: -1
-    val filteredTricounts: List<com.example.tricount.data.entity.TricountEntity> =
-        remember(tricounts, favoriteTricounts, archivedTricounts, selectedTab, userId) {
+    val filteredTricounts : List<com.example.tricount.data.entity.TricountEntity> =
+        remember(tricounts, favoriteTricounts, selectedTab, userId) {
             when (selectedTab) {
                 0    -> tricounts.filter { it.creatorId == userId && !it.isArchived }
                 1    -> tricounts.filter { it.creatorId != userId && !it.isArchived }
                 2    -> favoriteTricounts.filter { !it.isArchived }
-                3    -> archivedTricounts
                 else -> tricounts
             }
         }
@@ -311,7 +315,6 @@ fun TriCountListScreen(
     LaunchedEffect(selectedTab) {
         when (selectedTab) {
             2    -> if (currentUserId != null) viewModel.loadFavoriteTricounts(currentUserId)
-            3    -> viewModel.loadArchivedTricounts()
             else -> if (currentUserId != null) viewModel.loadTricounts()
         }
     }
@@ -321,13 +324,12 @@ fun TriCountListScreen(
             Column(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.fillMaxWidth()
                     .padding(horizontal = 24.dp, vertical = 16.dp)) {
-                    Spacer(Modifier.height(40.dp))
                     Text("My TriCounts", fontSize = 28.sp, fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary)
                     Text("${tricounts.size} total • ${filteredTricounts.size} ${tabs[selectedTab].lowercase()}",
                         fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                ScrollableTabRow(
+                TabRow(
                     selectedTabIndex = selectedTab,
                     containerColor   = MaterialTheme.colorScheme.surface,
                     contentColor     = MaterialTheme.colorScheme.primary
@@ -347,7 +349,6 @@ fun TriCountListScreen(
                                     0 -> Icon(Icons.Filled.Star,     null, modifier = Modifier.size(18.dp))
                                     1 -> Icon(Icons.Filled.Group,    null, modifier = Modifier.size(18.dp))
                                     2 -> Icon(Icons.Filled.Favorite, null, modifier = Modifier.size(18.dp))
-                                    3 -> Icon(Icons.Filled.Archive,  null, modifier = Modifier.size(18.dp))
                                 }
                             }
                         )
@@ -373,23 +374,7 @@ fun TriCountListScreen(
                     }
                 }
             }
-            selectedTab == 3 && filteredTricounts.isEmpty() -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Filled.Archive, null, modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
-                        Spacer(Modifier.height(16.dp))
-                        Text("No Archived Tricounts", fontSize = 20.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(8.dp))
-                        Text("Long-press a Tricount and tap Archive to hide it here",
-                            fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            modifier  = Modifier.padding(horizontal = 32.dp))
-                    }
-                }
-            }
+
             filteredTricounts.isEmpty() -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -437,6 +422,30 @@ fun TriCountListScreen(
                             }
                         )
                     }
+                    item(key = "archived_banner") {
+                        Card(
+                            modifier  = Modifier.fillMaxWidth(),
+                            colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            elevation = CardDefaults.cardElevation(0.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable { onArchivedClick() }.padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Filled.Archive, null, modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                                Spacer(Modifier.width(16.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Archived Tricounts", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                                    Text("View trips you have archived", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Icon(Icons.Filled.ChevronRight, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -460,7 +469,6 @@ fun TriCountListScreen(
         )
     }
 
-    // Edit dialog
     tricountToEdit?.let { tricount ->
         var editName by remember(tricount.id) { mutableStateOf(tricount.name) }
         var editDesc by remember(tricount.id) { mutableStateOf(tricount.description) }
@@ -506,18 +514,18 @@ fun TriCountListScreen(
 
 @Composable
 fun AnimatedTricountCard(
-    tricount        : com.example.tricount.data.entity.TricountEntity,
-    isCreator       : Boolean,
-    isFavorite      : Boolean,
-    onClick         : () -> Unit,
-    onDeleteClick   : () -> Unit,
-    onArchiveClick  : () -> Unit,
-    onEditClick     : () -> Unit,
-    onDuplicateClick: () -> Unit,
-    onFavoriteClick : () -> Unit
+    tricount         : com.example.tricount.data.entity.TricountEntity,
+    isCreator        : Boolean,
+    isFavorite       : Boolean,
+    onClick          : () -> Unit,
+    onDeleteClick    : () -> Unit,
+    onArchiveClick   : () -> Unit,
+    onEditClick      : () -> Unit,
+    onDuplicateClick : () -> Unit,
+    onFavoriteClick  : () -> Unit
 ) {
-    var isPressed        by remember { mutableStateOf(false) }
-    var showContextMenu  by remember { mutableStateOf(false) }
+    var isPressed       by remember { mutableStateOf(false) }
+    var showContextMenu by remember { mutableStateOf(false) }
 
     val scale by animateFloatAsState(
         targetValue   = if (isPressed) 0.95f else 1f,
@@ -536,8 +544,8 @@ fun AnimatedTricountCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
-                    onClick      = { isPressed = true; onClick() },
-                    onLongClick  = { showContextMenu = true }
+                    onClick     = { isPressed = true; onClick() },
+                    onLongClick = { showContextMenu = true }
                 )
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -557,25 +565,18 @@ fun AnimatedTricountCard(
             }
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    tricount.name, fontSize = 17.sp, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Text(tricount.name, fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface)
                 if (tricount.description.isNotBlank()) {
                     Spacer(Modifier.height(2.dp))
-                    Text(
-                        tricount.description, fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text(tricount.description, fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    "Code: ${tricount.joinCode}", fontSize = 12.sp,
+                Text("Code: ${tricount.joinCode}", fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                    color = MaterialTheme.colorScheme.primary)
             }
-            // Favorite + chevron
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -598,7 +599,6 @@ fun AnimatedTricountCard(
         }
     }
 
-    // Long-press context menu
     if (showContextMenu) {
         AlertDialog(
             onDismissRequest = { showContextMenu = false },
