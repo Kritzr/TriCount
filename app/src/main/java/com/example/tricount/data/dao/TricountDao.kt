@@ -103,6 +103,21 @@ interface TricountDao {
     """)
     suspend fun getExpensesWithDetails(tricountId: Int): List<ExpenseWithDetails>
 
+    /** Archived expenses for a tricount. */
+    @Query("""
+        SELECT e.id, e.tricountId, e.name, e.description, e.amount,
+               e.paidBy, u.name AS paidByName, u.email AS paidByEmail,
+               e.createdAt, e.category, e.isArchived
+        FROM expenses e
+        INNER JOIN users u ON e.paidBy = u.id
+        WHERE e.tricountId = :tricountId AND e.isArchived = 1
+        ORDER BY e.createdAt DESC
+    """)
+    suspend fun getArchivedExpensesWithDetails(tricountId: Int): List<ExpenseWithDetails>
+
+    @Query("UPDATE expenses SET isArchived = 0 WHERE id = :expenseId")
+    suspend fun unarchiveExpense(expenseId: Int)
+
     // ── Expense Splits ───────────────────────────────────────────────────────
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

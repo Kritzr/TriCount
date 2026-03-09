@@ -1,13 +1,15 @@
 package com.example.tricount
 
 import android.annotation.SuppressLint
-import android.content.Context
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -38,12 +41,10 @@ import com.example.tricount.viewModel.AddExpenseResult
 import com.example.tricount.viewModel.TricountViewModel
 import java.text.SimpleDateFormat
 import java.util.*
-import androidx.compose.material3.VerticalDivider
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.FilledIconButton
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Activity
+// ─────────────────────────────────────────────────────────────────────────────
 
 class ExpensesActivity : ComponentActivity() {
 
@@ -60,24 +61,25 @@ class ExpensesActivity : ComponentActivity() {
 
         setContent {
             TriCountTheme(darkTheme = false) {
-
                 LaunchedEffect(tricountId) {
                     viewModel.loadTricountDetails(tricountId)
                     viewModel.loadExpenses(tricountId)
                 }
 
-                val expenses by viewModel.expenses.collectAsStateWithLifecycle()
-                val members  by viewModel.tricountMembers.collectAsStateWithLifecycle()
-                val currentUserId = sessionManager.getUserId() ?: -1
+                val expenses         by viewModel.expenses.collectAsStateWithLifecycle()
+                val archivedExpenses by viewModel.archivedExpenses.collectAsStateWithLifecycle()
+                val members          by viewModel.tricountMembers.collectAsStateWithLifecycle()
+                val currentUserId    = sessionManager.getUserId() ?: -1
 
                 ExpensesScreen(
-                    tricountId    = tricountId,
-                    tricountName  = tricountName,
-                    expenses      = expenses,
-                    members       = members,
-                    currentUserId = currentUserId,
-                    viewModel     = viewModel,
-                    onBackClick   = { finish() }
+                    tricountId       = tricountId,
+                    tricountName     = tricountName,
+                    expenses         = expenses,
+                    archivedExpenses = archivedExpenses,
+                    members          = members,
+                    currentUserId    = currentUserId,
+                    viewModel        = viewModel,
+                    onBackClick      = { finish() }
                 )
             }
         }
@@ -90,22 +92,24 @@ class ExpensesActivity : ComponentActivity() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Screen
+// Screen wrapper
 // ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExpensesScreen(
-    tricountId    : Int,
-    tricountName  : String,
-    expenses      : List<ExpenseWithDetails>,
-    members       : List<MemberWithDetails>,
-    currentUserId : Int,
-    viewModel     : TricountViewModel,
-    onBackClick   : () -> Unit
+    tricountId       : Int,
+    tricountName     : String,
+    expenses         : List<ExpenseWithDetails>,
+    archivedExpenses : List<ExpenseWithDetails> = emptyList(),
+    members          : List<MemberWithDetails>,
+    currentUserId    : Int,
+    viewModel        : TricountViewModel,
+    onBackClick      : () -> Unit
 ) {
-    var showAddDialog by remember { mutableStateOf(false) }
-    var expenseToEdit by remember { mutableStateOf<ExpenseWithDetails?>(null) }
+    var showAddDialog  by remember { mutableStateOf(false) }
+    var expenseToEdit  by remember { mutableStateOf<ExpenseWithDetails?>(null) }
+    var showArchived   by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -135,12 +139,17 @@ fun ExpensesScreen(
         }
     ) { padding ->
         ExpensesContent(
-            modifier         = Modifier.padding(padding),
-            expenses         = expenses,
-            currentUserId    = currentUserId,
-            onDeleteExpense  = { expenseId -> viewModel.deleteExpense(expenseId, tricountId) },
-            onArchiveExpense = { expenseId -> viewModel.archiveExpense(expenseId, tricountId) },
-            onEditExpense    = { expense   -> expenseToEdit = expense }
+            modifier               = Modifier.padding(padding),
+            expenses               = expenses,
+            archivedExpenses       = archivedExpenses,
+            currentUserId          = currentUserId,
+            onDeleteExpense        = { expenseId -> viewModel.deleteExpense(expenseId, tricountId) },
+            onArchiveExpense       = { expenseId -> viewModel.archiveExpense(expenseId, tricountId) },
+            onUnarchiveExpense     = { expenseId -> viewModel.unarchiveExpense(expenseId, tricountId) },
+            onDeleteArchivedExpense= { expenseId -> viewModel.deleteExpense(expenseId, tricountId) },
+            onEditExpense          = { expense   -> expenseToEdit = expense },
+            showArchived           = showArchived,
+            onToggleArchived       = { showArchived = !showArchived }
         )
     }
 
@@ -167,27 +176,29 @@ fun ExpensesScreen(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Content (list)
+// Content list  — also called directly from TricountDetailActivity
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun ExpensesContent(
-    modifier         : Modifier = Modifier,
-    expenses         : List<ExpenseWithDetails>,
-    currentUserId    : Int,
-    onDeleteExpense  : (Int) -> Unit,
-    onArchiveExpense : (Int) -> Unit = {},
-    onEditExpense    : (ExpenseWithDetails) -> Unit = {}
+    modifier               : Modifier = Modifier,
+    expenses               : List<ExpenseWithDetails>,
+    archivedExpenses       : List<ExpenseWithDetails> = emptyList(),
+    currentUserId          : Int,
+    onDeleteExpense        : (Int) -> Unit,
+    onArchiveExpense       : (Int) -> Unit = {},
+    onUnarchiveExpense     : (Int) -> Unit = {},
+    onDeleteArchivedExpense: (Int) -> Unit = {},
+    onEditExpense          : (ExpenseWithDetails) -> Unit = {},
+    showArchived           : Boolean = false,
+    onToggleArchived       : () -> Unit = {}
 ) {
-    if (expenses.isEmpty()) {
+    if (expenses.isEmpty() && archivedExpenses.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
-                Icon(
-                    Icons.Filled.Receipt,
-                    contentDescription = null,
+                Icon(Icons.Filled.Receipt, contentDescription = null,
                     modifier = Modifier.size(80.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                )
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                 Spacer(Modifier.height(24.dp))
                 Text("No expenses yet", fontSize = 22.sp, fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -199,22 +210,20 @@ fun ExpensesContent(
         return
     }
 
-    // Group expenses by date label, sorted newest first
     val grouped = remember(expenses) {
         expenses
             .sortedByDescending { it.createdAt }
             .groupBy { expense ->
-                val cal = java.util.Calendar.getInstance()
-                val today = cal.clone() as java.util.Calendar
-                cal.timeInMillis = expense.createdAt
-                val yesterday = java.util.Calendar.getInstance().also { it.add(java.util.Calendar.DAY_OF_YEAR, -1) }
+                val cal       = Calendar.getInstance().also { it.timeInMillis = expense.createdAt }
+                val today     = Calendar.getInstance()
+                val yesterday = Calendar.getInstance().also { it.add(Calendar.DAY_OF_YEAR, -1) }
                 when {
-                    cal.get(java.util.Calendar.YEAR)       == today.get(java.util.Calendar.YEAR) &&
-                            cal.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR) -> "Today"
-                    cal.get(java.util.Calendar.YEAR)       == yesterday.get(java.util.Calendar.YEAR) &&
-                            cal.get(java.util.Calendar.DAY_OF_YEAR) == yesterday.get(java.util.Calendar.DAY_OF_YEAR) -> "Yesterday"
-                    else -> java.text.SimpleDateFormat("MMMM dd, yyyy", java.util.Locale.getDefault())
-                        .format(java.util.Date(expense.createdAt))
+                    cal.get(Calendar.YEAR) == today.get(Calendar.YEAR) &&
+                            cal.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR) -> "Today"
+                    cal.get(Calendar.YEAR) == yesterday.get(Calendar.YEAR) &&
+                            cal.get(Calendar.DAY_OF_YEAR) == yesterday.get(Calendar.DAY_OF_YEAR) -> "Yesterday"
+                    else -> SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault())
+                        .format(Date(expense.createdAt))
                 }
             }
     }
@@ -225,82 +234,123 @@ fun ExpensesContent(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // Summary card
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-            ) {
-                Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("My Expenses", fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "$${String.format("%.2f", expenses.filter { it.paidBy == currentUserId }.sumOf { it.amount })}",
-                                fontSize = 26.sp, fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+        if (expenses.isNotEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors   = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column {
+                                Text("My Expenses", fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "$${String.format("%.2f", expenses.filter { it.paidBy == currentUserId }.sumOf { it.amount })}",
+                                    fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            VerticalDivider(
+                                modifier = Modifier.height(56.dp).padding(horizontal = 8.dp),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f)
                             )
-                        }
-                        VerticalDivider(
-                            modifier = Modifier.height(56.dp).padding(horizontal = 8.dp),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f)
-                        )
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("Total Expenses", fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "$${String.format("%.2f", expenses.sumOf { it.amount })}",
-                                fontSize = 26.sp, fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("Total Expenses", fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "$${String.format("%.2f", expenses.sumOf { it.amount })}",
+                                    fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Expenses grouped by date
+        // Active expenses grouped by date
         grouped.forEach { (dateLabel, dayExpenses) ->
-            // Date header
             item(key = "header_$dateLabel") {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        dateLabel,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.weight(1f),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                    )
-                    // Daily total
-                    Text(
-                        "  $${String.format("%.2f", dayExpenses.sumOf { it.amount })}",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                    )
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(dateLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp, color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(end = 8.dp))
+                    HorizontalDivider(modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                    Text("  $${String.format("%.2f", dayExpenses.sumOf { it.amount })}",
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
                 }
             }
-            // Expense cards for that day
-            items(dayExpenses, key = { it.id }) { expense ->
+            items(dayExpenses, key = { "active_${it.id}" }) { expense ->
                 SwipeableExpenseCard(
-                    expense         = expense,
-                    isUserExpense   = expense.paidBy == currentUserId,
-                    onDeleteClick   = { onDeleteExpense(expense.id) },
-                    onArchiveClick  = { onArchiveExpense(expense.id) }
+                    expense        = expense,
+                    onDeleteClick  = { onDeleteExpense(expense.id) },
+                    onArchiveClick = { onArchiveExpense(expense.id) },
+                    onEditClick    = { onEditExpense(expense) }
                 )
+            }
+        }
+
+        // ── Archived Expenses section ──────────────────────────────────────
+        if (archivedExpenses.isNotEmpty()) {
+            item(key = "archived_banner") {
+                Spacer(Modifier.height(4.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable { onToggleArchived() },
+                    colors   = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Archive, null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text("Archived Expenses (${archivedExpenses.size})",
+                                fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        }
+                        Icon(
+                            if (showArchived) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+            }
+
+            if (showArchived) {
+                item(key = "archived_info") {
+                    Card(colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))) {
+                        Row(modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Info, null, modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Long-press any expense to unarchive or delete it permanently.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
+                }
+
+                items(archivedExpenses, key = { "archived_${it.id}" }) { expense ->
+                    ArchivedExpenseCard(
+                        expense          = expense,
+                        onUnarchiveClick = { onUnarchiveExpense(expense.id) },
+                        onDeleteClick    = { onDeleteArchivedExpense(expense.id) }
+                    )
+                }
             }
         }
     }
@@ -308,15 +358,14 @@ fun ExpensesContent(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Swipeable expense card
-// Swipe LEFT  → confirm delete
-// Swipe RIGHT → confirm archive
+//   Swipe RIGHT → Archive (green)    Swipe LEFT → Delete (red)
+//   Long press  → context menu: Edit / Archive / Delete
 // ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SwipeableExpenseCard(
     expense        : ExpenseWithDetails,
-    isUserExpense  : Boolean,
     onDeleteClick  : () -> Unit,
     onArchiveClick : () -> Unit,
     onEditClick    : () -> Unit = {}
@@ -327,119 +376,98 @@ fun SwipeableExpenseCard(
 
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
-            if (!isUserExpense) return@rememberSwipeToDismissBoxState false
             when (value) {
-                SwipeToDismissBoxValue.EndToStart   -> { showDeleteDialog  = true; false }
-                SwipeToDismissBoxValue.StartToEnd   -> { showArchiveDialog = true; false }
-                SwipeToDismissBoxValue.Settled      -> false
+                SwipeToDismissBoxValue.EndToStart -> { showDeleteDialog  = true; false }
+                SwipeToDismissBoxValue.StartToEnd -> { showArchiveDialog = true; false }
+                SwipeToDismissBoxValue.Settled    -> false
             }
-        }
+        },
+        positionalThreshold = { it * 0.35f }
     )
 
     SwipeToDismissBox(
         state                       = dismissState,
-        enableDismissFromStartToEnd = isUserExpense,
-        enableDismissFromEndToStart = isUserExpense,
+        enableDismissFromStartToEnd = true,
+        enableDismissFromEndToStart = true,
         backgroundContent = {
             val direction = dismissState.dismissDirection
-            // Left swipe background = red (delete)
-            // Right swipe background = amber (archive)
-            val (bgColor, icon, label) = when (direction) {
-                SwipeToDismissBoxValue.EndToStart ->
-                    Triple(MaterialTheme.colorScheme.errorContainer,
-                        Icons.Filled.Delete, "Delete")
-                SwipeToDismissBoxValue.StartToEnd ->
-                    Triple(MaterialTheme.colorScheme.secondaryContainer,
-                        Icons.Filled.Archive, "Archive")
-                else ->
-                    Triple(MaterialTheme.colorScheme.surface,
-                        Icons.Filled.Delete, "")
-            }
-            val arrangement = if (direction == SwipeToDismissBoxValue.EndToStart)
-                Arrangement.End else Arrangement.Start
+
+            val bgColor by animateColorAsState(
+                targetValue = when (direction) {
+                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                    SwipeToDismissBoxValue.StartToEnd -> Color(0xFF2E7D32)
+                    else                             -> Color.Transparent
+                },
+                label = "swipeBg"
+            )
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 8.dp),
-                contentAlignment = Alignment.Center
+                    .background(bgColor, shape = MaterialTheme.shapes.medium)
+                    .padding(horizontal = 24.dp),
+                contentAlignment = when (direction) {
+                    SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+                    else                             -> Alignment.CenterStart
+                }
             ) {
-                Row(
-                    modifier              = Modifier.fillMaxSize(),
-                    horizontalArrangement = arrangement,
-                    verticalAlignment     = Alignment.CenterVertically
-                ) {
-                    if (direction == SwipeToDismissBoxValue.StartToEnd) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .padding(4.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(icon, contentDescription = label,
-                                tint     = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.size(28.dp))
-                        }
+                when (direction) {
+                    SwipeToDismissBoxValue.EndToStart -> Column(
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Filled.Delete, "Delete",
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.height(4.dp))
+                        Text("Delete", fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer)
                     }
-                    if (direction == SwipeToDismissBoxValue.EndToStart) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .padding(4.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(icon, contentDescription = label,
-                                tint     = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.size(28.dp))
-                        }
+                    SwipeToDismissBoxValue.StartToEnd -> Column(
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Filled.Archive, "Archive",
+                            tint = Color.White, modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.height(4.dp))
+                        Text("Archive", fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                            color = Color.White)
                     }
+                    else -> {}
                 }
             }
         }
     ) {
-        ExpenseItemCard(
-            expense     = expense,
-            onLongClick = { showContextMenu = true }
-        )
+        ExpenseItemCard(expense = expense, onLongClick = { showContextMenu = true })
     }
 
-    // Long-press context menu
+    // Context menu (long press)
     if (showContextMenu) {
         AlertDialog(
             onDismissRequest = { showContextMenu = false },
             title = { Text(expense.name, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text  = {
-                Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            showContextMenu = false; onEditClick()
-                        }.padding(vertical = 14.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                Column {
+                    Row(modifier = Modifier.fillMaxWidth()
+                        .clickable { showContextMenu = false; onEditClick() }
+                        .padding(vertical = 14.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Edit, null, modifier = Modifier.size(22.dp),
                             tint = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.width(16.dp))
                         Text("Edit", fontSize = 15.sp)
                     }
                     HorizontalDivider()
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            showContextMenu = false; showArchiveDialog = true
-                        }.padding(vertical = 14.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth()
+                        .clickable { showContextMenu = false; showArchiveDialog = true }
+                        .padding(vertical = 14.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Archive, null, modifier = Modifier.size(22.dp),
                             tint = MaterialTheme.colorScheme.secondary)
                         Spacer(Modifier.width(16.dp))
                         Text("Archive", fontSize = 15.sp, color = MaterialTheme.colorScheme.secondary)
                     }
                     HorizontalDivider()
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            showContextMenu = false; showDeleteDialog = true
-                        }.padding(vertical = 14.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth()
+                        .clickable { showContextMenu = false; showDeleteDialog = true }
+                        .padding(vertical = 14.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Delete, null, modifier = Modifier.size(22.dp),
                             tint = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.width(16.dp))
@@ -447,9 +475,7 @@ fun SwipeableExpenseCard(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showContextMenu = false }) { Text("Cancel") }
-            }
+            confirmButton = { TextButton(onClick = { showContextMenu = false }) { Text("Cancel") } }
         )
     }
 
@@ -458,17 +484,13 @@ fun SwipeableExpenseCard(
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title   = { Text("Delete Expense?") },
-            text    = { Text("Are you sure you want to delete \"${expense.name}\"? This cannot be undone.") },
+            text    = { Text("Delete \"${expense.name}\"? This cannot be undone.") },
             confirmButton = {
-                TextButton(
-                    onClick = { onDeleteClick(); showDeleteDialog = false },
-                    colors  = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error)
+                TextButton(onClick = { onDeleteClick(); showDeleteDialog = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) { Text("Delete") }
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") } }
         )
     }
 
@@ -477,32 +499,153 @@ fun SwipeableExpenseCard(
         AlertDialog(
             onDismissRequest = { showArchiveDialog = false },
             title   = { Text("Archive Expense?") },
-            text    = { Text("Archive \"${expense.name}\"? It will be hidden from the list.") },
+            text    = { Text("Archive \"${expense.name}\"? You can restore it from the archived section.") },
             confirmButton = {
-                TextButton(
-                    onClick = { onArchiveClick(); showArchiveDialog = false }
-                ) { Text("Archive") }
+                TextButton(onClick = { onArchiveClick(); showArchiveDialog = false }) { Text("Archive") }
             },
-            dismissButton = {
-                TextButton(onClick = { showArchiveDialog = false }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { showArchiveDialog = false }) { Text("Cancel") } }
         )
     }
 }
 
-// Plain card — accepts long-press callback
+// ─────────────────────────────────────────────────────────────────────────────
+// Archived expense card — long-press to Unarchive or Delete
+// ─────────────────────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ArchivedExpenseCard(
+    expense          : ExpenseWithDetails,
+    onUnarchiveClick : () -> Unit,
+    onDeleteClick    : () -> Unit
+) {
+    var showMenu            by remember { mutableStateOf(false) }
+    var showDeleteDialog    by remember { mutableStateOf(false) }
+    var showUnarchiveDialog by remember { mutableStateOf(false) }
+
+    Card(
+        modifier  = Modifier.fillMaxWidth(),
+        colors    = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(onClick = {}, onLongClick = { showMenu = true })
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment     = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Archive, null, modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                    Spacer(Modifier.width(6.dp))
+                    Text(expense.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
+                }
+                if (expense.description.isNotBlank()) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(expense.description, fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f))
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Person, null, modifier = Modifier.size(13.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Paid by ${expense.paidByName}", fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                }
+                Text(formatExpenseDate(expense.createdAt), fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+            }
+            Text("$${String.format("%.2f", expense.amount)}",
+                fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+        }
+    }
+
+    if (showMenu) {
+        AlertDialog(
+            onDismissRequest = { showMenu = false },
+            title = { Text(expense.name, fontWeight = FontWeight.Bold) },
+            text  = {
+                Column {
+                    Row(modifier = Modifier.fillMaxWidth()
+                        .clickable { showMenu = false; showUnarchiveDialog = true }
+                        .padding(vertical = 14.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Unarchive, null, modifier = Modifier.size(22.dp),
+                            tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(16.dp))
+                        Text("Unarchive", fontSize = 15.sp)
+                    }
+                    HorizontalDivider()
+                    Row(modifier = Modifier.fillMaxWidth()
+                        .clickable { showMenu = false; showDeleteDialog = true }
+                        .padding(vertical = 14.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Delete, null, modifier = Modifier.size(22.dp),
+                            tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(16.dp))
+                        Text("Delete Permanently", fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showMenu = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showUnarchiveDialog) {
+        AlertDialog(
+            onDismissRequest = { showUnarchiveDialog = false },
+            icon  = { Icon(Icons.Filled.Unarchive, null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Unarchive \"${expense.name}\"?") },
+            text  = { Text("This will move the expense back to the active list.") },
+            confirmButton = {
+                Button(onClick = { onUnarchiveClick(); showUnarchiveDialog = false }) { Text("Unarchive") }
+            },
+            dismissButton = { TextButton(onClick = { showUnarchiveDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            icon  = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Delete \"${expense.name}\"?") },
+            text  = { Text("This permanently deletes this expense. This cannot be undone.") },
+            confirmButton = {
+                Button(onClick = { onDeleteClick(); showDeleteDialog = false },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error)) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") } }
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plain expense card
+// ─────────────────────────────────────────────────────────────────────────────
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ExpenseItemCard(expense: ExpenseWithDetails, onLongClick: () -> Unit = {}) {
     Card(
         modifier  = Modifier.fillMaxWidth(),
         colors    = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
+            containerColor = MaterialTheme.colorScheme.surfaceVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = onLongClick).padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(onClick = {}, onLongClick = onLongClick)
+                .padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment     = Alignment.CenterVertically
         ) {
@@ -516,23 +659,19 @@ fun ExpenseItemCard(expense: ExpenseWithDetails, onLongClick: () -> Unit = {}) {
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Person, contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint     = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Filled.Person, null, modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(4.dp))
                     Text("Paid by ${expense.paidByName}", fontSize = 13.sp,
-                        color      = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium)
+                        color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(formatExpenseDate(expense.createdAt), fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text(
-                "$${String.format("%.2f", expense.amount)}",
-                fontSize   = 22.sp, fontWeight = FontWeight.Bold,
-                color      = MaterialTheme.colorScheme.primary
-            )
+            Text("$${String.format("%.2f", expense.amount)}",
+                fontSize = 22.sp, fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -559,58 +698,47 @@ fun ExpenseAddDialog(
     val context = LocalContext.current
 
     val sharesInput = remember {
-        mutableStateMapOf<Int, String>().also { map ->
-            members.forEach { map[it.userId] = "1" }
-        }
+        mutableStateMapOf<Int, String>().also { map -> members.forEach { map[it.userId] = "1" } }
     }
 
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
         title = { Text("Add Expense") },
         text = {
-            Column(
-                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = name, onValueChange = { name = it },
-                    label = { Text("Expense Name") },
-                    placeholder = { Text("e.g., Dinner, Hotel") },
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+
+                OutlinedTextField(value = name, onValueChange = { name = it },
+                    label = { Text("Expense Name") }, placeholder = { Text("e.g., Dinner, Hotel") },
                     leadingIcon = { Icon(Icons.Filled.ShoppingCart, null) },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !isLoading
-                )
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !isLoading)
+
                 OutlinedTextField(
                     value = amount,
                     onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d{0,2}$"))) amount = it },
-                    label = { Text("Amount") },
-                    placeholder = { Text("0.00") },
+                    label = { Text("Amount") }, placeholder = { Text("0.00") },
                     leadingIcon = { Text("$", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
                     modifier = Modifier.fillMaxWidth(), singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
-                    enabled = !isLoading
-                )
+                    enabled = !isLoading)
 
-                // Payer dropdown
-                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded && !isLoading }) {
+                ExposedDropdownMenuBox(expanded = expanded,
+                    onExpandedChange = { expanded = !expanded && !isLoading }) {
                     OutlinedTextField(
                         value = members.find { it.userId == selectedPayerId }?.name ?: "Select",
-                        onValueChange = {}, readOnly = true,
-                        label = { Text("Paid By") },
+                        onValueChange = {}, readOnly = true, label = { Text("Paid By") },
                         leadingIcon = { Icon(Icons.Filled.Person, null) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(), enabled = !isLoading
-                    )
+                        modifier = Modifier.fillMaxWidth().menuAnchor(), enabled = !isLoading)
                     ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         members.forEach { member ->
                             DropdownMenuItem(
                                 text = {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            if (member.isCreator) Icons.Filled.Star else Icons.Filled.Person,
-                                            contentDescription = null, modifier = Modifier.size(20.dp),
+                                        Icon(if (member.isCreator) Icons.Filled.Star else Icons.Filled.Person,
+                                            null, modifier = Modifier.size(20.dp),
                                             tint = if (member.isCreator) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.secondary
-                                        )
+                                            else MaterialTheme.colorScheme.secondary)
                                         Spacer(Modifier.width(8.dp))
                                         Text(member.name)
                                     }
@@ -621,28 +749,24 @@ fun ExpenseAddDialog(
                     }
                 }
 
-                OutlinedTextField(
-                    value = description, onValueChange = { description = it },
+                OutlinedTextField(value = description, onValueChange = { description = it },
                     label = { Text("Description (Optional)") },
-                    placeholder = { Text("Add details...") },
                     leadingIcon = { Icon(Icons.Filled.Description, null) },
-                    modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3, enabled = !isLoading
-                )
+                    modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3, enabled = !isLoading)
 
                 HorizontalDivider()
 
-                // Shares header
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                Row(modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
                     Text("Split Ratios", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary)
                     Text("${sharesInput.values.mapNotNull { it.toIntOrNull() }.sum()} parts total",
                         fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text("How many parts does each person owe? (e.g. 1 & 2 → one pays ⅓, other pays ⅔)",
+                Text("How many parts does each person owe?",
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-                // Per-member share row
                 members.forEach { member ->
                     val isCurrentUser = member.userId == currentUserId
                     val totalShares   = sharesInput.values.mapNotNull { it.toIntOrNull() }.sum().coerceAtLeast(1)
@@ -650,14 +774,14 @@ fun ExpenseAddDialog(
                     val preview       = amount.toDoubleOrNull()?.let {
                         if (memberShares > 0) (memberShares.toDouble() / totalShares) * it else null
                     }
-
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Surface(modifier = Modifier.size(36.dp), shape = CircleShape,
                             color = if (isCurrentUser) MaterialTheme.colorScheme.primaryContainer
                             else MaterialTheme.colorScheme.secondaryContainer) {
                             Box(contentAlignment = Alignment.Center) {
-                                Text(member.name.first().uppercase(), fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                                Text(member.name.first().uppercase(), fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
                                     color = if (isCurrentUser) MaterialTheme.colorScheme.onPrimaryContainer
                                     else MaterialTheme.colorScheme.onSecondaryContainer)
                             }
@@ -665,18 +789,17 @@ fun ExpenseAddDialog(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(if (isCurrentUser) "You" else member.name, fontSize = 14.sp,
                                 fontWeight = if (isCurrentUser) FontWeight.Bold else FontWeight.Normal)
-                            if (preview != null) {
+                            if (preview != null)
                                 Text("≈ ${"$"}${"%.2f".format(preview)}", fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.primary)
-                            }
                         }
                         OutlinedTextField(
                             value = sharesInput[member.userId] ?: "1",
                             onValueChange = { v -> sharesInput[member.userId] = v.filter { it.isDigit() } },
                             modifier = Modifier.width(80.dp),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true, suffix = { Text("pt", fontSize = 11.sp) }, enabled = !isLoading
-                        )
+                            singleLine = true, suffix = { Text("pt", fontSize = 11.sp) },
+                            enabled = !isLoading)
                     }
                 }
             }
@@ -698,8 +821,10 @@ fun ExpenseAddDialog(
                         ) { result ->
                             isLoading = false
                             when (result) {
-                                is AddExpenseResult.Success ->
-                                { Toast.makeText(context, "Expense added!", Toast.LENGTH_SHORT).show(); onDismiss() }
+                                is AddExpenseResult.Success -> {
+                                    Toast.makeText(context, "Expense added!", Toast.LENGTH_SHORT).show()
+                                    onDismiss()
+                                }
                                 is AddExpenseResult.Error ->
                                     Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
                             }
@@ -707,7 +832,7 @@ fun ExpenseAddDialog(
                     }
                 },
                 enabled = name.isNotBlank() && amount.toDoubleOrNull() != null &&
-                        amount.toDoubleOrNull()!! > 0 &&
+                        (amount.toDoubleOrNull() ?: 0.0) > 0 &&
                         sharesInput.values.any { (it.toIntOrNull() ?: 0) > 0 } && !isLoading
             ) {
                 if (isLoading) {
@@ -718,12 +843,9 @@ fun ExpenseAddDialog(
                 Text("Add Expense")
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") }
-        }
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") } }
     )
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Edit Expense Dialog
@@ -748,25 +870,21 @@ fun ExpenseEditDialog(
     val context = LocalContext.current
 
     val sharesInput = remember {
-        mutableStateMapOf<Int, String>().also { map ->
-            members.forEach { map[it.userId] = "1" }
-        }
+        mutableStateMapOf<Int, String>().also { map -> members.forEach { map[it.userId] = "1" } }
     }
 
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
         title = { Text("Edit Expense") },
         text = {
-            Column(
-                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = name, onValueChange = { name = it },
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+
+                OutlinedTextField(value = name, onValueChange = { name = it },
                     label = { Text("Expense Name") },
                     leadingIcon = { Icon(Icons.Filled.ShoppingCart, null) },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !isLoading
-                )
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !isLoading)
+
                 OutlinedTextField(
                     value = amount,
                     onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d{0,2}$"))) amount = it },
@@ -774,42 +892,41 @@ fun ExpenseEditDialog(
                     leadingIcon = { Text("$", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
                     modifier = Modifier.fillMaxWidth(), singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    enabled = !isLoading
-                )
-                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded && !isLoading }) {
+                    enabled = !isLoading)
+
+                ExposedDropdownMenuBox(expanded = expanded,
+                    onExpandedChange = { expanded = !expanded && !isLoading }) {
                     OutlinedTextField(
                         value = members.find { it.userId == selectedPayerId }?.name ?: "Select",
-                        onValueChange = {}, readOnly = true,
-                        label = { Text("Paid By") },
+                        onValueChange = {}, readOnly = true, label = { Text("Paid By") },
                         leadingIcon = { Icon(Icons.Filled.Person, null) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(), enabled = !isLoading
-                    )
+                        modifier = Modifier.fillMaxWidth().menuAnchor(), enabled = !isLoading)
                     ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         members.forEach { member ->
-                            DropdownMenuItem(
-                                text = { Text(member.name) },
-                                onClick = { selectedPayerId = member.userId; expanded = false }
-                            )
+                            DropdownMenuItem(text = { Text(member.name) },
+                                onClick = { selectedPayerId = member.userId; expanded = false })
                         }
                     }
                 }
-                OutlinedTextField(
-                    value = description, onValueChange = { description = it },
+
+                OutlinedTextField(value = description, onValueChange = { description = it },
                     label = { Text("Description (Optional)") },
                     leadingIcon = { Icon(Icons.Filled.Description, null) },
-                    modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3, enabled = !isLoading
-                )
+                    modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3, enabled = !isLoading)
+
                 HorizontalDivider()
                 Text("Split Ratios", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary)
+
                 members.forEach { member ->
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Surface(modifier = Modifier.size(36.dp), shape = CircleShape,
                             color = MaterialTheme.colorScheme.secondaryContainer) {
                             Box(contentAlignment = Alignment.Center) {
-                                Text(member.name.first().uppercase(), fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                                Text(member.name.first().uppercase(), fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer)
                             }
                         }
@@ -820,8 +937,8 @@ fun ExpenseEditDialog(
                             onValueChange = { v -> sharesInput[member.userId] = v.filter { it.isDigit() } },
                             modifier = Modifier.width(80.dp),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true, suffix = { Text("pt", fontSize = 11.sp) }, enabled = !isLoading
-                        )
+                            singleLine = true, suffix = { Text("pt", fontSize = 11.sp) },
+                            enabled = !isLoading)
                     }
                 }
             }
@@ -833,7 +950,6 @@ fun ExpenseEditDialog(
                     val sharesMap    = sharesInput.mapValues { it.value.toIntOrNull() ?: 0 }.filter { it.value > 0 }
                     if (name.isNotBlank() && amountDouble != null && amountDouble > 0 && sharesMap.isNotEmpty()) {
                         isLoading = true
-                        // Delete old expense and re-insert with updated values
                         viewModel.deleteExpense(expense.id, tricountId)
                         viewModel.addExpense(
                             tricountId  = tricountId,
@@ -856,7 +972,7 @@ fun ExpenseEditDialog(
                     }
                 },
                 enabled = name.isNotBlank() && amount.toDoubleOrNull() != null &&
-                        amount.toDoubleOrNull()!! > 0 &&
+                        (amount.toDoubleOrNull() ?: 0.0) > 0 &&
                         sharesInput.values.any { (it.toIntOrNull() ?: 0) > 0 } && !isLoading
             ) {
                 if (isLoading) {
@@ -867,9 +983,7 @@ fun ExpenseEditDialog(
                 Text("Save Changes")
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") }
-        }
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") } }
     )
 }
 

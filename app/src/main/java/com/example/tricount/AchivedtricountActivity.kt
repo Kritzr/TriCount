@@ -61,7 +61,8 @@ fun ArchivedTricountsScreen(
     onBackClick    : () -> Unit
 ) {
     val archivedTricounts by viewModel.archivedTricounts.collectAsStateWithLifecycle()
-    val currentUserId = sessionManager.getUserId()
+    val archivedCount: Int = archivedTricounts.size
+    val currentUserId: Int = sessionManager.getUserId() ?: -1
     var tricountToUnarchive by remember { mutableStateOf<TricountEntity?>(null) }
     var tricountToDelete    by remember { mutableStateOf<Pair<Int, String>?>(null) }
 
@@ -75,7 +76,7 @@ fun ArchivedTricountsScreen(
                 title = {
                     Column {
                         Text("Archived Tricounts", fontWeight = FontWeight.Bold)
-                        Text("${archivedTricounts.size} archived",
+                        Text("$archivedCount archived",
                             fontSize = 12.sp,
                             color    = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f))
                     }
@@ -153,7 +154,7 @@ fun ArchivedTricountsScreen(
                 items(archivedTricounts, key = { it.id }) { tricount ->
                     ArchivedTricountCard(
                         tricount          = tricount,
-                        isCreator         = tricount.creatorId == (currentUserId ?: -1),
+                        isCreator         = tricount.creatorId == currentUserId,
                         onUnarchiveClick  = { tricountToUnarchive = tricount },
                         onDeleteClick     = { tricountToDelete = Pair(tricount.id, tricount.name) }
                     )
