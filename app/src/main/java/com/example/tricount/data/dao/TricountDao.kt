@@ -69,9 +69,17 @@ interface TricountDao {
         SELECT u.id AS userId, u.name, u.email,
                CASE WHEN t.creatorId = u.id THEN 1 ELSE 0 END AS isCreator
         FROM users u
-        INNER JOIN tricount_members tm ON u.id = tm.userId
-        INNER JOIN tricounts t ON tm.tricountId = t.id
-        WHERE tm.tricountId = :tricountId
+        INNER JOIN (
+            SELECT DISTINCT tm.userId FROM tricount_members tm WHERE tm.tricountId = :tricountId
+            UNION
+            SELECT DISTINCT es.userId FROM expense_splits es
+                INNER JOIN expenses e ON es.expenseId = e.id
+                WHERE e.tricountId = :tricountId AND e.isArchived = 0
+            UNION
+            SELECT DISTINCT e2.paidBy AS userId FROM expenses e2
+                WHERE e2.tricountId = :tricountId AND e2.isArchived = 0
+        ) AS all_members ON u.id = all_members.userId
+        INNER JOIN tricounts t ON t.id = :tricountId
         ORDER BY isCreator DESC, u.name ASC
     """)
     suspend fun getTricountMembersWithDetails(tricountId: Int): List<MemberWithDetails>

@@ -6,6 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tricount.data.SessionManager
 import com.example.tricount.data.database.TricountDatabase
+import com.example.tricount.data.dao.PaymentDao
+import com.example.tricount.data.entity.PaymentEntity
 import com.example.tricount.data.entity.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +17,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
 
     private val tricountDao    = TricountDatabase.getDatabase(application).tricountDao()
     private val userDao        = TricountDatabase.getDatabase(application).userDao()
+    private val paymentDao     = TricountDatabase.getDatabase(application).paymentDao()
     private val sessionManager = SessionManager(application)
 
     // ── StateFlows ────────────────────────────────────────────────────────────
@@ -48,6 +51,9 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
 
     private val _favoriteTricounts = MutableStateFlow<List<TricountEntity>>(emptyList())
     val favoriteTricounts: StateFlow<List<TricountEntity>> = _favoriteTricounts
+
+    private val _payments = MutableStateFlow<List<PaymentEntity>>(emptyList())
+    val payments: StateFlow<List<PaymentEntity>> = _payments
 
     // ── Tricount CRUD ─────────────────────────────────────────────────────────
 
@@ -261,6 +267,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             try {
                 val expensesList = tricountDao.getExpensesWithDetails(tricountId)
                 _expenses.value = expensesList
+                _payments.value = paymentDao.getPaymentsForTricount(tricountId)
                 loadAllSplits(expensesList)
                 try {
                     _archivedExpenses.value = tricountDao.getArchivedExpensesWithDetails(tricountId)
@@ -376,17 +383,42 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         val netBalance = mutableMapOf<Int, Double>()
         val nameMap    = mutableMapOf<Int, String>()
 
+        // Build a global name map from all known sources first
+        for (member in _tricountMembers.value) {
+            nameMap[member.userId] = member.name
+        }
+
+        // Step 1 — accumulate expense debts
         for (expense in _expenses.value) {
+            // Payer gets credited the full amount
             netBalance[expense.paidBy] = (netBalance[expense.paidBy] ?: 0.0) + expense.amount
             nameMap[expense.paidBy] = expense.paidByName
 
-            val splits = _expenseSplits.value[expense.id] ?: continue
-            for (split in splits) {
-                netBalance[split.userId] = (netBalance[split.userId] ?: 0.0) - split.amount
-                nameMap[split.userId] = split.userName
+            val splits = _expenseSplits.value[expense.id]
+
+            if (!splits.isNullOrEmpty()) {
+                // Use recorded splits — each person owes their proportional share
+                for (split in splits) {
+                    netBalance[split.userId] = (netBalance[split.userId] ?: 0.0) - split.amount
+                    nameMap[split.userId] = split.userName
+                }
+            } else {
+                // No splits recorded — debit the payer their own full share
+                // (they paid for themselves, no one else owes them)
+                netBalance[expense.paidBy] = (netBalance[expense.paidBy] ?: 0.0) - expense.amount
             }
         }
 
+        // Step 2 — subtract already-recorded payments
+        // A payment from A→B means A's debt goes down (credit A) and B's credit goes down (debit B)
+        for (payment in _payments.value) {
+            netBalance[payment.fromUserId] = (netBalance[payment.fromUserId] ?: 0.0) + payment.amount
+            netBalance[payment.toUserId]   = (netBalance[payment.toUserId]   ?: 0.0) - payment.amount
+            nameMap[payment.fromUserId]    = payment.fromUserName
+            nameMap[payment.toUserId]      = payment.toUserName
+        }
+
+        // Step 3 — greedy settle-up
         val creditors = netBalance.filter { it.value >  0.01 }.map { it.key to  it.value }.toMutableList()
         val debtors   = netBalance.filter { it.value < -0.01 }.map { it.key to -it.value }.toMutableList()
         val result    = mutableListOf<Settlement>()
@@ -411,6 +443,48 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             if (debtors[di].second   <= 0.01) di++
         }
         _settlements.value = result
+    }
+
+    /** Record that fromUserId paid toUserId [amount] and refresh settlements live. */
+    fun markSettlementPaid(
+        tricountId   : Int,
+        fromUserId   : Int,
+        fromUserName : String,
+        toUserId     : Int,
+        toUserName   : String,
+        amount       : Double,
+        onDone       : () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                val payment = PaymentEntity(
+                    tricountId   = tricountId,
+                    fromUserId   = fromUserId,
+                    fromUserName = fromUserName,
+                    toUserId     = toUserId,
+                    toUserName   = toUserName,
+                    amount       = amount
+                )
+                paymentDao.insertPayment(payment)
+                // Refresh payments then recompute settlements
+                _payments.value = paymentDao.getPaymentsForTricount(tricountId)
+                recomputeSettlements()
+                onDone()
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "markSettlementPaid error", e)
+            }
+        }
+    }
+
+    fun loadPayments(tricountId: Int) {
+        viewModelScope.launch {
+            try {
+                _payments.value = paymentDao.getPaymentsForTricount(tricountId)
+                recomputeSettlements()
+            } catch (e: Exception) {
+                _payments.value = emptyList()
+            }
+        }
     }
 
     // ── Profile ───────────────────────────────────────────────────────────────

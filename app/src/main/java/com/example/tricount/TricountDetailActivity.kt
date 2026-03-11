@@ -36,16 +36,28 @@ import com.example.tricount.data.entity.TricountEntity
 import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.AddMemberResult
 import com.example.tricount.viewModel.Settlement
+import com.example.tricount.data.entity.PaymentEntity
 import com.example.tricount.viewModel.TricountViewModel
 
 class TricountDetailActivity : ComponentActivity() {
 
     private val tricountViewModel: TricountViewModel by viewModels()
 
+    private var tricountId = -1
+
+    override fun onResume() {
+        super.onResume()
+        if (tricountId != -1) {
+            tricountViewModel.loadTricountDetails(tricountId)
+            tricountViewModel.loadExpenses(tricountId)
+            tricountViewModel.loadPayments(tricountId)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val tricountId   = intent.getIntExtra("TRICOUNT_ID", -1)
+        tricountId = intent.getIntExtra("TRICOUNT_ID", -1)
         val tricountName = intent.getStringExtra("TRICOUNT_NAME") ?: "Tricount"
         val sessionManager = SessionManager(this)
 
@@ -62,6 +74,7 @@ class TricountDetailActivity : ComponentActivity() {
                 val archivedExpenses by tricountViewModel.archivedExpenses.collectAsStateWithLifecycle()
                 val expenseSplits    by tricountViewModel.expenseSplits.collectAsStateWithLifecycle()
                 val settlements      by tricountViewModel.settlements.collectAsStateWithLifecycle()
+                val payments         by tricountViewModel.payments.collectAsStateWithLifecycle()
                 val currentUserId    = sessionManager.getUserId() ?: -1
 
                 TricountDetailScreen(
@@ -73,6 +86,7 @@ class TricountDetailActivity : ComponentActivity() {
                     archivedExpenses = archivedExpenses,
                     expenseSplits    = expenseSplits,
                     settlements      = settlements,
+                    payments         = payments,
                     currentUserId    = currentUserId,
                     viewModel        = tricountViewModel,
                     onBackClick      = { finish() }
@@ -92,19 +106,18 @@ fun TricountDetailScreen(
     tricountDetails  : TricountEntity?,
     members          : List<MemberWithDetails>,
     expenses         : List<ExpenseWithDetails>,
-    archivedExpenses : List<ExpenseWithDetails> = emptyList(),
+    archivedExpenses : List<ExpenseWithDetails>,
     expenseSplits    : Map<Int, List<ExpenseSplitWithUser>>,
     settlements      : List<Settlement>,
+    payments         : List<com.example.tricount.data.entity.PaymentEntity>,
     currentUserId    : Int,
     viewModel        : TricountViewModel,
     onBackClick      : () -> Unit
 ) {
     val context = LocalContext.current
-    var selectedTab  by remember { mutableStateOf(0) }
-
-    // Expense edit / archive-section state lives here so it survives tab switches
-    var expenseToEdit  by remember { mutableStateOf<ExpenseWithDetails?>(null) }
-    var showArchived   by remember { mutableStateOf(false) }
+    var selectedTab   by remember { mutableStateOf(0) }
+    var expenseToEdit by remember { mutableStateOf<ExpenseWithDetails?>(null) }
+    var showArchived  by remember { mutableStateOf(false) }
 
     val tabs = listOf(
         TabItem(Icons.Filled.Receipt,        "Expenses"),
@@ -166,26 +179,29 @@ fun TricountDetailScreen(
     ) { padding ->
         when (selectedTab) {
             0 -> ExpensesContent(
-                modifier               = Modifier.padding(padding),
-                expenses               = expenses,
-                archivedExpenses       = archivedExpenses,
-                currentUserId          = currentUserId,
-                onDeleteExpense        = { expenseId -> viewModel.deleteExpense(expenseId, tricountId) },
-                onArchiveExpense       = { expenseId -> viewModel.archiveExpense(expenseId, tricountId) },
-                onUnarchiveExpense     = { expenseId -> viewModel.unarchiveExpense(expenseId, tricountId) },
-                onDeleteArchivedExpense= { expenseId -> viewModel.deleteExpense(expenseId, tricountId) },
-                onEditExpense          = { expense   -> expenseToEdit = expense },
-                showArchived           = showArchived,
-                onToggleArchived       = { showArchived = !showArchived }
+                modifier                = Modifier.padding(padding),
+                expenses                = expenses,
+                archivedExpenses        = archivedExpenses,
+                currentUserId           = currentUserId,
+                onDeleteExpense         = { expenseId -> viewModel.deleteExpense(expenseId, tricountId) },
+                onArchiveExpense        = { expenseId -> viewModel.archiveExpense(expenseId, tricountId) },
+                onUnarchiveExpense      = { expenseId -> viewModel.unarchiveExpense(expenseId, tricountId) },
+                onDeleteArchivedExpense = { expenseId -> viewModel.deleteExpense(expenseId, tricountId) },
+                onEditExpense           = { expense   -> expenseToEdit = expense },
+                showArchived            = showArchived,
+                onToggleArchived        = { showArchived = !showArchived }
             )
             1 -> BalancesContent(
                 modifier      = Modifier.padding(padding),
                 expenses      = expenses,
                 expenseSplits = expenseSplits,
                 settlements   = settlements,
+                payments      = payments,
                 currentUserId = currentUserId,
                 memberCount   = members.size,
-                expenseCount  = expenses.size
+                expenseCount  = expenses.size,
+                tricountId    = tricountId,
+                viewModel     = viewModel
             )
             2 -> DetailsTab(
                 modifier        = Modifier.padding(padding),
@@ -197,8 +213,7 @@ fun TricountDetailScreen(
             )
         }
     }
-
-    // Edit dialog (above Scaffold so it overlays everything)
+    // Expense edit dialog (rendered outside Scaffold so it overlays correctly)
     expenseToEdit?.let { expense ->
         ExpenseEditDialog(
             expense       = expense,
@@ -249,17 +264,21 @@ private fun DetailsTab(
                     containerColor = MaterialTheme.colorScheme.primaryContainer)
             ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(),
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically) {
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Column {
                             Text("Join Code", fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
                             Spacer(Modifier.height(4.dp))
-                            Text(tricountDetails.joinCode,
+                            Text(
+                                tricountDetails.joinCode,
                                 fontSize = 32.sp, fontWeight = FontWeight.Bold,
                                 letterSpacing = 4.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
                         }
                         IconButton(onClick = {
                             copyToClipboard(context, tricountDetails.joinCode)
@@ -270,8 +289,10 @@ private fun DetailsTab(
                         }
                     }
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = { shareTricount(context, tricountDetails.name, tricountDetails.joinCode) },
-                        modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick  = { shareTricount(context, tricountDetails.name, tricountDetails.joinCode) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Icon(Icons.Filled.Share, null)
                         Spacer(Modifier.width(8.dp))
                         Text("Share Tricount")
@@ -282,9 +303,11 @@ private fun DetailsTab(
 
         if (tricountDetails.description.isNotBlank()) {
             item {
-                Card(modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors   = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                ) {
                     Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Description", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary)
@@ -297,15 +320,20 @@ private fun DetailsTab(
         }
 
         item {
-            Card(modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors   = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(),
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically) {
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text("Members (${members.size})", fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary)
                         if (isCreator) {
                             IconButton(onClick = { showAddMemberDialog = true }) {
                                 Icon(Icons.Filled.PersonAdd, contentDescription = "Add Member",
@@ -323,7 +351,9 @@ private fun DetailsTab(
                                 member        = member,
                                 isCreator     = isCreator,
                                 canRemove     = isCreator && !member.isCreator,
-                                onRemoveClick = { viewModel.removeMember(member.userId, tricountDetails.id) }
+                                onRemoveClick = {
+                                    viewModel.removeMember(member.userId, tricountDetails.id)
+                                }
                             )
                             if (member != members.last()) Spacer(Modifier.height(8.dp))
                         }
@@ -334,8 +364,11 @@ private fun DetailsTab(
     }
 
     if (showAddMemberDialog) {
-        AddMemberDialog(tricountId = tricountId, viewModel = viewModel,
-            onDismiss = { showAddMemberDialog = false })
+        AddMemberDialog(
+            tricountId = tricountId,
+            viewModel  = viewModel,
+            onDismiss  = { showAddMemberDialog = false }
+        )
     }
 }
 
@@ -352,18 +385,24 @@ fun MemberItem(
 ) {
     var showRemoveDialog by remember { mutableStateOf(false) }
 
-    Row(modifier = Modifier.fillMaxWidth(),
+    Row(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically) {
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-            Surface(modifier = Modifier.size(40.dp), shape = CircleShape,
+            Surface(
+                modifier = Modifier.size(40.dp), shape = CircleShape,
                 color = if (member.isCreator) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.secondary) {
+                else MaterialTheme.colorScheme.secondary
+            ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(if (member.isCreator) Icons.Filled.Star else Icons.Filled.Person,
+                    Icon(
+                        if (member.isCreator) Icons.Filled.Star else Icons.Filled.Person,
                         contentDescription = null, modifier = Modifier.size(24.dp),
                         tint = if (member.isCreator) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSecondary)
+                        else MaterialTheme.colorScheme.onSecondary
+                    )
                 }
             }
             Spacer(Modifier.width(12.dp))
@@ -374,8 +413,10 @@ fun MemberItem(
             }
         }
         if (member.isCreator) {
-            Surface(shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)) {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+            ) {
                 Text("CREATOR",
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     fontSize = 10.sp, fontWeight = FontWeight.Bold,
@@ -395,11 +436,15 @@ fun MemberItem(
             title   = { Text("Remove Member?") },
             text    = { Text("Remove ${member.name} from this Tricount?") },
             confirmButton = {
-                TextButton(onClick = { onRemoveClick(); showRemoveDialog = false },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error)) { Text("Remove") }
+                TextButton(
+                    onClick = { onRemoveClick(); showRemoveDialog = false },
+                    colors  = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("Remove") }
             },
-            dismissButton = { TextButton(onClick = { showRemoveDialog = false }) { Text("Cancel") } }
+            dismissButton = {
+                TextButton(onClick = { showRemoveDialog = false }) { Text("Cancel") }
+            }
         )
     }
 }
@@ -442,9 +487,13 @@ fun AddMemberDialog(
                     singleLine      = true,
                     isError         = !isValidEmail,
                     supportingText  = {
-                        if (!isValidEmail) Text("Invalid email", color = MaterialTheme.colorScheme.error)
+                        if (!isValidEmail)
+                            Text("Invalid email", color = MaterialTheme.colorScheme.error)
                     },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Email,
+                        imeAction    = ImeAction.Done
+                    ),
                     enabled = !isLoading
                 )
             }
@@ -458,11 +507,13 @@ fun AddMemberDialog(
                             isLoading = false
                             when (result) {
                                 is AddMemberResult.Success -> {
-                                    Toast.makeText(context, "${result.memberName} added!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context,
+                                        "${result.memberName} added!", Toast.LENGTH_SHORT).show()
                                     onDismiss()
                                 }
                                 is AddMemberResult.Error ->
-                                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context,
+                                        result.message, Toast.LENGTH_LONG).show()
                             }
                         }
                     }
@@ -476,7 +527,9 @@ fun AddMemberDialog(
                 Text("Add")
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") } }
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") }
+        }
     )
 }
 
