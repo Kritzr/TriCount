@@ -31,7 +31,9 @@
         <activity
             android:name=".AddTricountActivity"
             android:exported="false" />
-
+        <activity
+            android:name=".InsightsContentActivity"
+            android:exported="false" />
         <!-- Join Tricount Activity -->
         <activity
             android:name=".JoinTricountActivity"

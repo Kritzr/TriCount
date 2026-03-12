@@ -131,6 +131,7 @@ fun AddExpenseScreen(
     var selectedPayerId  by remember { mutableStateOf(currentUserId) }
     var splitMode        by remember { mutableStateOf(SplitMode.EQUALLY) }
     var isLoading        by remember { mutableStateOf(false) }
+    var selectedCategory by remember { mutableStateOf("General") }
 
     // Per-member split inputs (percentage or parts depending on mode)
     val splitInputs = remember(members) {
@@ -195,6 +196,7 @@ fun AddExpenseScreen(
             description = description.trim(),
             amount      = amount,
             paidBy      = selectedPayerId,
+            category    = selectedCategory,
             sharesMap   = sharesMap
         ) { result ->
             isLoading = false
@@ -352,6 +354,49 @@ fun AddExpenseScreen(
                         maxLines      = 4,
                         enabled       = !isLoading
                     )
+                }
+            }
+
+            // ── Section: Category ────────────────────────────────────────────
+            item {
+                SectionCard(title = "Category") {
+                    val categoryList = listOf(
+                        "Food & Drinks" to "🍔",
+                        "Transport"     to "🚕",
+                        "Accommodation" to "🏨",
+                        "Entertainment" to "🎬",
+                        "Shopping"      to "🛍️",
+                        "Health"        to "💊",
+                        "Groceries"     to "🛒",
+                        "Utilities"     to "⚡",
+                        "Travel"        to "✈️",
+                        "Education"     to "📚",
+                        "General"       to "📌",
+                    )
+                    categoryList.chunked(3).forEach { rowItems ->
+                        Row(
+                            modifier              = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowItems.forEach { (name, emoji) ->
+                                FilterChip(
+                                    selected = selectedCategory == name,
+                                    onClick  = { selectedCategory = name },
+                                    label    = {
+                                        Text("$emoji  $name", fontSize = 11.sp, maxLines = 1)
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    enabled  = !isLoading,
+                                    colors   = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor     = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                )
+                            }
+                            repeat(3 - rowItems.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                    }
                 }
             }
 
