@@ -63,6 +63,7 @@ class TricountDetailActivity : ComponentActivity() {
         val sessionManager = SessionManager(this)
 
         AppTheme.isDark.value = sessionManager.getDarkMode()
+
         setContent {
             TriCountTheme() {
                 LaunchedEffect(tricountId) {
@@ -162,19 +163,46 @@ fun TricountDetailScreen(
         },
         floatingActionButton = {
             if (selectedTab == 0) {
-                FloatingActionButton(
-                    onClick = {
-                        context.startActivity(
-                            Intent(context, AddExpenseActivity::class.java).apply {
-                                putExtra("extra_tricount_id",   tricountId)
-                                putExtra("extra_tricount_name", tricountName)
-                            }
-                        )
-                    },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor   = MaterialTheme.colorScheme.onPrimary
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = "Add Expense")
+                    // View Archived — small FAB
+                    if (archivedExpenses.isNotEmpty()) {
+                        SmallFloatingActionButton(
+                            onClick = {
+                                context.startActivity(
+                                    Intent(context, ArchivedExpensesActivity::class.java).apply {
+                                        putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_ID,   tricountId)
+                                        putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_NAME, tricountName)
+                                    }
+                                )
+                            },
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor   = MaterialTheme.colorScheme.onSecondaryContainer
+                        ) {
+                            BadgedBox(badge = {
+                                Badge { Text("${archivedExpenses.size}") }
+                            }) {
+                                Icon(Icons.Filled.Archive, contentDescription = "View Archived")
+                            }
+                        }
+                    }
+                    // Add Expense — main FAB
+                    FloatingActionButton(
+                        onClick = {
+                            context.startActivity(
+                                Intent(context, AddExpenseActivity::class.java).apply {
+                                    putExtra("extra_tricount_id",   tricountId)
+                                    putExtra("extra_tricount_name", tricountName)
+                                }
+                            )
+                        },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor   = MaterialTheme.colorScheme.onPrimary
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = "Add Expense")
+                    }
                 }
             }
         }
@@ -190,8 +218,8 @@ fun TricountDetailScreen(
                 onUnarchiveExpense      = { expenseId -> viewModel.unarchiveExpense(expenseId, tricountId) },
                 onDeleteArchivedExpense = { expenseId -> viewModel.deleteExpense(expenseId, tricountId) },
                 onEditExpense           = { expense   -> expenseToEdit = expense },
-                showArchived            = showArchived,
-                onToggleArchived        = { showArchived = !showArchived }
+                showArchived            = false,
+                onToggleArchived        = {}
             )
             1 -> BalancesContent(
                 modifier      = Modifier.padding(padding),
