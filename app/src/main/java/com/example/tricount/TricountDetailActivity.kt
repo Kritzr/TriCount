@@ -34,6 +34,7 @@ import com.example.tricount.data.entity.ExpenseWithDetails
 import com.example.tricount.data.entity.MemberWithDetails
 import com.example.tricount.data.entity.TricountEntity
 import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.ui.theme.AppTheme
 import com.example.tricount.viewModel.AddMemberResult
 import com.example.tricount.viewModel.Settlement
 import com.example.tricount.data.entity.PaymentEntity
@@ -61,8 +62,9 @@ class TricountDetailActivity : ComponentActivity() {
         val tricountName = intent.getStringExtra("TRICOUNT_NAME") ?: "Tricount"
         val sessionManager = SessionManager(this)
 
+        AppTheme.isDark.value = sessionManager.getDarkMode()
         setContent {
-            TriCountTheme(darkTheme = false) {
+            TriCountTheme() {
                 LaunchedEffect(tricountId) {
                     tricountViewModel.loadTricountDetails(tricountId)
                     tricountViewModel.loadExpenses(tricountId)

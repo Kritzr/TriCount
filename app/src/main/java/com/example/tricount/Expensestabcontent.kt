@@ -37,6 +37,7 @@ import com.example.tricount.data.SessionManager
 import com.example.tricount.data.entity.ExpenseWithDetails
 import com.example.tricount.data.entity.MemberWithDetails
 import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.ui.theme.AppTheme
 import com.example.tricount.viewModel.AddExpenseResult
 import com.example.tricount.viewModel.TricountViewModel
 import java.text.SimpleDateFormat
@@ -59,8 +60,9 @@ class ExpensesActivity : ComponentActivity() {
 
         if (tricountId == -1) { finish(); return }
 
+        AppTheme.isDark.value = sessionManager.getDarkMode()
         setContent {
-            TriCountTheme(darkTheme = false) {
+            TriCountTheme() {
                 LaunchedEffect(tricountId) {
                     viewModel.loadTricountDetails(tricountId)
                     viewModel.loadExpenses(tricountId)

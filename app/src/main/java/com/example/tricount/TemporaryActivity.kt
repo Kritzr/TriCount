@@ -13,7 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.tricount.data.SessionManager
 import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.ui.theme.AppTheme
 
 class TemporaryActivity : ComponentActivity() {
 
@@ -24,8 +26,10 @@ class TemporaryActivity : ComponentActivity() {
         val expenseDescription = intent.getStringExtra("EXPENSE_DESCRIPTION") ?: ""
         val expenseCost = intent.getDoubleExtra("EXPENSE_COST", 0.0)
 
+        val sessionManager = SessionManager(this)
+        AppTheme.isDark.value = sessionManager.getDarkMode()
         setContent {
-            TriCountTheme {
+            TriCountTheme() {
                 TemporaryScreen(
                     expenseName = expenseName,
                     expenseDescription = expenseDescription,
@@ -118,5 +122,3 @@ fun TemporaryScreen(
         }
     }
 }
-
-

@@ -25,6 +25,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.data.SessionManager
 import com.example.tricount.data.entity.TricountEntity
 import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.ui.theme.AppTheme
 import com.example.tricount.viewModel.TricountViewModel
 
 class ArchivedTricountsActivity : ComponentActivity() {
@@ -35,9 +36,10 @@ class ArchivedTricountsActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val sessionManager = SessionManager(this)
 
+        AppTheme.isDark.value = sessionManager.getDarkMode()
         setContent {
             val isDarkMode = sessionManager.getDarkMode()
-            TriCountTheme(darkTheme = isDarkMode) {
+            TriCountTheme() {
                 ArchivedTricountsScreen(
                     viewModel      = viewModel,
                     sessionManager = sessionManager,

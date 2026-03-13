@@ -73,6 +73,7 @@ dependencies {
     // Retrofit (later phase)
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("androidx.compose.ui:ui-text-google-fonts:1.7.8")
 }
 
 

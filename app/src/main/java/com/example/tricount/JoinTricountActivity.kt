@@ -27,7 +27,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.tricount.data.SessionManager
 import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.ui.theme.AppTheme
 import com.example.tricount.viewModel.JoinResult
 import com.example.tricount.viewModel.TricountViewModel
 
@@ -38,8 +40,10 @@ class JoinTricountActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val sessionManager = SessionManager(this)
+        AppTheme.isDark.value = sessionManager.getDarkMode()
         setContent {
-            TriCountTheme {
+            TriCountTheme() {
                 val joinResult by tricountViewModel.joinResult.collectAsStateWithLifecycle()
 
                 // Handle join result

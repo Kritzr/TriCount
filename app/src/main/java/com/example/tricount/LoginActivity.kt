@@ -22,7 +22,9 @@ import androidx.compose.ui.text.input.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.tricount.data.SessionManager
 import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.ui.theme.AppTheme
 import com.example.tricount.viewModel.AuthResult
 import com.example.tricount.viewModel.AuthViewModel
 
@@ -33,8 +35,10 @@ class LoginActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val sessionManager = SessionManager(this)
+        AppTheme.isDark.value = sessionManager.getDarkMode()
         setContent {
-            TriCountTheme(darkTheme = false) {
+            TriCountTheme() {
 
                 val authResult by authViewModel.authResult.collectAsStateWithLifecycle()
 
