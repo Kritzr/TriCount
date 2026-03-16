@@ -35,6 +35,9 @@ import com.example.tricount.data.entity.MemberWithDetails
 import com.example.tricount.data.entity.TricountEntity
 import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.ui.theme.AppTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import com.example.tricount.viewModel.AddMemberResult
 import com.example.tricount.viewModel.Settlement
 import com.example.tricount.data.entity.PaymentEntity
@@ -99,8 +102,6 @@ class TricountDetailActivity : ComponentActivity() {
     }
 }
 
-private data class TabItem(val icon: ImageVector, val title: String)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TricountDetailScreen(
@@ -118,44 +119,166 @@ fun TricountDetailScreen(
     onBackClick      : () -> Unit
 ) {
     val context = LocalContext.current
-    var selectedTab   by remember { mutableStateOf(0) }
-    var expenseToEdit by remember { mutableStateOf<ExpenseWithDetails?>(null) }
-    var showArchived  by remember { mutableStateOf(false) }
+    var selectedTab      by remember { mutableStateOf(0) }
+    var expenseToEdit    by remember { mutableStateOf<ExpenseWithDetails?>(null) }
+    var showMenu         by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showArchiveDialog by remember { mutableStateOf(false) }
+    var searchActive     by remember { mutableStateOf(false) }
+    var searchQuery      by remember { mutableStateOf("") }
 
-    val tabs = listOf(
-        TabItem(Icons.Filled.Receipt,        "Expenses"),
-        TabItem(Icons.Filled.AccountBalance, "Summary"),
-        TabItem(Icons.Filled.Info,           "Details")
-    )
+    // Filter expenses by search query when search is active
+    val displayedExpenses = remember(expenses, searchQuery, searchActive) {
+        if (searchActive && searchQuery.isNotBlank())
+            expenses.filter {
+                it.name.contains(searchQuery, ignoreCase = true) ||
+                        it.description.contains(searchQuery, ignoreCase = true) ||
+                        it.paidByName.contains(searchQuery, ignoreCase = true) ||
+                        it.category.contains(searchQuery, ignoreCase = true)
+            }
+        else expenses
+    }
+
+    // tabs: 0=Expenses, 1=Balances, 2=Insights, 3=Details
+    val tabs = listOf("Expenses", "Balances", "Insights", "Details")
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Column {
-                TopAppBar(
-                    title = { Text(tricountName, fontWeight = FontWeight.Bold) },
-                    navigationIcon = {
-                        IconButton(onClick = onBackClick) {
-                            Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
-                    actions = {
+                // ── Top icon bar ─────────────────────────────────────────────
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment     = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    IconButton(onClick = onBackClick) {
+                        Icon(Icons.Filled.ArrowBack, "Back",
+                            tint = MaterialTheme.colorScheme.onBackground)
+                    }
+                    Row {
+                        // Search toggle
                         IconButton(onClick = {
-                            tricountDetails?.let { shareTricount(context, it.name, it.joinCode) }
+                            searchActive = !searchActive
+                            if (!searchActive) searchQuery = ""
                         }) {
-                            Icon(Icons.Filled.Share, contentDescription = "Share")
+                            Icon(
+                                if (searchActive) Icons.Filled.SearchOff else Icons.Filled.Search,
+                                "Search",
+                                tint = if (searchActive) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                        // Three-dot menu
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(Icons.Filled.MoreVert, "Options",
+                                    tint = MaterialTheme.colorScheme.onBackground)
+                            }
+                            DropdownMenu(
+                                expanded         = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                // Share
+                                DropdownMenuItem(
+                                    leadingIcon = { Icon(Icons.Filled.Share, null) },
+                                    text    = { Text("Share") },
+                                    onClick = {
+                                        showMenu = false
+                                        tricountDetails?.let {
+                                            shareTricount(context, it.name, it.joinCode)
+                                        }
+                                    }
+                                )
+                                HorizontalDivider()
+                                // Insights
+                                DropdownMenuItem(
+                                    leadingIcon = { Icon(Icons.Filled.PieChart, null,
+                                        tint = MaterialTheme.colorScheme.primary) },
+                                    text    = { Text("Insights",
+                                        color = MaterialTheme.colorScheme.primary) },
+                                    onClick = { showMenu = false; selectedTab = 2 }
+                                )
+                                HorizontalDivider()
+                                // Edit → Details tab
+                                DropdownMenuItem(
+                                    leadingIcon = { Icon(Icons.Filled.Edit, null) },
+                                    text    = { Text("Edit") },
+                                    onClick = { showMenu = false; selectedTab = 3 }
+                                )
+                                HorizontalDivider()
+                                // Archived Expenses
+                                DropdownMenuItem(
+                                    leadingIcon = { Icon(Icons.Filled.Inventory, null) },
+                                    text    = { Text("Archived Expenses") },
+                                    onClick = {
+                                        showMenu = false
+                                        context.startActivity(
+                                            Intent(context, ArchivedExpensesActivity::class.java).apply {
+                                                putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_ID,   tricountId)
+                                                putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_NAME, tricountName)
+                                            }
+                                        )
+                                    }
+                                )
+                                HorizontalDivider()
+                                // Archive tricount
+                                DropdownMenuItem(
+                                    leadingIcon = { Icon(Icons.Filled.Archive, null,
+                                        tint = MaterialTheme.colorScheme.secondary) },
+                                    text    = { Text("Archive Tricount",
+                                        color = MaterialTheme.colorScheme.secondary) },
+                                    onClick = { showMenu = false; showArchiveDialog = true }
+                                )
+                                HorizontalDivider()
+                                // Delete tricount
+                                DropdownMenuItem(
+                                    leadingIcon = { Icon(Icons.Filled.Delete, null,
+                                        tint = MaterialTheme.colorScheme.error) },
+                                    text    = { Text("Delete Tricount",
+                                        color = MaterialTheme.colorScheme.error) },
+                                    onClick = { showMenu = false; showDeleteDialog = true }
+                                )
+                            }
                         }
                     }
-                )
-                TabRow(selectedTabIndex = selectedTab) {
-                    tabs.forEachIndexed { index, tab ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick  = { selectedTab = index },
-                            text     = { Text(tab.title, fontSize = 12.sp) },
-                            icon     = {
-                                Icon(tab.icon, contentDescription = tab.title,
-                                    modifier = Modifier.size(18.dp))
+                }
+
+                // ── Search bar — slides in when search is active ──────────────
+                if (searchActive) {
+                    OutlinedTextField(
+                        value         = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder   = { Text("Search expenses…") },
+                        leadingIcon   = { Icon(Icons.Filled.Search, null) },
+                        trailingIcon  = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Filled.Clear, "Clear")
+                                }
                             }
+                        },
+                        singleLine  = true,
+                        modifier    = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape       = RoundedCornerShape(50),
+                        colors      = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor   = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    // Show result count
+                    if (searchQuery.isNotBlank()) {
+                        Text(
+                            "${displayedExpenses.size} result${if (displayedExpenses.size == 1) "" else "s"}",
+                            fontSize = 12.sp,
+                            color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
                         )
                     }
                 }
@@ -163,32 +286,7 @@ fun TricountDetailScreen(
         },
         floatingActionButton = {
             if (selectedTab == 0) {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // View Archived — small FAB
-                    if (archivedExpenses.isNotEmpty()) {
-                        SmallFloatingActionButton(
-                            onClick = {
-                                context.startActivity(
-                                    Intent(context, ArchivedExpensesActivity::class.java).apply {
-                                        putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_ID,   tricountId)
-                                        putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_NAME, tricountName)
-                                    }
-                                )
-                            },
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor   = MaterialTheme.colorScheme.onSecondaryContainer
-                        ) {
-                            BadgedBox(badge = {
-                                Badge { Text("${archivedExpenses.size}") }
-                            }) {
-                                Icon(Icons.Filled.Archive, contentDescription = "View Archived")
-                            }
-                        }
-                    }
-                    // Add Expense — main FAB
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     FloatingActionButton(
                         onClick = {
                             context.startActivity(
@@ -199,51 +297,120 @@ fun TricountDetailScreen(
                             )
                         },
                         containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor   = MaterialTheme.colorScheme.onPrimary
+                        contentColor   = MaterialTheme.colorScheme.onPrimary,
+                        modifier       = Modifier.size(60.dp)
                     ) {
-                        Icon(Icons.Filled.Add, contentDescription = "Add Expense")
+                        Icon(Icons.Filled.Add, "Add Expense",
+                            modifier = Modifier.size(28.dp))
                     }
+                    Spacer(Modifier.height(4.dp))
+                    Text("Add Expense", fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
     ) { padding ->
-        when (selectedTab) {
-            0 -> ExpensesContent(
-                modifier                = Modifier.padding(padding),
-                expenses                = expenses,
-                archivedExpenses        = archivedExpenses,
-                currentUserId           = currentUserId,
-                onDeleteExpense         = { expenseId -> viewModel.deleteExpense(expenseId, tricountId) },
-                onArchiveExpense        = { expenseId -> viewModel.archiveExpense(expenseId, tricountId) },
-                onUnarchiveExpense      = { expenseId -> viewModel.unarchiveExpense(expenseId, tricountId) },
-                onDeleteArchivedExpense = { expenseId -> viewModel.deleteExpense(expenseId, tricountId) },
-                onEditExpense           = { expense   -> expenseToEdit = expense },
-                showArchived            = false,
-                onToggleArchived        = {}
-            )
-            1 -> BalancesContent(
-                modifier      = Modifier.padding(padding),
-                expenses      = expenses,
-                expenseSplits = expenseSplits,
-                settlements   = settlements,
-                payments      = payments,
-                currentUserId = currentUserId,
-                memberCount   = members.size,
-                expenseCount  = expenses.size,
-                tricountId    = tricountId,
-                viewModel     = viewModel
-            )
-            2 -> DetailsTab(
-                modifier        = Modifier.padding(padding),
-                tricountDetails = tricountDetails,
-                members         = members,
-                currentUserId   = currentUserId,
-                viewModel       = viewModel,
-                tricountId      = tricountId
-            )
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+
+            // ── Tricount header: emoji + name ────────────────────────────────
+            if (!searchActive) {
+                Column(
+                    modifier            = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp, bottom = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("⛺", fontSize = 48.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        tricountName,
+                        fontSize   = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color      = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
+
+            // ── Pill segmented tab row ───────────────────────────────────────
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape    = RoundedCornerShape(50),
+                color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            ) {
+                Row(modifier = Modifier.padding(4.dp)) {
+                    tabs.forEachIndexed { index, label ->
+                        val selected = selectedTab == index
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedTab = index },
+                            shape = RoundedCornerShape(50),
+                            color = if (selected) MaterialTheme.colorScheme.surface
+                            else           androidx.compose.ui.graphics.Color.Transparent
+                        ) {
+                            Text(
+                                label,
+                                modifier   = Modifier.padding(vertical = 8.dp),
+                                fontSize   = 12.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                color      = if (selected) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign  = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // ── Tab content ──────────────────────────────────────────────────
+            when (selectedTab) {
+                0 -> ExpensesContent(
+                    modifier                = Modifier.weight(1f),
+                    expenses                = displayedExpenses,
+                    archivedExpenses        = archivedExpenses,
+                    currentUserId           = currentUserId,
+                    onDeleteExpense         = { id -> viewModel.deleteExpense(id, tricountId) },
+                    onArchiveExpense        = { id -> viewModel.archiveExpense(id, tricountId) },
+                    onUnarchiveExpense      = { id -> viewModel.unarchiveExpense(id, tricountId) },
+                    onDeleteArchivedExpense = { id -> viewModel.deleteExpense(id, tricountId) },
+                    onEditExpense           = { expense -> expenseToEdit = expense },
+                    showArchived            = false,
+                    onToggleArchived        = {}
+                )
+                1 -> BalancesContent(
+                    modifier      = Modifier.weight(1f),
+                    expenses      = expenses,
+                    expenseSplits = expenseSplits,
+                    settlements   = settlements,
+                    payments      = payments,
+                    currentUserId = currentUserId,
+                    memberCount   = members.size,
+                    expenseCount  = expenses.size,
+                    tricountId    = tricountId,
+                    viewModel     = viewModel
+                )
+                2 -> InsightsContent(
+                    modifier      = Modifier.weight(1f),
+                    expenses      = expenses,
+                    currentUserId = currentUserId
+                )
+                3 -> DetailsTab(
+                    modifier        = Modifier.weight(1f),
+                    tricountDetails = tricountDetails,
+                    members         = members,
+                    currentUserId   = currentUserId,
+                    viewModel       = viewModel,
+                    tricountId      = tricountId
+                )
+            }
         }
     }
-    // Expense edit dialog (rendered outside Scaffold so it overlays correctly)
+
+    // Edit expense dialog
     expenseToEdit?.let { expense ->
         ExpenseEditDialog(
             expense       = expense,
@@ -254,9 +421,57 @@ fun TricountDetailScreen(
             onDismiss     = { expenseToEdit = null }
         )
     }
-}
 
-// ─────────────────────────────────────────────────────────────────────────────
+    // Archive tricount confirmation
+    if (showArchiveDialog) {
+        AlertDialog(
+            onDismissRequest = { showArchiveDialog = false },
+            icon  = { Icon(Icons.Filled.Archive, null,
+                tint = MaterialTheme.colorScheme.secondary) },
+            title = { Text("Archive \"$tricountName\"?") },
+            text  = { Text("This tricount will be archived. You can restore it from the home screen.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showArchiveDialog = false
+                        viewModel.archiveTricount(tricountId)
+                        (context as? android.app.Activity)?.finish()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary)
+                ) { Text("Archive") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showArchiveDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Delete tricount confirmation
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            icon  = { Icon(Icons.Filled.Delete, null,
+                tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Delete \"$tricountName\"?") },
+            text  = { Text("This will permanently delete the tricount and all its expenses. This cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteDialog = false
+                        viewModel.deleteTricount(tricountId)
+                        (context as? android.app.Activity)?.finish()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
 // Details tab
 // ─────────────────────────────────────────────────────────────────────────────
 

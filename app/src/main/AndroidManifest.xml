@@ -37,6 +37,7 @@
 
         <activity android:name=".ArchivedExpensesActivity" />
         <!-- Join Tricount Activity -->
+        <activity android:name=".ExpenseDetailActivity" />
         <activity
             android:name=".JoinTricountActivity"
             android:exported="false" />
