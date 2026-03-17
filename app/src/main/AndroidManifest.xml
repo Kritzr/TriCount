@@ -31,10 +31,15 @@
         <activity
             android:name=".AddTricountActivity"
             android:exported="false" />
+
+        <activity android:name=".EditTripActivity" />
+
+
         <activity
             android:name=".InsightsContentActivity"
             android:exported="false" />
 
+        <activity android:name=".InsightsActivity" />
         <activity android:name=".ArchivedExpensesActivity" />
         <!-- Join Tricount Activity -->
         <activity android:name=".ExpenseDetailActivity" />
@@ -45,6 +50,9 @@
         <activity android:name=".ExpensesActivity" android:exported="false" />
         <activity android:name=".ArchivedTricountsActivity" />
         <activity android:name=".ProfileActivity" />
+
+
+        <activity android:name=".InsightsActivity" />
 
         <!-- Add this -->
         <activity android:name=".BalancesTabActivity" android:exported="false" />
