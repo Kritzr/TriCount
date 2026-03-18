@@ -25,5 +25,6 @@ data class TricountEntity(
     val creatorId   : Int,
     val joinCode    : String  = "",
     val createdAt   : Long    = System.currentTimeMillis(),
-    val isArchived  : Boolean = false   // ← new
+    val isArchived  : Boolean = false,
+    val emoji       : String  = "⛺"   // trip icon emoji
 )

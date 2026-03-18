@@ -39,6 +39,12 @@ interface TricountDao {
     @Query("UPDATE tricounts SET name = :name, description = :description WHERE id = :tricountId")
     suspend fun updateTricount(tricountId: Int, name: String, description: String)
 
+    @Query("UPDATE tricounts SET name = :name, description = :description, emoji = :emoji WHERE id = :tricountId")
+    suspend fun updateTricountFull(tricountId: Int, name: String, description: String, emoji: String)
+
+    @Query("UPDATE tricounts SET emoji = :emoji WHERE id = :tricountId")
+    suspend fun updateTricountEmoji(tricountId: Int, emoji: String)
+
     /** All non-archived tricounts the user belongs to. */
     @Query("""
         SELECT t.* FROM tricounts t

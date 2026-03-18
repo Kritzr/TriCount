@@ -131,8 +131,21 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             try {
                 tricountDao.updateTricount(tricountId, name, description)
                 loadTricounts()
+                _currentTricount.value = tricountDao.getTricountById(tricountId)
             } catch (e: Exception) {
                 Log.e("TricountViewModel", "Edit tricount error", e)
+            }
+        }
+    }
+
+    fun editTricountFull(tricountId: Int, name: String, description: String, emoji: String) {
+        viewModelScope.launch {
+            try {
+                tricountDao.updateTricountFull(tricountId, name, description, emoji)
+                loadTricounts()
+                _currentTricount.value = tricountDao.getTricountById(tricountId)
+            } catch (e: Exception) {
+                Log.e("TricountViewModel", "Edit tricount full error", e)
             }
         }
     }
@@ -220,7 +233,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     fun removeMember(userId: Int, tricountId: Int) {
         viewModelScope.launch {
             try {
-                tricountDao.removeMember(userId, tricountId)
+                tricountDao.removeMember(tricountId, userId)  // DAO: (tricountId, userId)
                 loadTricountMembers(tricountId)
             } catch (e: Exception) {
                 Log.e("TricountViewModel", "Remove member error", e)

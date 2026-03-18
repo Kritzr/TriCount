@@ -27,8 +27,8 @@ val IndigoA700 = Color(0xFF304FFE)
 // Light Blue palette (600–900) — secondary, tertiary & surface tinting
 // ─────────────────────────────────────────────────────────────────────────────
 
-val LightBlue600 = Color(0xFF039BE5)   // vibrant sky  — light secondary / dark tertiary
-val LightBlue700 = Color(0xFF0288D1)   // deeper sky   — light tertiary / dark secondary
+val LightBlue600 = Color(0xAB039BE5)   // vibrant sky  — light secondary / dark tertiary
+val LightBlue700 = Color(0xFF025FD1)   // deeper sky   — light tertiary / dark secondary
 val LightBlue800 = Color(0xFF0277BD)   // rich ocean   — dark surface tint / containers
 val LightBlue900 = Color(0xFF01579B)   // deep navy    — dark secondaryContainer / outlineVariant
 

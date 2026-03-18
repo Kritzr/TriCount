@@ -161,17 +161,19 @@ fun TricountDetailScreen(
                             tint = MaterialTheme.colorScheme.onBackground)
                     }
                     Row {
-                        // Search toggle
-                        IconButton(onClick = {
-                            searchActive = !searchActive
-                            if (!searchActive) searchQuery = ""
-                        }) {
-                            Icon(
-                                if (searchActive) Icons.Filled.SearchOff else Icons.Filled.Search,
-                                "Search",
-                                tint = if (searchActive) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onBackground
-                            )
+                        // Search toggle — only visible on Expenses tab
+                        if (selectedTab == 0) {
+                            IconButton(onClick = {
+                                searchActive = !searchActive
+                                if (!searchActive) searchQuery = ""
+                            }) {
+                                Icon(
+                                    if (searchActive) Icons.Filled.SearchOff else Icons.Filled.Search,
+                                    "Search",
+                                    tint = if (searchActive) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onBackground
+                                )
+                            }
                         }
                         // Three-dot menu
                         Box {
@@ -332,7 +334,7 @@ fun TricountDetailScreen(
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
 
-            // ── Tricount header: emoji + name ────────────────────────────────
+            // ── Tricount header: emoji + name + inline pen ───────────────
             if (!searchActive) {
                 Column(
                     modifier            = Modifier
@@ -342,12 +344,36 @@ fun TricountDetailScreen(
                 ) {
                     Text("⛺", fontSize = 48.sp)
                     Spacer(Modifier.height(4.dp))
-                    Text(
-                        tricountName,
-                        fontSize   = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color      = MaterialTheme.colorScheme.onBackground
-                    )
+                    // Name + pen icon side by side
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            tricountName,
+                            fontSize   = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color      = MaterialTheme.colorScheme.onBackground
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        IconButton(
+                            onClick  = {
+                                context.startActivity(
+                                    Intent(context, EditTripActivity::class.java).apply {
+                                        putExtra(EditTripActivity.EXTRA_TRICOUNT_ID, tricountId)
+                                    }
+                                )
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Edit,
+                                contentDescription = "Edit trip",
+                                tint     = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -365,7 +391,10 @@ fun TricountDetailScreen(
                         Surface(
                             modifier = Modifier
                                 .weight(1f)
-                                .clickable { selectedTab = index },
+                                .clickable {
+                                    selectedTab = index
+                                    if (index != 0) { searchActive = false; searchQuery = "" }
+                                },
                             shape = RoundedCornerShape(50),
                             color = if (selected) MaterialTheme.colorScheme.surface
                             else           androidx.compose.ui.graphics.Color.Transparent
@@ -488,7 +517,7 @@ fun TricountDetailScreen(
     }
 }
 // =============================================================================
-// Details / Edit tab
+// Details tab — read-only: shows icon, name, join code, members
 // =============================================================================
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -510,258 +539,142 @@ private fun DetailsTab(
         return
     }
 
-    val isCreator = tricountDetails.creatorId == currentUserId
-
-    // Editable state — pre-filled from current tricount
-    var editName        by remember(tricountDetails.id) { mutableStateOf(tricountDetails.name) }
-    var editDescription by remember(tricountDetails.id) { mutableStateOf(tricountDetails.description) }
-    var selectedEmoji   by remember { mutableStateOf("⛺") }
-    var isSaving        by remember { mutableStateOf(false) }
-    var showAddMember   by remember { mutableStateOf(false) }
-
-    val emojiOptions = listOf(
-        "⛺","🏕️","✈️","🚗","🍕","🎉","🎬","🏖️",
-        "🏔️","🛳️","🎭","🏋️","🎮","🛍️","🍜","☕"
-    )
-
-    val nameValid = editName.isNotBlank()
-    val isDirty   = editName != tricountDetails.name ||
-            editDescription != tricountDetails.description
-
     LazyColumn(
         modifier       = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
 
-        // ── Emoji picker ──────────────────────────────────────────────────────
-        item {
-            Text("Trip Icon", fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 2.dp, bottom = 6.dp))
-
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape    = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-                color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            ) {
-                // Display selected emoji large, then grid of choices
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(selectedEmoji, fontSize = 52.sp)
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    // 4-column emoji grid
-                    emojiOptions.chunked(4).forEach { row ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            row.forEach { emoji ->
-                                val chosen = emoji == selectedEmoji
-                                Surface(
-                                    modifier  = Modifier
-                                        .weight(1f)
-                                        .clickable { selectedEmoji = emoji },
-                                    shape     = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
-                                    color     = if (chosen) MaterialTheme.colorScheme.primaryContainer
-                                    else        MaterialTheme.colorScheme.surface,
-                                    border    = if (chosen) androidx.compose.foundation.BorderStroke(
-                                        2.dp, MaterialTheme.colorScheme.primary)
-                                    else null
-                                ) {
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier         = Modifier.padding(10.dp)
-                                    ) {
-                                        Text(emoji, fontSize = 24.sp)
-                                    }
-                                }
-                            }
-                            // Fill remaining cells if row is short
-                            repeat(4 - row.size) {
-                                Spacer(Modifier.weight(1f))
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                    }
-                }
-            }
-        }
-
-        // ── Name field ────────────────────────────────────────────────────────
-        item {
-            Text("Trip Name", fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 2.dp, bottom = 6.dp))
-            OutlinedTextField(
-                value         = editName,
-                onValueChange = { editName = it },
-                label         = { Text("Name *") },
-                placeholder   = { Text("e.g. Goa trip, Team lunch") },
-                leadingIcon   = { Text(selectedEmoji, fontSize = 18.sp,
-                    modifier = Modifier.padding(start = 4.dp)) },
-                singleLine    = true,
-                isError       = editName.isEmpty(),
-                modifier      = Modifier.fillMaxWidth(),
-                enabled       = isCreator && !isSaving,
-                shape         = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-            )
-        }
-
-        // ── Description field ─────────────────────────────────────────────────
-        item {
-            Text("Description", fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 2.dp, bottom = 6.dp))
-            OutlinedTextField(
-                value         = editDescription,
-                onValueChange = { editDescription = it },
-                label         = { Text("Description (optional)") },
-                placeholder   = { Text("What is this trip about?") },
-                modifier      = Modifier.fillMaxWidth(),
-                minLines      = 3,
-                maxLines      = 5,
-                enabled       = isCreator && !isSaving,
-                shape         = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-            )
-        }
-
-        // ── Save button ───────────────────────────────────────────────────────
-        if (isCreator) {
-            item {
-                Button(
-                    onClick  = {
-                        if (nameValid) {
-                            isSaving = true
-                            viewModel.editTricount(
-                                tricountId  = tricountId,
-                                name        = editName.trim(),
-                                description = editDescription.trim()
-                            )
-                            isSaving = false
-                            Toast.makeText(context, "Saved!", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    enabled  = nameValid && isDirty && !isSaving,
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    shape    = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-                ) {
-                    if (isSaving) {
-                        CircularProgressIndicator(
-                            modifier    = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color       = MaterialTheme.colorScheme.onPrimary
-                        )
-                    } else {
-                        Icon(Icons.Filled.Save, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Save Changes", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-
-        // ── Divider ───────────────────────────────────────────────────────────
-        item { HorizontalDivider() }
-
-        // ── Members section ───────────────────────────────────────────────────
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment     = Alignment.CenterVertically
-            ) {
-                Text("Members (${members.size})",
-                    fontSize   = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color      = MaterialTheme.colorScheme.primary)
-                if (isCreator) {
-                    FilledTonalButton(
-                        onClick = { showAddMember = true },
-                        shape   = androidx.compose.foundation.shape.RoundedCornerShape(50)
-                    ) {
-                        Icon(Icons.Filled.PersonAdd, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Add Member", fontSize = 13.sp)
-                    }
-                }
-            }
-        }
-
-        // Member rows
-        items(members) { member ->
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape    = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            ) {
-                MemberItem(
-                    member        = member,
-                    isCreator     = isCreator,
-                    canRemove     = isCreator && !member.isCreator,
-                    onRemoveClick = {
-                        viewModel.removeMember(member.userId, tricountDetails.id)
-                    }
-                )
-            }
-        }
-
         // ── Join code card ────────────────────────────────────────────────────
         item {
-            HorizontalDivider()
-            Spacer(Modifier.height(4.dp))
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape    = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-                color    = MaterialTheme.colorScheme.primaryContainer
+                color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Join Code", fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Join Code",
+                        fontSize   = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color      = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(8.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier              = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment     = Alignment.CenterVertically
                     ) {
-                        Text(tricountDetails.joinCode,
-                            fontSize     = 28.sp,
-                            fontWeight   = FontWeight.Bold,
+                        Text(
+                            tricountDetails.joinCode,
+                            fontSize      = 30.sp,
+                            fontWeight    = FontWeight.Bold,
                             letterSpacing = 4.sp,
-                            color        = MaterialTheme.colorScheme.onPrimaryContainer)
+                            color         = MaterialTheme.colorScheme.onSurface
+                        )
                         Row {
                             IconButton(onClick = {
                                 copyToClipboard(context, tricountDetails.joinCode)
                                 Toast.makeText(context, "Code copied!", Toast.LENGTH_SHORT).show()
                             }) {
-                                Icon(Icons.Filled.ContentCopy, "Copy",
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Icon(
+                                    Icons.Filled.ContentCopy, "Copy",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                             IconButton(onClick = {
                                 shareTricount(context, tricountDetails.name, tricountDetails.joinCode)
                             }) {
-                                Icon(Icons.Filled.Share, "Share",
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Icon(
+                                    Icons.Filled.Share, "Share",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
+                    }
+                    Text(
+                        "Share this code with friends to let them join",
+                        fontSize = 12.sp,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        // ── Members section ───────────────────────────────────────────────────
+        item {
+            Text(
+                "Members (${members.size})",
+                fontSize   = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color      = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        items(members, key = { it.userId }) { member ->
+            val isMe = member.userId == currentUserId
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape    = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ) {
+                Row(
+                    modifier          = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Avatar — uniform color for all members
+                    Surface(
+                        shape    = CircleShape,
+                        color    = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                member.name.first().uppercase(),
+                                fontSize   = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color      = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (isMe) "${member.name} (You)" else member.name,
+                                fontSize   = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color      = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (member.isCreator) {
+                                Spacer(Modifier.width(8.dp))
+                                Surface(
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        "Creator",
+                                        fontSize   = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color      = MaterialTheme.colorScheme.primary,
+                                        modifier   = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            member.email,
+                            fontSize = 12.sp,
+                            color    = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
         }
 
         item { Spacer(Modifier.height(32.dp)) }
-    }
-
-    if (showAddMember) {
-        AddMemberDialog(
-            tricountId = tricountId,
-            viewModel  = viewModel,
-            onDismiss  = { showAddMember = false }
-        )
     }
 }
 
