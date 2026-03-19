@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -35,22 +36,7 @@ import java.util.*
 // Category metadata
 // =============================================================================
 
-private data class CategoryMeta(val emoji: String, val color: Color)
-
-private val CATEGORY_META: Map<String, CategoryMeta> = mapOf(
-    "Food & Drinks"  to CategoryMeta("\uD83C\uDF54", Color(0xFFFF6B35)),
-    "Transport"      to CategoryMeta("\uD83D\uDE95", Color(0xFFFFB400)),
-    "Accommodation"  to CategoryMeta("\uD83C\uDFE8", Color(0xFF4ECDC4)),
-    "Entertainment"  to CategoryMeta("\uD83C\uDFAC", Color(0xFFFF6B9D)),
-    "Shopping"       to CategoryMeta("\uD83D\uDECD\uFE0F", Color(0xFF9B59B6)),
-    "Health"         to CategoryMeta("\uD83D\uDC8A", Color(0xFF2ECC71)),
-    "Groceries"      to CategoryMeta("\uD83D\uDED2", Color(0xFF27AE60)),
-    "Utilities"      to CategoryMeta("\u26A1", Color(0xFFF39C12)),
-    "Travel"         to CategoryMeta("\u2708\uFE0F", Color(0xFF3498DB)),
-    "Education"      to CategoryMeta("\uD83D\uDCDA", Color(0xFF1ABC9C)),
-    "General"        to CategoryMeta("\uD83D\uDCCC", Color(0xFF95A5A6)),
-    "No Category"    to CategoryMeta("\u2753", Color(0xFF7F8C8D)),
-)
+private data class CategoryMeta(val icon: ImageVector, val color: Color)
 
 private val FALLBACK_COLORS = listOf(
     Color(0xFF6C5CE7), Color(0xFFE17055), Color(0xFF00B894),
@@ -58,11 +44,25 @@ private val FALLBACK_COLORS = listOf(
     Color(0xFF55EFC4), Color(0xFFFDCB6E),
 )
 
-private fun catMeta(name: String): CategoryMeta =
-    CATEGORY_META[name] ?: CategoryMeta("\u2753", Color(0xFF7F8C8D))
+private fun catMeta(name: String): CategoryMeta = when (name) {
+    "Food & Drinks"  -> CategoryMeta(Icons.Filled.Restaurant,     Color(0xFFFF6B35))
+    "Transport"      -> CategoryMeta(Icons.Filled.DirectionsCar,  Color(0xFFFFB400))
+    "Accommodation"  -> CategoryMeta(Icons.Filled.Hotel,          Color(0xFF4ECDC4))
+    "Entertainment"  -> CategoryMeta(Icons.Filled.Movie,       Color(0xFFFF6B9D))
+    "Shopping"       -> CategoryMeta(Icons.Filled.ShoppingBag,    Color(0xFF9B59B6))
+    "Health"         -> CategoryMeta(Icons.Filled.LocalHospital,Color(0xFF2ECC71))
+    "Groceries"      -> CategoryMeta(Icons.Filled.ShoppingCart,   Color(0xFF27AE60))
+    "Utilities"      -> CategoryMeta(Icons.Filled.Bolt,   Color(0xFFF39C12))
+    "Travel"         -> CategoryMeta(Icons.Filled.Flight,         Color(0xFF3498DB))
+    "Education"      -> CategoryMeta(Icons.Filled.School,         Color(0xFF1ABC9C))
+    "General"        -> CategoryMeta(Icons.Filled.PushPin,        Color(0xFF95A5A6))
+    "No Category"    -> CategoryMeta(Icons.Filled.HelpOutline,    Color(0xFF7F8C8D))
+    else             -> CategoryMeta(Icons.Filled.Category,       Color(0xFF7F8C8D))
+}
 
 private fun catColor(name: String, idx: Int): Color =
-    CATEGORY_META[name]?.color ?: FALLBACK_COLORS[idx % FALLBACK_COLORS.size]
+    catMeta(name).color.takeIf { it != Color(0xFF7F8C8D) }
+        ?: FALLBACK_COLORS[idx % FALLBACK_COLORS.size]
 
 // =============================================================================
 // Models
@@ -75,7 +75,7 @@ private data class CategorySlice(
     val total    : Double,
     val count    : Int,
     val color    : Color,
-    val emoji    : String,
+    val icon     : androidx.compose.ui.graphics.vector.ImageVector,
     val fraction : Float
 )
 
@@ -124,7 +124,7 @@ fun InsightsContent(
                     total    = sum,
                     count    = list.size,
                     color    = catColor(cat, idx),
-                    emoji    = catMeta(cat).emoji,
+                    icon     = catMeta(cat).icon,
                     fraction = (sum / total).toFloat()
                 )
             }
@@ -187,7 +187,11 @@ fun InsightsContent(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("\uD83D\uDD0D", fontSize = 52.sp)
+                        Icon(
+                            Icons.Filled.SearchOff, null,
+                            tint     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.size(64.dp)
+                        )
                         Spacer(Modifier.height(16.dp))
                         Text(
                             "No expenses this period",
@@ -215,30 +219,46 @@ fun InsightsContent(
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                InsightStatChip(Modifier.weight(1f), "\uD83D\uDCB0", "Total",    fmtAmt(grandTotal))
-                InsightStatChip(Modifier.weight(1f), "\uD83D\uDC64", "My share", fmtAmt(myTotal))
-                InsightStatChip(Modifier.weight(1f), "\uD83E\uDDFE", "Expenses", "${filtered.size}")
+                InsightStatChip(Modifier.weight(1f), Icons.Filled.Payments,   "Total",    fmtAmt(grandTotal))
+                InsightStatChip(Modifier.weight(1f), Icons.Filled.Person,      "My share", fmtAmt(myTotal))
+                InsightStatChip(Modifier.weight(1f), Icons.Filled.Receipt,     "Expenses", "${filtered.size}")
             }
         }
 
-        // ── Category section header ───────────────────────────────────────────
+        // ── Category section header + rows in one grouped card ─────────────
         item {
             Text(
                 "Category Breakdown",
                 fontSize   = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color      = MaterialTheme.colorScheme.primary,
-                modifier   = Modifier.padding(start = 20.dp, top = 4.dp, bottom = 4.dp)
+                modifier   = Modifier.padding(start = 20.dp, top = 4.dp, bottom = 8.dp)
             )
-        }
-
-        // ── Category rows ─────────────────────────────────────────────────────
-        items(slices) { slice ->
-            InsightCategoryRow(
-                slice      = slice,
-                isSelected = selectedSlice == null || selectedSlice == slice.name,
-                onClick    = { selectedSlice = if (selectedSlice == slice.name) null else slice.name }
-            )
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape    = RoundedCornerShape(16.dp),
+                color    = MaterialTheme.colorScheme.surface,
+                tonalElevation = 2.dp
+            ) {
+                Column {
+                    slices.forEachIndexed { idx, slice ->
+                        InsightCategoryRow(
+                            slice      = slice,
+                            isSelected = selectedSlice == null || selectedSlice == slice.name,
+                            onClick    = { selectedSlice = if (selectedSlice == slice.name) null else slice.name }
+                        )
+                        if (idx < slices.lastIndex) {
+                            HorizontalDivider(
+                                modifier  = Modifier.padding(start = 68.dp, end = 16.dp),
+                                color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                thickness = 0.5.dp
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // ── Top payer card ────────────────────────────────────────────────────
@@ -405,7 +425,9 @@ private fun InsightChartCard(
                         val sel = slices.find { it.name == selectedSlice }
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             if (sel != null) {
-                                Text(sel.emoji, fontSize = 22.sp)
+                                Icon(sel.icon, null,
+                                    tint     = sel.color,
+                                    modifier = Modifier.size(24.dp))
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     fmtAmt(sel.total),
@@ -588,32 +610,32 @@ private fun InsightCategoryRow(
         label         = "bar_${slice.name}"
     )
 
-    Card(
-        modifier  = Modifier
+    Box(
+        modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clickable(onClick = onClick),
-        shape     = RoundedCornerShape(14.dp),
-        colors    = CardDefaults.cardColors(
-            containerColor = if (isSelected)
-                slice.color.copy(alpha = 0.07f)
-            else MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(if (isSelected) 3.dp else 1.dp)
+            .background(
+                if (isSelected) slice.color.copy(alpha = 0.06f)
+                else            Color.Transparent
+            )
+            .clickable(onClick = onClick)
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Emoji badge
+                // Icon badge
                 Surface(
                     modifier = Modifier.size(42.dp),
                     shape    = RoundedCornerShape(12.dp),
                     color    = slice.color.copy(alpha = 0.15f)
                 ) {
                     Box(Modifier.fillMaxSize(), Alignment.Center) {
-                        Text(slice.emoji, fontSize = 20.sp)
+                        Icon(
+                            slice.icon, null,
+                            tint     = slice.color,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                 }
 
@@ -707,14 +729,18 @@ private fun InsightTopPayerCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Trophy circle
+            // Trophy icon circle
             Surface(
                 shape    = CircleShape,
                 color    = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                 modifier = Modifier.size(52.dp)
             ) {
                 Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Text("\uD83C\uDFC6", fontSize = 26.sp)
+                    Icon(
+                        Icons.Filled.Star, null,
+                        tint     = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
             }
 
@@ -757,7 +783,7 @@ private fun InsightTopPayerCard(
 @Composable
 private fun InsightStatChip(
     modifier : Modifier,
-    icon     : String,
+    icon     : androidx.compose.ui.graphics.vector.ImageVector,
     label    : String,
     value    : String
 ) {
@@ -774,7 +800,11 @@ private fun InsightStatChip(
                 .padding(vertical = 12.dp, horizontal = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(icon, fontSize = 22.sp)
+            Icon(
+                icon, null,
+                tint     = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
             Spacer(Modifier.height(4.dp))
             Text(
                 value,
