@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -30,42 +31,44 @@ import com.example.tricount.data.entity.ExpenseWithDetails
 import java.text.SimpleDateFormat
 import java.util.*
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Category metadata: emoji + colour (must match EXPENSE_CATEGORIES in AddExpense)
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+// Category metadata
+// =============================================================================
 
 private data class CategoryMeta(val emoji: String, val color: Color)
 
 private val CATEGORY_META: Map<String, CategoryMeta> = mapOf(
-    "Food & Drinks"  to CategoryMeta("🍔", Color(0xFFFF6B35)),
-    "Transport"      to CategoryMeta("🚕", Color(0xFFFFB400)),
-    "Accommodation"  to CategoryMeta("🏨", Color(0xFF4ECDC4)),
-    "Entertainment"  to CategoryMeta("🎬", Color(0xFFFF6B9D)),
-    "Shopping"       to CategoryMeta("🛍️", Color(0xFF9B59B6)),
-    "Health"         to CategoryMeta("💊", Color(0xFF2ECC71)),
-    "Groceries"      to CategoryMeta("🛒", Color(0xFF27AE60)),
-    "Utilities"      to CategoryMeta("⚡", Color(0xFFF39C12)),
-    "Travel"         to CategoryMeta("✈️", Color(0xFF3498DB)),
-    "Education"      to CategoryMeta("📚", Color(0xFF1ABC9C)),
-    "General"        to CategoryMeta("📌", Color(0xFF95A5A6)),
-    "No Category"    to CategoryMeta("❓", Color(0xFF7F8C8D)),
+    "Food & Drinks"  to CategoryMeta("\uD83C\uDF54", Color(0xFFFF6B35)),
+    "Transport"      to CategoryMeta("\uD83D\uDE95", Color(0xFFFFB400)),
+    "Accommodation"  to CategoryMeta("\uD83C\uDFE8", Color(0xFF4ECDC4)),
+    "Entertainment"  to CategoryMeta("\uD83C\uDFAC", Color(0xFFFF6B9D)),
+    "Shopping"       to CategoryMeta("\uD83D\uDECD\uFE0F", Color(0xFF9B59B6)),
+    "Health"         to CategoryMeta("\uD83D\uDC8A", Color(0xFF2ECC71)),
+    "Groceries"      to CategoryMeta("\uD83D\uDED2", Color(0xFF27AE60)),
+    "Utilities"      to CategoryMeta("\u26A1", Color(0xFFF39C12)),
+    "Travel"         to CategoryMeta("\u2708\uFE0F", Color(0xFF3498DB)),
+    "Education"      to CategoryMeta("\uD83D\uDCDA", Color(0xFF1ABC9C)),
+    "General"        to CategoryMeta("\uD83D\uDCCC", Color(0xFF95A5A6)),
+    "No Category"    to CategoryMeta("\u2753", Color(0xFF7F8C8D)),
 )
 
-// Fallback palette for any unexpected category strings
 private val FALLBACK_COLORS = listOf(
     Color(0xFF6C5CE7), Color(0xFFE17055), Color(0xFF00B894),
     Color(0xFF74B9FF), Color(0xFFFD79A8), Color(0xFFA29BFE),
-    Color(0xFF55EFC4), Color(0xFFFDCB6E), Color(0xFF81ECEC),
+    Color(0xFF55EFC4), Color(0xFFFDCB6E),
 )
 
-private fun metaFor(name: String, fallbackIndex: Int): CategoryMeta =
-    CATEGORY_META[name] ?: CategoryMeta("❓", FALLBACK_COLORS[fallbackIndex % FALLBACK_COLORS.size])
+private fun catMeta(name: String): CategoryMeta =
+    CATEGORY_META[name] ?: CategoryMeta("\u2753", Color(0xFF7F8C8D))
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Internal models
-// ─────────────────────────────────────────────────────────────────────────────
+private fun catColor(name: String, idx: Int): Color =
+    CATEGORY_META[name]?.color ?: FALLBACK_COLORS[idx % FALLBACK_COLORS.size]
 
-enum class InsightPeriod { MONTH, YEAR, ALL }
+// =============================================================================
+// Models
+// =============================================================================
+
+private enum class InsightPeriod { MONTH, YEAR, ALL }
 
 private data class CategorySlice(
     val name     : String,
@@ -73,12 +76,12 @@ private data class CategorySlice(
     val count    : Int,
     val color    : Color,
     val emoji    : String,
-    val fraction : Float   // 0..1
+    val fraction : Float
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Public entry-point composable
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+// Entry point
+// =============================================================================
 
 @Composable
 fun InsightsContent(
@@ -89,10 +92,9 @@ fun InsightsContent(
     var period        by remember { mutableStateOf(InsightPeriod.MONTH) }
     var calYear       by remember { mutableStateOf(Calendar.getInstance().get(Calendar.YEAR)) }
     var calMonth      by remember { mutableStateOf(Calendar.getInstance().get(Calendar.MONTH)) }
-    var viewMode      by remember { mutableStateOf("group") }  // "group" | "mine"
+    var viewMode      by remember { mutableStateOf("group") }
     var selectedSlice by remember { mutableStateOf<String?>(null) }
 
-    // ── Filter by period + view mode ─────────────────────────────────────────
     val filtered = remember(expenses, period, calYear, calMonth, viewMode) {
         val base = if (viewMode == "mine") expenses.filter { it.paidBy == currentUserId }
         else expenses
@@ -109,23 +111,21 @@ fun InsightsContent(
         }
     }
 
-    // ── Build category slices ─────────────────────────────────────────────────
     val slices: List<CategorySlice> = remember(filtered) {
-        val grandTotal = filtered.sumOf { it.amount }.coerceAtLeast(0.01)
+        val total = filtered.sumOf { it.amount }.coerceAtLeast(0.01)
         filtered
             .groupBy { it.category.ifBlank { "No Category" } }
             .entries
-            .sortedByDescending { (_, list) -> list.sumOf { it.amount } }
+            .sortedByDescending { (_, l) -> l.sumOf { it.amount } }
             .mapIndexed { idx, (cat, list) ->
-                val sum  = list.sumOf { it.amount }
-                val meta = metaFor(cat, idx)
+                val sum = list.sumOf { it.amount }
                 CategorySlice(
                     name     = cat,
                     total    = sum,
                     count    = list.size,
-                    color    = meta.color,
-                    emoji    = meta.emoji,
-                    fraction = (sum / grandTotal).toFloat()
+                    color    = catColor(cat, idx),
+                    emoji    = catMeta(cat).emoji,
+                    fraction = (sum / total).toFloat()
                 )
             }
     }
@@ -134,17 +134,20 @@ fun InsightsContent(
     val myTotal    = filtered.filter { it.paidBy == currentUserId }.sumOf { it.amount }
 
     LazyColumn(
-        modifier            = modifier.fillMaxSize(),
-        contentPadding      = PaddingValues(bottom = 32.dp),
+        modifier        = modifier.fillMaxSize(),
+        contentPadding  = PaddingValues(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
-        // Period tabs
-        item { PeriodSelector(period) { period = it; selectedSlice = null } }
 
-        // Date navigator (Month / Year only)
+        // ── Period tabs ───────────────────────────────────────────────────────
+        item {
+            InsightPeriodTabs(period) { period = it; selectedSlice = null }
+        }
+
+        // ── Date navigator ────────────────────────────────────────────────────
         if (period != InsightPeriod.ALL) {
             item {
-                DateNavigator(
+                InsightDateNav(
                     period  = period,
                     year    = calYear,
                     month   = calMonth,
@@ -164,9 +167,9 @@ fun InsightsContent(
             }
         }
 
-        // Pie chart card (always shown — shows empty state inside when no data)
+        // ── Chart card ────────────────────────────────────────────────────────
         item {
-            ChartCard(
+            InsightChartCard(
                 slices        = slices,
                 grandTotal    = grandTotal,
                 selectedSlice = selectedSlice,
@@ -176,96 +179,126 @@ fun InsightsContent(
             )
         }
 
-        if (slices.isEmpty()) return@LazyColumn
+        // ── Empty state ───────────────────────────────────────────────────────
+        if (slices.isEmpty()) {
+            item {
+                Box(
+                    modifier         = Modifier.fillMaxWidth().padding(40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("\uD83D\uDD0D", fontSize = 52.sp)
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "No expenses this period",
+                            fontSize   = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color      = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Add expenses to see spending insights here",
+                            fontSize  = 13.sp,
+                            textAlign = TextAlign.Center,
+                            color     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            }
+            return@LazyColumn
+        }
 
-        // Summary stat chips
+        // ── Summary stat chips ────────────────────────────────────────────────
         item {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier              = Modifier.fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                StatChip(modifier = Modifier.weight(1f), icon = "💰", label = "Total",    value = fmt(grandTotal))
-                StatChip(modifier = Modifier.weight(1f), icon = "👤", label = "My share", value = fmt(myTotal))
-                StatChip(modifier = Modifier.weight(1f), icon = "🧾", label = "Expenses", value = "${filtered.size}")
+                InsightStatChip(Modifier.weight(1f), "\uD83D\uDCB0", "Total",    fmtAmt(grandTotal))
+                InsightStatChip(Modifier.weight(1f), "\uD83D\uDC64", "My share", fmtAmt(myTotal))
+                InsightStatChip(Modifier.weight(1f), "\uD83E\uDDFE", "Expenses", "${filtered.size}")
             }
         }
 
-        // Section header
+        // ── Category section header ───────────────────────────────────────────
         item {
             Text(
-                "Breakdown by Category",
-                fontSize      = 13.sp,
-                fontWeight    = FontWeight.SemiBold,
-                color         = MaterialTheme.colorScheme.primary,
-                modifier      = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 2.dp)
+                "Category Breakdown",
+                fontSize   = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color      = MaterialTheme.colorScheme.primary,
+                modifier   = Modifier.padding(start = 20.dp, top = 4.dp, bottom = 4.dp)
             )
         }
 
-        // Category rows
+        // ── Category rows ─────────────────────────────────────────────────────
         items(slices) { slice ->
-            CategoryRow(
+            InsightCategoryRow(
                 slice      = slice,
                 isSelected = selectedSlice == null || selectedSlice == slice.name,
                 onClick    = { selectedSlice = if (selectedSlice == slice.name) null else slice.name }
             )
         }
 
-        // Top payer card
+        // ── Top payer card ────────────────────────────────────────────────────
         if (filtered.isNotEmpty()) {
-            item { TopPayerCard(expenses = filtered, currentUserId = currentUserId) }
+            item { InsightTopPayerCard(filtered, currentUserId) }
         }
 
         item { Spacer(Modifier.height(80.dp)) }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Period selector
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+// Period tabs
+// =============================================================================
 
 @Composable
-private fun PeriodSelector(selected: InsightPeriod, onChange: (InsightPeriod) -> Unit) {
+private fun InsightPeriodTabs(selected: InsightPeriod, onChange: (InsightPeriod) -> Unit) {
     val opts = listOf(InsightPeriod.MONTH to "Month", InsightPeriod.YEAR to "Year", InsightPeriod.ALL to "All")
-    Row(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        shape    = RoundedCornerShape(14.dp),
+        color    = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 2.dp
     ) {
-        opts.forEach { (p, label) ->
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(
-                        if (selected == p) MaterialTheme.colorScheme.primary
-                        else Color.Transparent
+        Row(Modifier.padding(4.dp)) {
+            opts.forEach { (p, label) ->
+                val sel = selected == p
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onChange(p) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (sel) MaterialTheme.colorScheme.primary
+                    else Color.Transparent,
+                    shadowElevation = if (sel) 3.dp else 0.dp
+                ) {
+                    Text(
+                        label,
+                        modifier   = Modifier.padding(vertical = 10.dp),
+                        fontSize   = 14.sp,
+                        fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
+                        color      = if (sel) MaterialTheme.colorScheme.onPrimary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign  = TextAlign.Center
                     )
-                    .clickable { onChange(p) }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    label,
-                    fontSize   = 14.sp,
-                    fontWeight = if (selected == p) FontWeight.Bold else FontWeight.Normal,
-                    color      = if (selected == p) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                }
             }
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 // Date navigator
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 
 @Composable
-private fun DateNavigator(
+private fun InsightDateNav(
     period : InsightPeriod,
     year   : Int,
     month  : Int,
@@ -281,38 +314,35 @@ private fun DateNavigator(
     Row(
         modifier              = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 2.dp),
         verticalAlignment     = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
-            IconButton(onClick = onPrev) {
-                Icon(Icons.Filled.ChevronLeft, null, tint = MaterialTheme.colorScheme.primary)
-            }
+        FilledTonalIconButton(onClick = onPrev, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Filled.ChevronLeft, null, modifier = Modifier.size(18.dp))
         }
-        Spacer(Modifier.width(16.dp))
         Text(
             label,
             fontSize   = 16.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier   = Modifier.widthIn(min = 160.dp),
+            color      = MaterialTheme.colorScheme.onSurface,
+            modifier   = Modifier
+                .widthIn(min = 170.dp)
+                .padding(horizontal = 8.dp),
             textAlign  = TextAlign.Center
         )
-        Spacer(Modifier.width(16.dp))
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
-            IconButton(onClick = onNext) {
-                Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.primary)
-            }
+        FilledTonalIconButton(onClick = onNext, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Filled.ChevronRight, null, modifier = Modifier.size(18.dp))
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Donut / pie chart card
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+// Chart card
+// =============================================================================
 
 @Composable
-private fun ChartCard(
+private fun InsightChartCard(
     slices        : List<CategorySlice>,
     grandTotal    : Double,
     selectedSlice : String?,
@@ -320,10 +350,10 @@ private fun ChartCard(
     viewMode      : String,
     onViewToggle  : () -> Unit
 ) {
-    val animProgress by animateFloatAsState(
+    val animProg by animateFloatAsState(
         targetValue   = if (slices.isEmpty()) 0f else 1f,
         animationSpec = tween(700, easing = FastOutSlowInEasing),
-        label         = "pie"
+        label         = "pie_anim"
     )
 
     Card(
@@ -331,85 +361,90 @@ private fun ChartCard(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         shape     = RoundedCornerShape(20.dp),
-        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(2.dp)
+        colors    = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(4.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(Modifier.padding(20.dp)) {
 
-            // Total label
+            // Total
             if (slices.isNotEmpty()) {
                 Text(
-                    "Total: ${fmt(grandTotal)}",
-                    fontSize   = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier   = Modifier.fillMaxWidth(),
+                    "Total: ${fmtAmt(grandTotal)}",
+                    fontSize   = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color      = MaterialTheme.colorScheme.onSurface,
+                    modifier   = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
                     textAlign  = TextAlign.Center
                 )
-                Spacer(Modifier.height(12.dp))
             }
 
             Row(
                 modifier          = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // ── Donut chart ──────────────────────────────────────────────
-                Box(modifier = Modifier.size(160.dp), contentAlignment = Alignment.Center) {
-                    Canvas(modifier = Modifier.size(160.dp)) {
+                // Donut chart
+                Box(Modifier.size(168.dp), Alignment.Center) {
+                    Canvas(Modifier.size(168.dp)) {
                         if (slices.isEmpty()) {
-                            // Ghost ring
                             drawArc(
-                                color      = Color.LightGray.copy(alpha = 0.25f),
+                                color      = Color.LightGray.copy(alpha = 0.2f),
                                 startAngle = -90f, sweepAngle = 360f, useCenter = false,
-                                style   = Stroke(36.dp.toPx(), cap = StrokeCap.Butt),
-                                size    = Size(size.width * .82f, size.height * .82f),
-                                topLeft = Offset(size.width * .09f, size.height * .09f)
+                                style      = Stroke(38.dp.toPx(), cap = StrokeCap.Butt),
+                                size       = Size(size.width * .84f, size.height * .84f),
+                                topLeft    = Offset(size.width * .08f, size.height * .08f)
                             )
                         } else {
-                            drawDonut(slices, animProgress, selectedSlice)
+                            drawInsightDonut(slices, animProg, selectedSlice)
                         }
                     }
-
                     // Centre label
-                    if (slices.isEmpty()) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(12.dp)
-                        ) {
-                            Text(
-                                "No transactions\nfor this period yet",
-                                fontSize  = 12.sp,
-                                textAlign = TextAlign.Center,
-                                fontWeight = FontWeight.Medium,
-                                color     = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "Spend to see a breakdown\nof this period's expenses",
-                                fontSize  = 10.sp,
-                                textAlign = TextAlign.Center,
-                                color     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
-                            )
-                        }
-                    } else {
+                    if (slices.isNotEmpty()) {
                         val sel = slices.find { it.name == selectedSlice }
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(sel?.emoji ?: "${slices.size}", fontSize = if (sel != null) 22.sp else 24.sp,
-                                fontWeight = FontWeight.Bold)
                             if (sel != null) {
-                                Text(fmt(sel.total), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                Text("${(sel.fraction * 100).toInt()}%", fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(sel.emoji, fontSize = 22.sp)
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    fmtAmt(sel.total),
+                                    fontSize   = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color      = sel.color
+                                )
+                                Text(
+                                    "${(sel.fraction * 100).toInt()}%",
+                                    fontSize = 11.sp,
+                                    color    = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             } else {
-                                Text("categories", fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "${slices.size}",
+                                    fontSize   = 26.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color      = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "categories",
+                                    fontSize = 11.sp,
+                                    color    = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
+                    } else {
+                        Text(
+                            "No data",
+                            fontSize  = 12.sp,
+                            color     = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
 
                 Spacer(Modifier.width(16.dp))
 
-                // ── Legend ───────────────────────────────────────────────────
+                // Legend
                 Column(
                     modifier            = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -419,82 +454,113 @@ private fun ChartCard(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(8.dp))
                                 .background(
                                     if (selectedSlice == slice.name) slice.color.copy(alpha = 0.12f)
                                     else Color.Transparent
                                 )
                                 .clickable { onSliceClick(slice.name) }
-                                .padding(horizontal = 4.dp, vertical = 3.dp),
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
-                                modifier = Modifier
+                                Modifier
                                     .size(10.dp)
                                     .clip(CircleShape)
-                                    .background(if (dimmed) slice.color.copy(alpha = 0.3f) else slice.color)
+                                    .background(
+                                        if (dimmed) slice.color.copy(alpha = 0.25f)
+                                        else slice.color
+                                    )
                             )
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(7.dp))
                             Text(
                                 slice.name,
                                 fontSize = 12.sp,
                                 maxLines = 1,
-                                color    = if (dimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
-                                else MaterialTheme.colorScheme.onSurface
+                                color    = if (dimmed)
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                                else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
                     if (slices.size > 6) {
-                        Text("+${slices.size - 6} more", fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "+${slices.size - 6} more",
+                            fontSize = 11.sp,
+                            color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 6.dp)
+                        )
                     }
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
 
-            // "For the Group" / "For Me" toggle
-            OutlinedButton(
-                onClick  = onViewToggle,
-                shape    = RoundedCornerShape(20.dp),
-                modifier = Modifier.wrapContentWidth(),
-                colors   = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+            // For the Group / For Me toggle
+            Surface(
+                shape  = RoundedCornerShape(50),
+                color  = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                modifier = Modifier.wrapContentWidth()
             ) {
-                Text(if (viewMode == "group") "For the Group" else "For Me", fontSize = 13.sp)
-                Spacer(Modifier.width(4.dp))
-                Icon(Icons.Filled.ArrowDropDown, null, modifier = Modifier.size(18.dp))
+                Row(
+                    modifier          = Modifier
+                        .clickable(onClick = onViewToggle)
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        if (viewMode == "group") Icons.Filled.Group else Icons.Filled.Person,
+                        null,
+                        tint     = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (viewMode == "group") "For the Group" else "For Me",
+                        fontSize   = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color      = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        Icons.Filled.ArrowDropDown, null,
+                        tint     = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Canvas donut renderer
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+// Donut renderer
+// =============================================================================
 
-private fun DrawScope.drawDonut(
+private fun DrawScope.drawInsightDonut(
     slices        : List<CategorySlice>,
     progress      : Float,
     selectedSlice : String?
 ) {
-    val stroke  = 36.dp.toPx()
-    val padding = stroke / 2 + 6.dp.toPx()
-    val diam    = minOf(size.width, size.height) - padding * 2
+    val stroke  = 38.dp.toPx()
+    val pad     = stroke / 2 + 6.dp.toPx()
+    val diam    = minOf(size.width, size.height) - pad * 2
     val tl      = Offset((size.width - diam) / 2, (size.height - diam) / 2)
     val arcSize = Size(diam, diam)
+    var start   = -90f
 
-    var start = -90f
     slices.forEach { slice ->
-        val sweep   = 360f * slice.fraction * progress
-        val isSelected = selectedSlice == slice.name
-        val bump    = if (isSelected) 7.dp.toPx() else 0f
-
-        val mid = Math.toRadians((start + sweep / 2.0))
-        val ox  = (Math.cos(mid) * bump).toFloat()
-        val oy  = (Math.sin(mid) * bump).toFloat()
+        val sweep = 360f * slice.fraction * progress
+        val isSel = selectedSlice == slice.name
+        val bump  = if (isSel) 8.dp.toPx() else 0f
+        val mid   = Math.toRadians((start + sweep / 2.0))
+        val ox    = (Math.cos(mid) * bump).toFloat()
+        val oy    = (Math.sin(mid) * bump).toFloat()
 
         drawArc(
-            color      = if (isSelected || selectedSlice == null) slice.color else slice.color.copy(alpha = 0.3f),
+            color      = if (isSel || selectedSlice == null) slice.color
+            else slice.color.copy(alpha = 0.25f),
             startAngle = start,
             sweepAngle = sweep.coerceAtLeast(0.5f),
             useCenter  = false,
@@ -506,19 +572,19 @@ private fun DrawScope.drawDonut(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Category breakdown row
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+// Category row
+// =============================================================================
 
 @Composable
-private fun CategoryRow(
+private fun InsightCategoryRow(
     slice      : CategorySlice,
     isSelected : Boolean,
     onClick    : () -> Unit
 ) {
-    val barFraction by animateFloatAsState(
+    val barAnim by animateFloatAsState(
         targetValue   = if (isSelected) slice.fraction else slice.fraction * 0.35f,
-        animationSpec = tween(450),
+        animationSpec = tween(500),
         label         = "bar_${slice.name}"
     )
 
@@ -527,131 +593,211 @@ private fun CategoryRow(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .clickable(onClick = onClick),
-        shape     = RoundedCornerShape(12.dp),
+        shape     = RoundedCornerShape(14.dp),
         colors    = CardDefaults.cardColors(
-            containerColor = if (isSelected) slice.color.copy(alpha = 0.07f)
+            containerColor = if (isSelected)
+                slice.color.copy(alpha = 0.07f)
             else MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(if (isSelected) 2.dp else 0.dp)
+        elevation = CardDefaults.cardElevation(if (isSelected) 3.dp else 1.dp)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(
-                modifier          = Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Emoji badge
                 Surface(
-                    modifier = Modifier.size(40.dp),
-                    shape    = RoundedCornerShape(10.dp),
-                    color    = slice.color.copy(alpha = 0.14f)
+                    modifier = Modifier.size(42.dp),
+                    shape    = RoundedCornerShape(12.dp),
+                    color    = slice.color.copy(alpha = 0.15f)
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(slice.emoji, fontSize = 18.sp)
+                    Box(Modifier.fillMaxSize(), Alignment.Center) {
+                        Text(slice.emoji, fontSize = 20.sp)
                     }
                 }
+
                 Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(slice.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text("${slice.count} expense${if (slice.count != 1) "s" else ""}",
-                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        slice.name,
+                        fontSize   = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color      = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "${slice.count} expense${if (slice.count != 1) "s" else ""}",
+                        fontSize = 11.sp,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
+
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(fmt(slice.total), fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold, color = slice.color)
-                    Text("${(slice.fraction * 100).toInt()}%",
-                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        fmtAmt(slice.total),
+                        fontSize   = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color      = slice.color
+                    )
+                    Text(
+                        "${(slice.fraction * 100).toInt()}%",
+                        fontSize = 11.sp,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            // Progress bar
+
+            Spacer(Modifier.height(10.dp))
+
+            // Progress bar with gradient
             Box(
                 modifier = Modifier
-                    .fillMaxWidth().height(4.dp)
+                    .fillMaxWidth()
+                    .height(5.dp)
                     .clip(CircleShape)
-                    .background(slice.color.copy(alpha = 0.13f))
+                    .background(slice.color.copy(alpha = 0.12f))
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(barFraction).height(4.dp)
+                        .fillMaxWidth(barAnim)
+                        .height(5.dp)
                         .clip(CircleShape)
-                        .background(slice.color)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(slice.color, slice.color.copy(alpha = 0.6f))
+                            )
+                        )
                 )
             }
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 // Top payer card
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 
 @Composable
-private fun TopPayerCard(expenses: List<ExpenseWithDetails>, currentUserId: Int) {
-    val (payerPair, payerExpenses) = expenses
+private fun InsightTopPayerCard(
+    expenses      : List<ExpenseWithDetails>,
+    currentUserId : Int
+) {
+    val topEntry = expenses
         .groupBy { it.paidBy to it.paidByName }
         .maxByOrNull { it.value.sumOf { e -> e.amount } } ?: return
-    val (payerId, payerName) = payerPair
-    val total  = payerExpenses.sumOf { it.amount }
-    val isMe   = payerId == currentUserId
+
+    val (pair, payerExpenses) = topEntry
+    val (payerId, payerName)  = pair
+    val total = payerExpenses.sumOf { it.amount }
+    val isMe  = payerId == currentUserId
 
     Card(
         modifier  = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         shape     = RoundedCornerShape(16.dp),
-        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        elevation = CardDefaults.cardElevation(1.dp)
+        colors    = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer),
+        elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Row(
-            modifier          = Modifier.fillMaxWidth().padding(16.dp),
+            modifier          = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("🏆", fontSize = 28.sp)
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Top Payer", fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.65f))
-                Text(if (isMe) "You ($payerName)" else payerName,
-                    fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer)
-                Text("${payerExpenses.size} expense${if (payerExpenses.size != 1) "s" else ""}",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.65f))
+            // Trophy circle
+            Surface(
+                shape    = CircleShape,
+                color    = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                modifier = Modifier.size(52.dp)
+            ) {
+                Box(Modifier.fillMaxSize(), Alignment.Center) {
+                    Text("\uD83C\uDFC6", fontSize = 26.sp)
+                }
             }
-            Text(fmt(total), fontSize = 17.sp, fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary)
+
+            Spacer(Modifier.width(14.dp))
+
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Top Payer",
+                    fontSize = 11.sp,
+                    color    = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.65f),
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    if (isMe) "You ($payerName)" else payerName,
+                    fontSize   = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color      = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    "${payerExpenses.size} expense${if (payerExpenses.size != 1) "s" else ""}",
+                    fontSize = 12.sp,
+                    color    = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.65f)
+                )
+            }
+
+            Text(
+                fmtAmt(total),
+                fontSize   = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color      = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 // Stat chip
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 
 @Composable
-private fun StatChip(modifier: Modifier, icon: String, label: String, value: String) {
+private fun InsightStatChip(
+    modifier : Modifier,
+    icon     : String,
+    label    : String,
+    value    : String
+) {
     Card(
         modifier  = modifier,
-        shape     = RoundedCornerShape(12.dp),
-        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(1.dp)
+        shape     = RoundedCornerShape(14.dp),
+        colors    = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Column(
-            modifier            = Modifier.padding(10.dp),
+            modifier            = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp, horizontal = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(icon, fontSize = 20.sp)
+            Text(icon, fontSize = 22.sp)
             Spacer(Modifier.height(4.dp))
-            Text(value, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(label, fontSize = 10.sp, textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                value,
+                fontSize   = 14.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color      = MaterialTheme.colorScheme.onSurface,
+                maxLines   = 1,
+                textAlign  = TextAlign.Center
+            )
+            Text(
+                label,
+                fontSize  = 10.sp,
+                color     = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Amount formatter  (currency-agnostic — shows raw number)
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+// Helpers
+// =============================================================================
 
-private fun fmt(amount: Double): String =
-    if (amount >= 1_000) String.format("%.0f", amount)
-    else String.format("%.2f", amount)
+private fun fmtAmt(v: Double): String =
+    if (v >= 1_000) "\u20B9${String.format("%.0f", v)}"
+    else "\u20B9${String.format("%.2f", v)}"

@@ -71,7 +71,13 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun insertTricount(name: String, description: String, onComplete: () -> Unit = {}) {
+    fun insertTricount(
+        name        : String,
+        description : String,
+        emoji       : String = "⛺",
+        memberEmails: List<String> = emptyList(),
+        onComplete  : (tricountId: Int) -> Unit = {}
+    ) {
         viewModelScope.launch {
             try {
                 val userId = sessionManager.getUserId() ?: return@launch
@@ -79,12 +85,27 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                     name        = name,
                     description = description,
                     creatorId   = userId,
-                    joinCode    = generateJoinCode()
+                    joinCode    = generateJoinCode(),
+                    emoji       = emoji
                 )
                 val tricountId = tricountDao.insertTricount(tricount).toInt()
+                // Add creator as first member
                 tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = tricountId))
+                // Add any pre-invited members by email
+                for (email in memberEmails) {
+                    try {
+                        val user = userDao.getUserByEmail(email.trim()) ?: continue
+                        val alreadyMember = tricountDao.getTricountMembersWithDetails(tricountId)
+                            .any { it.userId == user.id }
+                        if (!alreadyMember) {
+                            tricountDao.addMember(TricountMemberCrossRef(userId = user.id, tricountId = tricountId))
+                        }
+                    } catch (e: Exception) {
+                        Log.e("TricountViewModel", "Add member by email error: $email", e)
+                    }
+                }
                 loadTricounts()
-                onComplete()
+                onComplete(tricountId)
             } catch (e: Exception) {
                 Log.e("TricountViewModel", "Insert error", e)
             }

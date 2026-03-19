@@ -380,22 +380,43 @@ fun BalancesContent(
         item { Spacer(Modifier.height(80.dp)) }
     }
 
-    // ── Mark as Paid dialog ───────────────────────────────────────────────────
+    // ── Mark as Paid dialog (with editable note) ─────────────────────────────
     settlementToPay?.let { s ->
         val isDebtor = s.fromUserId == currentUserId
+        var paidNote by remember(s) {
+            mutableStateOf(
+                when {
+                    isDebtor -> "Paid ${s.toUserName} $${"%.2f".format(s.amount)} via TriCount."
+                    else     -> "Received $${"%.2f".format(s.amount)} from ${s.fromUserName} via TriCount."
+                }
+            )
+        }
         AlertDialog(
             onDismissRequest = { settlementToPay = null },
             icon  = { Icon(Icons.Filled.CheckCircle, null,
                 tint = Green, modifier = Modifier.size(32.dp)) },
             title = { Text("Mark as Paid") },
             text  = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         when {
-                            isDebtor -> "Confirm that you paid ${s.toUserName} ${"$"}${"%.2f".format(s.amount)}?"
-                            else     -> "Confirm that you received ${"$"}${"%.2f".format(s.amount)} from ${s.fromUserName}?"
+                            isDebtor -> "Confirm that you paid ${s.toUserName} $${"%.2f".format(s.amount)}?"
+                            else     -> "Confirm that you received $${"%.2f".format(s.amount)} from ${s.fromUserName}?"
                         },
                         fontSize = 15.sp
+                    )
+                    // Editable payment note
+                    OutlinedTextField(
+                        value         = paidNote,
+                        onValueChange = { paidNote = it },
+                        label         = { Text("Payment note (optional)") },
+                        placeholder   = { Text("Add a note for this payment…") },
+                        modifier      = Modifier.fillMaxWidth(),
+                        minLines      = 2,
+                        maxLines      = 4,
+                        shape         = RoundedCornerShape(10.dp),
+                        leadingIcon   = { Icon(Icons.Filled.Notes, null,
+                            modifier = Modifier.size(18.dp)) }
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -407,7 +428,7 @@ fun BalancesContent(
                                 modifier = Modifier.size(16.dp),
                                 tint     = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(8.dp))
-                            Text("This payment will be saved and the settlement balances will update immediately.",
+                            Text("The payment will be saved and balances will update immediately.",
                                 fontSize = 12.sp,
                                 color    = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -418,7 +439,7 @@ fun BalancesContent(
                 Button(
                     onClick = {
                         val key = "${s.fromUserId}-${s.toUserId}"
-                        busyKey        = key
+                        busyKey         = key
                         settlementToPay = null
                         viewModel.markSettlementPaid(
                             tricountId   = tricountId,
@@ -431,7 +452,7 @@ fun BalancesContent(
                             busyKey = null
                             Toast.makeText(
                                 context,
-                                "${"$"}${"%.2f".format(s.amount)} marked as paid ✓",
+                                "$${"%.2f".format(s.amount)} marked as paid ✓",
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
@@ -449,10 +470,12 @@ fun BalancesContent(
         )
     }
 
-    // ── Reminder dialog ───────────────────────────────────────────────────────
+    // ── Reminder dialog (editable message) ───────────────────────────────────
     reminderTarget?.let { s ->
         val isCreditor = s.toUserId == currentUserId
-        val message    = buildReminderMessage(s, isCreditor)
+        var reminderMsg by remember(s) {
+            mutableStateOf(buildReminderMessage(s, isCreditor))
+        }
         AlertDialog(
             onDismissRequest = { reminderTarget = null },
             icon  = { Icon(Icons.Filled.Send, null,
@@ -460,31 +483,50 @@ fun BalancesContent(
             title = { Text("Remind ${s.fromUserName}") },
             text  = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("The following message will be sent:")
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(8.dp)
+                    Text(
+                        "Edit the message before sending:",
+                        fontSize = 14.sp,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    // Fully editable reminder message
+                    OutlinedTextField(
+                        value         = reminderMsg,
+                        onValueChange = { reminderMsg = it },
+                        label         = { Text("Message") },
+                        modifier      = Modifier.fillMaxWidth(),
+                        minLines      = 4,
+                        maxLines      = 8,
+                        shape         = RoundedCornerShape(10.dp)
+                    )
+                    // Reset to default
+                    TextButton(
+                        onClick  = { reminderMsg = buildReminderMessage(s, isCreditor) },
+                        modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.End)
                     ) {
-                        Text(message,
-                            modifier = Modifier.padding(14.dp),
-                            fontSize = 13.sp,
-                            color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 20.sp)
+                        Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Reset to default", fontSize = 12.sp)
                     }
-                    Text("Choose any app to send the reminder (WhatsApp, SMS, email…)",
+                    Text(
+                        "Choose any app to send (WhatsApp, SMS, email…)",
                         fontSize = 12.sp,
-                        color    = MaterialTheme.colorScheme.onSurfaceVariant)
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    reminderTarget = null
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, message)
-                    }
-                    context.startActivity(Intent.createChooser(intent, "Send reminder via…"))
-                }) {
+                Button(
+                    onClick  = {
+                        val msgToSend = reminderMsg
+                        reminderTarget = null
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, msgToSend)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "Send reminder via…"))
+                    },
+                    enabled  = reminderMsg.isNotBlank()
+                ) {
                     Icon(Icons.Filled.Send, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Send Reminder")
