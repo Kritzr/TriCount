@@ -217,5 +217,7 @@ abstract class TricountDatabase : RoomDatabase() {
         fun clearInstance() {
             INSTANCE = null
         }
+
+
     }
 }

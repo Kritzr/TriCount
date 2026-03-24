@@ -3,6 +3,8 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("kotlin-kapt")
+    id("com.google.gms.google-services")
+    //id("com.android.application")
 }
 
 android {
@@ -52,6 +54,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.foundation)
+    implementation(libs.firebase.auth.ktx)
+    implementation(libs.firebase.auth.common)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -75,6 +79,18 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("androidx.compose.ui:ui-text-google-fonts:1.7.8")
+    implementation(platform("com.google.firebase:firebase-bom:34.11.0"))
+    // TODO: Add the dependencies for firebase products to use
+    //when using the BoM, don't specify versions in firebase dependencies
+    implementation("com.google.firebase:firebase-analytics")
+    //add dependencies for any other firebase we need to add
+    //https://firebase.google.com/docs/android/setup#available-libraries
+
+    //firebase login
+    implementation ("com.google.firebase:firebase-auth-ktx:23.1.1")
+    implementation ("com.google.android.gms:play-services-auth:21.5.1")
+
+
 }
 
 

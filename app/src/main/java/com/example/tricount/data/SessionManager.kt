@@ -2,6 +2,7 @@ package com.example.tricount.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlin.apply
 
 class SessionManager(context: Context) {
 
@@ -73,6 +74,9 @@ class SessionManager(context: Context) {
     fun setDarkMode(enabled: Boolean) =
         prefs.edit().putBoolean(KEY_DARK_MODE, enabled).apply()
 
+    fun saveFirebaseUid(uid: String) = prefs.edit().putString("firebase_uid", uid).apply()
+    fun getFirebaseUid(): String? = prefs.getString("firebase_uid", null)
+
     // ── Constants ────────────────────────────────────────────────────────────
 
     companion object {
@@ -83,6 +87,7 @@ class SessionManager(context: Context) {
         private const val KEY_NICKNAME          = "nickname"
         private const val KEY_PROFILE_PHOTO_URI = "profile_photo_uri"
         private const val KEY_LANGUAGE          = "language"
+
         private const val KEY_DARK_MODE         = "dark_mode"
     }
 }
