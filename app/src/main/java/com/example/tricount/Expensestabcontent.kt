@@ -8,12 +8,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -281,27 +283,37 @@ fun ExpensesContent(
                 )
             }
 
-            // Expense rows — rounded light-gray cards like screenshot
+            // Expense rows — flat, no card background
             items(dayExpenses, key = { "active_${it.id}" }) { expense ->
-                val ctx = androidx.compose.ui.platform.LocalContext.current
-                Surface(
-                    modifier  = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 3.dp)
-                        .clickable {
-                            ctx.startActivity(
-                                android.content.Intent(ctx, ExpenseDetailActivity::class.java).apply {
-                                    putExtra(ExpenseDetailActivity.EXTRA_EXPENSE_ID,  expense.id)
-                                    putExtra(ExpenseDetailActivity.EXTRA_TRICOUNT_ID, expense.tricountId)
-                                }
-                            )
-                        },
-                    shape    = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-                    color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                ) {
-                    ExpenseItemCard(
-                        expense        = expense,
-                        currentUserId  = currentUserId
+                val ctx = LocalContext.current
+                Column {
+                    Surface(
+                        modifier  = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                ctx.startActivity(
+                                    android.content.Intent(ctx, ExpenseDetailActivity::class.java).apply {
+                                        putExtra(ExpenseDetailActivity.EXTRA_EXPENSE_ID,  expense.id)
+                                        putExtra(ExpenseDetailActivity.EXTRA_TRICOUNT_ID, expense.tricountId)
+                                    }
+                                )
+                            },
+                        shape    = RoundedCornerShape(0.dp),
+                        color    = Color.Transparent,
+                        shadowElevation = 0.dp
+                    ) {
+                        ExpenseItemCard(
+                            expense        = expense,
+                            currentUserId  = currentUserId,
+                            onEditClick    = { onEditExpense(expense) },
+                            onArchiveClick = { onArchiveExpense(expense.id) },
+                            onDeleteClick  = { onDeleteExpense(expense.id) }
+                        )
+                    }
+                    HorizontalDivider(
+                        modifier  = Modifier.padding(start = 76.dp, end = 16.dp),
+                        thickness = 0.5.dp,
+                        color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                     )
                 }
             }
@@ -432,13 +444,14 @@ fun ArchivedExpenseCard(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Plain expense card
-// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun ExpenseItemCard(
-    expense       : ExpenseWithDetails,
-    currentUserId : Int = -1
+    expense        : ExpenseWithDetails,
+    currentUserId  : Int = -1,
+    onEditClick    : () -> Unit = {},
+    onArchiveClick : () -> Unit = {},
+    onDeleteClick  : () -> Unit = {}
 ) {
     val categoryEmoji = mapOf(
         "Food & Drinks" to "🍔", "Transport"    to "🚕", "Accommodation" to "🏨",
@@ -450,6 +463,10 @@ fun ExpenseItemCard(
     val isMe        = expense.paidBy == currentUserId
     val paidByLabel = if (isMe) "${expense.paidByName} (me)" else expense.paidByName
 
+    var showMenu          by remember { mutableStateOf(false) }
+    var showDeleteDialog  by remember { mutableStateOf(false) }
+    var showArchiveDialog by remember { mutableStateOf(false) }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color    = androidx.compose.ui.graphics.Color.Transparent
@@ -457,7 +474,7 @@ fun ExpenseItemCard(
         Row(
             modifier          = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Emoji circle
@@ -498,29 +515,108 @@ fun ExpenseItemCard(
                 }
             }
 
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
 
             // Amount
             Text(
                 "₹${"%.2f".format(expense.amount)}",
-                fontSize   = 17.sp,
+                fontSize   = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color      = MaterialTheme.colorScheme.onSurface
             )
 
-            Spacer(Modifier.width(4.dp))
-
-            // Chevron >
-            Icon(
-                Icons.Filled.ChevronRight,
-                contentDescription = "View details",
-                tint     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier.size(20.dp)
-            )
+            // ── Three-dot menu ───────────────────────────────────────────────
+            Box {
+                IconButton(
+                    onClick  = { showMenu = true },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.MoreVert, "Options",
+                        tint     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded         = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        leadingIcon = {
+                            Icon(Icons.Filled.Edit, null,
+                                tint     = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp))
+                        },
+                        text    = { Text("Edit") },
+                        onClick = { showMenu = false; onEditClick() }
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        leadingIcon = {
+                            Icon(Icons.Filled.Archive, null,
+                                tint     = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(18.dp))
+                        },
+                        text    = { Text("Archive",
+                            color = MaterialTheme.colorScheme.secondary) },
+                        onClick = { showMenu = false; showArchiveDialog = true }
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        leadingIcon = {
+                            Icon(Icons.Filled.Delete, null,
+                                tint     = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp))
+                        },
+                        text    = { Text("Delete",
+                            color = MaterialTheme.colorScheme.error) },
+                        onClick = { showMenu = false; showDeleteDialog = true }
+                    )
+                }
+            }
         }
     }
-}
 
+    // Archive confirmation
+    if (showArchiveDialog) {
+        AlertDialog(
+            onDismissRequest = { showArchiveDialog = false },
+            icon  = { Icon(Icons.Filled.Archive, null,
+                tint = MaterialTheme.colorScheme.secondary) },
+            title = { Text("Archive Expense?") },
+            text  = { Text("\"${expense.name}\" will be moved to the archive. You can restore it anytime.") },
+            confirmButton = {
+                Button(onClick = { onArchiveClick(); showArchiveDialog = false }) {
+                    Text("Archive")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showArchiveDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Delete confirmation
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            icon  = { Icon(Icons.Filled.Delete, null,
+                tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Delete Expense?") },
+            text  = { Text("Delete \"${expense.name}\"? This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = { onDeleteClick(); showDeleteDialog = false },
+                    colors  = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 

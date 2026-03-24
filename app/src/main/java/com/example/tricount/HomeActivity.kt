@@ -44,9 +44,8 @@ import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.AuthViewModel
 import com.example.tricount.viewModel.TricountViewModel
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // Activity
-// ─────────────────────────────────────────────────────────────────────────────
 
 class HomeActivity : ComponentActivity() {
 
