@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "691382614105",
+    "project_id": "tricount-b2082",
+    "storage_bucket": "tricount-b2082.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:691382614105:android:378d475c70fb7e4a3d1948",
+        "android_client_info": {
+          "package_name": "com.example.tricount"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "691382614105-8d9mi50uf0icg6jlfj8halcvlkh2l7hh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.tricount",
+            "certificate_hash": "6805525900d96c5a0a6e0c9439b79fbea5fb5804"
+          }
+        },
+        {
+          "client_id": "691382614105-mm5t7vfv8qak4bmh1lq91g8ump6kaq5t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCJrmXM4S_4eRRDkjvddepjqRB2HLasphk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "691382614105-mm5t7vfv8qak4bmh1lq91g8ump6kaq5t.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

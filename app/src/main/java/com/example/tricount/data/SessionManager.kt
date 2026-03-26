@@ -2,7 +2,6 @@ package com.example.tricount.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import kotlin.apply
 
 class SessionManager(context: Context) {
 
@@ -74,10 +73,22 @@ class SessionManager(context: Context) {
     fun setDarkMode(enabled: Boolean) =
         prefs.edit().putBoolean(KEY_DARK_MODE, enabled).apply()
 
-    fun saveFirebaseUid(uid: String) = prefs.edit().putString("firebase_uid", uid).apply()
-    fun getFirebaseUid(): String? = prefs.getString("firebase_uid", null)
-
     // ── Constants ────────────────────────────────────────────────────────────
+
+
+    // ── Firebase ─────────────────────────────────────────────────────────────
+
+    /** Firebase UID (differs from the Room integer userId) */
+    fun saveFirebaseUid(uid: String) =
+        prefs.edit().putString(KEY_FIREBASE_UID, uid).apply()
+
+    fun getFirebaseUid(): String? = prefs.getString(KEY_FIREBASE_UID, null)
+
+    /** True once Room→Firestore one-time migration has completed */
+    fun isMigrated(): Boolean = prefs.getBoolean(KEY_MIGRATED, false)
+
+    fun setMigrated(done: Boolean) =
+        prefs.edit().putBoolean(KEY_MIGRATED, done).apply()
 
     companion object {
         private const val PREF_NAME             = "tricount_session"
@@ -87,7 +98,8 @@ class SessionManager(context: Context) {
         private const val KEY_NICKNAME          = "nickname"
         private const val KEY_PROFILE_PHOTO_URI = "profile_photo_uri"
         private const val KEY_LANGUAGE          = "language"
-
         private const val KEY_DARK_MODE         = "dark_mode"
+        private const val KEY_FIREBASE_UID      = "firebase_uid"
+        private const val KEY_MIGRATED          = "firebase_migrated"
     }
 }

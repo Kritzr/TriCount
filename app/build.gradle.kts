@@ -2,16 +2,14 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("kotlin-kapt")
     id("com.google.gms.google-services")
-    //id("com.android.application")
+    id("com.google.firebase.crashlytics")
+    id("org.jetbrains.kotlin.kapt")
 }
 
 android {
     namespace = "com.example.tricount"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.tricount"
@@ -54,8 +52,10 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.foundation)
-    implementation(libs.firebase.auth.ktx)
-    implementation(libs.firebase.auth.common)
+    implementation(libs.firebase.firestore.ktx)
+    // firebase-auth-ktx and firebase-auth are managed by the Firebase BoM below.
+    // Do NOT add them here via libs.* as the version catalog may pin a non-existent version.
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -63,36 +63,37 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    // Lifecycle & Navigation
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.navigation:navigation-compose:2.8.4")
 
-    // Room (later phase)
+    // Room
     implementation("androidx.room:room-runtime:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
-    implementation("androidx.activity:activity-ktx:1.9.0") // Or a more recent version
+
+    // Activity & UI
+    implementation("androidx.activity:activity-ktx:1.9.0")
     implementation("androidx.compose.material:material-icons-extended:1.7.6")
     implementation("androidx.core:core-ktx:1.10.1")
+
+    // Image loading
     implementation("io.coil-kt:coil-compose:2.6.0")
 
-    // Retrofit (later phase)
+    // Retrofit
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
-    implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // Google Fonts
     implementation("androidx.compose.ui:ui-text-google-fonts:1.7.8")
+
+    // Firebase BoM — manages all Firebase library versions
     implementation(platform("com.google.firebase:firebase-bom:34.11.0"))
-    // TODO: Add the dependencies for firebase products to use
-    //when using the BoM, don't specify versions in firebase dependencies
     implementation("com.google.firebase:firebase-analytics")
-    //add dependencies for any other firebase we need to add
-    //https://firebase.google.com/docs/android/setup#available-libraries
+    //implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-crashlytics")
 
-    //firebase login
-    implementation ("com.google.firebase:firebase-auth-ktx:23.1.1")
-    implementation ("com.google.android.gms:play-services-auth:21.5.1")
-
-
+    // Google Sign-In — stay on 20.x; version 21+ removed GoogleSignInClient/GoogleSignInOptions
+    implementation("com.google.android.gms:play-services-auth:20.7.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 }
-
-
-
-
