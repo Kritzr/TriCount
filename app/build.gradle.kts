@@ -52,9 +52,6 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.foundation)
-    implementation(libs.firebase.firestore.ktx)
-    // firebase-auth-ktx and firebase-auth are managed by the Firebase BoM below.
-    // Do NOT add them here via libs.* as the version catalog may pin a non-existent version.
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
@@ -87,13 +84,16 @@ dependencies {
     // Google Fonts
     implementation("androidx.compose.ui:ui-text-google-fonts:1.7.8")
 
-    // Firebase BoM — manages all Firebase library versions
-    implementation(platform("com.google.firebase:firebase-bom:34.11.0"))
+    // Firebase BoM — controls ALL firebase versions, never add versions individually
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-analytics")
-    //implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-crashlytics")
 
-    // Google Sign-In — stay on 20.x; version 21+ removed GoogleSignInClient/GoogleSignInOptions
+    // Google Sign-In — must stay on 20.x, version 21+ removed GoogleSignIn legacy API
     implementation("com.google.android.gms:play-services-auth:20.7.0")
+
+    // Coroutines support for Firebase Tasks (.await())
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 }

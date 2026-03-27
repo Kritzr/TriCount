@@ -1,5 +1,4 @@
 package com.example.tricount
-import com.example.tricount.util.ConnectivityObserver
 
 import android.content.Intent
 import android.os.Bundle
@@ -43,7 +42,6 @@ import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 
-
 class LoginActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
@@ -66,7 +64,7 @@ class LoginActivity : ComponentActivity() {
             } else {
                 Toast.makeText(
                     this,
-                    "Google Sign-In failed: ID Token is null.\nCheck SHA-1 & Web Client ID in Firebase.",
+                    "Google Sign-In failed: ID Token is null. Check SHA-1 & Web Client ID in Firebase.",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -95,6 +93,7 @@ class LoginActivity : ComponentActivity() {
             .build()
         googleSignInClient = GoogleSignIn.getClient(this, gso)
 
+        // Skip login if already signed in via Firebase
         if (sessionManager.isLoggedIn() && FirebaseAuth.getInstance().currentUser != null) {
             navigateToHome()
             return
@@ -132,7 +131,7 @@ class LoginActivity : ComponentActivity() {
                         startActivity(Intent(this@LoginActivity, SignUpActivity::class.java))
                     },
                     onGoogleSignInClick = {
-                        // Sign out first so account picker always appears
+                        // Sign out first so account picker always shows
                         googleSignInClient.signOut().addOnCompleteListener {
                             googleSignInLauncher.launch(googleSignInClient.signInIntent)
                         }
@@ -145,17 +144,20 @@ class LoginActivity : ComponentActivity() {
     private fun firebaseAuthWithGoogle(idToken: String) {
         val credential = GoogleAuthProvider.getCredential(idToken, null)
         FirebaseAuth.getInstance().signInWithCredential(credential)
-            .addOnSuccessListener { authResult ->
-                val user = authResult.user ?: run {
+            .addOnSuccessListener { result ->
+                val user = result.user ?: run {
                     Toast.makeText(this, "Sign-in failed: no user returned", Toast.LENGTH_SHORT).show()
                     return@addOnSuccessListener
                 }
+
+                // Save session using Firebase UID hashed to int (for Room compatibility)
                 sessionManager.saveSession(
                     userId = user.uid.hashCode(),
                     email  = user.email ?: "",
                     name   = user.displayName ?: ""
                 )
                 sessionManager.saveFirebaseUid(user.uid)
+
                 Toast.makeText(this, "Welcome, ${user.displayName}!", Toast.LENGTH_SHORT).show()
                 navigateToHome()
             }
@@ -174,8 +176,16 @@ class LoginActivity : ComponentActivity() {
     }
 }
 
+// =============================================================================
+// Email validation
+// =============================================================================
+
 private fun isValidEmail(email: String): Boolean =
     "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex().matches(email)
+
+// =============================================================================
+// Login screen UI
+// =============================================================================
 
 @Composable
 fun LoginScreen(
@@ -192,10 +202,6 @@ fun LoginScreen(
     val canSubmit      = email.isNotBlank() && password.isNotBlank() && isEmailValid
 
     val focusManager = LocalFocusManager.current
-    val syncManager = SyncManager(tricountDao, paymentDao, ConnectivityObserver(this))
-    lifecycleScope.launch {
-        syncManager.syncLocalDataToFirestore(localUserId, user.uid)
-    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -208,14 +214,22 @@ fun LoginScreen(
         ) {
             Spacer(Modifier.height(80.dp))
 
-            Text("TriCount", fontSize = 40.sp, fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary)
+            Text(
+                "TriCount",
+                fontSize   = 40.sp,
+                fontWeight = FontWeight.Bold,
+                color      = MaterialTheme.colorScheme.primary
+            )
             Spacer(Modifier.height(8.dp))
-            Text("Split expenses with friends", fontSize = 16.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Split expenses with friends",
+                fontSize = 16.sp,
+                color    = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             Spacer(Modifier.height(48.dp))
 
+            // Email
             OutlinedTextField(
                 value          = email,
                 onValueChange  = { email = it },
@@ -226,15 +240,23 @@ fun LoginScreen(
                 isError        = showEmailError,
                 supportingText = {
                     if (showEmailError)
-                        Text("Please enter a valid email address",
-                            color = MaterialTheme.colorScheme.error)
+                        Text(
+                            "Please enter a valid email address",
+                            color = MaterialTheme.colorScheme.error
+                        )
                 },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Email,
+                    imeAction    = ImeAction.Next
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                )
             )
 
             Spacer(Modifier.height(16.dp))
 
+            // Password
             OutlinedTextField(
                 value         = password,
                 onValueChange = { password = it },
@@ -243,22 +265,34 @@ fun LoginScreen(
                 trailingIcon  = {
                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
                         Icon(
-                            imageVector        = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                            contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                            imageVector        = if (passwordVisible) Icons.Filled.Visibility
+                            else Icons.Filled.VisibilityOff,
+                            contentDescription = if (passwordVisible) "Hide password"
+                            else "Show password"
                         )
                     }
                 },
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                visualTransformation = if (passwordVisible) VisualTransformation.None
+                else PasswordVisualTransformation(),
                 modifier        = Modifier.fillMaxWidth(),
                 singleLine      = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = {
-                    if (canSubmit) { focusManager.clearFocus(); onLoginClick(email.trim(), password) }
-                })
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction    = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        if (canSubmit) {
+                            focusManager.clearFocus()
+                            onLoginClick(email.trim(), password)
+                        }
+                    }
+                )
             )
 
             Spacer(Modifier.height(24.dp))
 
+            // Login button
             Button(
                 onClick  = { if (canSubmit) onLoginClick(email.trim(), password) },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -269,28 +303,45 @@ fun LoginScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            // Divider
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier          = Modifier.fillMaxWidth()
+            ) {
                 HorizontalDivider(Modifier.weight(1f))
-                Text("  or  ", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "  or  ",
+                    fontSize = 13.sp,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 HorizontalDivider(Modifier.weight(1f))
             }
 
             Spacer(Modifier.height(12.dp))
 
+            // Google Sign-In
             OutlinedButton(
                 onClick  = onGoogleSignInClick,
                 modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
-                Icon(Icons.Filled.AccountCircle, contentDescription = null, modifier = Modifier.size(20.dp))
+                Icon(
+                    Icons.Filled.AccountCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
                 Spacer(Modifier.width(8.dp))
                 Text("Continue with Google", fontSize = 15.sp)
             }
 
             Spacer(Modifier.height(16.dp))
 
+            // Sign-up link
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Don't have an account?", fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "Don't have an account?",
+                    fontSize = 14.sp,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(Modifier.width(4.dp))
                 TextButton(onClick = onSignUpClick) {
                     Text("Sign Up", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
