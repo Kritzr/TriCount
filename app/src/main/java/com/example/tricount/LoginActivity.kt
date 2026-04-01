@@ -11,11 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,215 +32,151 @@ import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.AuthResult
 import com.example.tricount.viewModel.AuthViewModel
 import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.GoogleAuthProvider
 
 class LoginActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
-    private lateinit var sessionManager: SessionManager
-    private lateinit var googleSignInClient: GoogleSignInClient
 
+    // ── Google Sign-In launcher ───────────────────────────────────────────────
     private val googleSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == RESULT_CANCELED) {
-            Toast.makeText(this, "Sign-in cancelled", Toast.LENGTH_SHORT).show()
-            return@registerForActivityResult
-        }
-        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
         try {
+            val task    = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             val account = task.getResult(ApiException::class.java)
-            val idToken = account?.idToken
+            val idToken = account.idToken
+
             if (idToken != null) {
-                firebaseAuthWithGoogle(idToken)
+                // Hand the token to AuthViewModel — it handles Firebase auth + Room user creation
+                authViewModel.handleGoogleSignIn(idToken)
             } else {
-                Toast.makeText(
-                    this,
-                    "Google Sign-In failed: ID Token is null. Check SHA-1 & Web Client ID in Firebase.",
-                    Toast.LENGTH_LONG
-                ).show()
+                Toast.makeText(this, "Google sign-in failed: no ID token", Toast.LENGTH_LONG).show()
             }
         } catch (e: ApiException) {
-            val message = when (e.statusCode) {
-                10    -> "Developer error: Check SHA-1 fingerprint and Web Client ID in Firebase."
-                7     -> "Network error: Check your internet connection."
-                12500 -> "Google Play Services needs an update."
-                else  -> "Google sign-in failed (code ${e.statusCode})"
-            }
-            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Authentication failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Google sign-in cancelled or failed: ${e.statusCode}", Toast.LENGTH_LONG).show()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        sessionManager = SessionManager(this)
-        AppTheme.isDark.value = sessionManager.getDarkMode()
-
-        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestIdToken(getString(R.string.default_web_client_id))
-            .requestEmail()
-            .build()
-        googleSignInClient = GoogleSignIn.getClient(this, gso)
-
-        // Skip login if already signed in via Firebase
-        if (sessionManager.isLoggedIn() && FirebaseAuth.getInstance().currentUser != null) {
-            navigateToHome()
+        // If already logged in (session still valid), skip login screen
+        val sessionManager = SessionManager(this)
+        if (sessionManager.isLoggedIn()) {
+            startActivity(Intent(this, HomeActivity::class.java))
+            finish()
             return
         }
+
+        AppTheme.isDark.value = sessionManager.getDarkMode()
 
         setContent {
             TriCountTheme {
                 val authResult by authViewModel.authResult.collectAsStateWithLifecycle()
 
+                // Navigate on success, toast on error
                 LaunchedEffect(authResult) {
-                    authResult?.let { result ->
-                        when (result) {
-                            is AuthResult.Success -> {
-                                Toast.makeText(
-                                    this@LoginActivity, "Welcome back!", Toast.LENGTH_SHORT
-                                ).show()
-                                authViewModel.resetAuthResult()
-                                navigateToHome()
-                            }
-                            is AuthResult.Error -> {
-                                Toast.makeText(
-                                    this@LoginActivity, result.message, Toast.LENGTH_LONG
-                                ).show()
-                                authViewModel.resetAuthResult()
-                            }
+                    when (authResult) {
+                        is AuthResult.Success -> {
+                            authViewModel.resetAuthResult()
+                            startActivity(Intent(this@LoginActivity, HomeActivity::class.java))
+                            finish()
                         }
+                        is AuthResult.Error -> {
+                            Toast.makeText(
+                                this@LoginActivity,
+                                (authResult as AuthResult.Error).message,
+                                Toast.LENGTH_LONG
+                            ).show()
+                            authViewModel.resetAuthResult()
+                        }
+                        null -> { /* idle */ }
                     }
                 }
 
                 LoginScreen(
-                    onLoginClick = { email, password ->
-                        authViewModel.login(email, password)
-                    },
-                    onSignUpClick = {
+                    onLoginClick     = { email, password -> authViewModel.login(email, password) },
+                    onSignUpClick    = {
                         startActivity(Intent(this@LoginActivity, SignUpActivity::class.java))
                     },
-                    onGoogleSignInClick = {
-                        // Sign out first so account picker always shows
-                        googleSignInClient.signOut().addOnCompleteListener {
-                            googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                        }
-                    }
+                    onGoogleSignIn   = { launchGoogleSignIn() }
                 )
             }
         }
     }
 
-    private fun firebaseAuthWithGoogle(idToken: String) {
-        val credential = GoogleAuthProvider.getCredential(idToken, null)
-        FirebaseAuth.getInstance().signInWithCredential(credential)
-            .addOnSuccessListener { result ->
-                val user = result.user ?: run {
-                    Toast.makeText(this, "Sign-in failed: no user returned", Toast.LENGTH_SHORT).show()
-                    return@addOnSuccessListener
-                }
+    // ── Launch the Google account picker ──────────────────────────────────────
+    private fun launchGoogleSignIn() {
+        // Replace R.string.default_web_client_id with your actual Web Client ID string
+        // if you haven't set up google-services.json yet, or use the literal string:
+        // "YOUR_WEB_CLIENT_ID.apps.googleusercontent.com"
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(getString(R.string.default_web_client_id))
+            .requestEmail()
+            .build()
 
-                // Save session using Firebase UID hashed to int (for Room compatibility)
-                sessionManager.saveSession(
-                    userId = user.uid.hashCode(),
-                    email  = user.email ?: "",
-                    name   = user.displayName ?: ""
-                )
-                sessionManager.saveFirebaseUid(user.uid)
+        val client = GoogleSignIn.getClient(this, gso)
 
-                Toast.makeText(this, "Welcome, ${user.displayName}!", Toast.LENGTH_SHORT).show()
-                navigateToHome()
-            }
-            .addOnFailureListener { e ->
-                Toast.makeText(this, "Auth failed: ${e.message}", Toast.LENGTH_LONG).show()
-            }
-    }
-
-    private fun navigateToHome() {
-        startActivity(
-            Intent(this, HomeActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            }
-        )
-        finish()
+        // Always show account picker (sign out first to clear cached selection)
+        client.signOut().addOnCompleteListener {
+            googleSignInLauncher.launch(client.signInIntent)
+        }
     }
 }
 
-// =============================================================================
-// Email validation
-// =============================================================================
+// ─────────────────────────────────────────────────────────────────────────────
+// LOGIN SCREEN UI
+// ─────────────────────────────────────────────────────────────────────────────
 
-private fun isValidEmail(email: String): Boolean =
-    "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex().matches(email)
-
-// =============================================================================
-// Login screen UI
-// =============================================================================
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
-    onLoginClick        : (String, String) -> Unit,
-    onSignUpClick       : () -> Unit,
-    onGoogleSignInClick : () -> Unit = {}
+    onLoginClick   : (email: String, password: String) -> Unit,
+    onSignUpClick  : () -> Unit,
+    onGoogleSignIn : () -> Unit
 ) {
     var email           by remember { mutableStateOf("") }
     var password        by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    val focusManager    = LocalFocusManager.current
 
-    val showEmailError = email.isNotBlank() && !isValidEmail(email)
-    val isEmailValid   = email.isBlank() || isValidEmail(email)
-    val canSubmit      = email.isNotBlank() && password.isNotBlank() && isEmailValid
+    val canLogin = email.isNotBlank() && password.isNotBlank()
 
-    val focusManager = LocalFocusManager.current
-
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color    = MaterialTheme.colorScheme.background
-    ) {
+    Scaffold { padding ->
         Column(
-            modifier            = Modifier.fillMaxSize().padding(24.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top
+            verticalArrangement = Arrangement.Center
         ) {
-            Spacer(Modifier.height(80.dp))
 
+            // ── Header ────────────────────────────────────────────────────────
             Text(
-                "TriCount",
-                fontSize   = 40.sp,
+                "Welcome to TriCount",
+                fontSize   = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color      = MaterialTheme.colorScheme.primary
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Split expenses with friends",
-                fontSize = 16.sp,
+                "Sign in to manage your shared expenses",
+                fontSize = 14.sp,
                 color    = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(Modifier.height(32.dp))
 
-            Spacer(Modifier.height(48.dp))
-
-            // Email
+            // ── Email ─────────────────────────────────────────────────────────
             OutlinedTextField(
-                value          = email,
-                onValueChange  = { email = it },
-                label          = { Text("Email") },
-                leadingIcon    = { Icon(Icons.Filled.Email, contentDescription = null) },
-                modifier       = Modifier.fillMaxWidth(),
-                singleLine     = true,
-                isError        = showEmailError,
-                supportingText = {
-                    if (showEmailError)
-                        Text(
-                            "Please enter a valid email address",
-                            color = MaterialTheme.colorScheme.error
-                        )
-                },
+                value           = email,
+                onValueChange   = { email = it },
+                label           = { Text("Email") },
+                leadingIcon     = { Icon(Icons.Filled.Email, null) },
+                modifier        = Modifier.fillMaxWidth(),
+                singleLine      = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Email,
                     imeAction    = ImeAction.Next
@@ -254,95 +186,100 @@ fun LoginScreen(
                 )
             )
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
 
-            // Password
+            // ── Password ──────────────────────────────────────────────────────
             OutlinedTextField(
-                value         = password,
-                onValueChange = { password = it },
-                label         = { Text("Password") },
-                leadingIcon   = { Icon(Icons.Filled.Lock, contentDescription = null) },
-                trailingIcon  = {
+                value                = password,
+                onValueChange        = { password = it },
+                label                = { Text("Password") },
+                leadingIcon          = { Icon(Icons.Filled.Lock, null) },
+                trailingIcon         = {
                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
                         Icon(
-                            imageVector        = if (passwordVisible) Icons.Filled.Visibility
+                            if (passwordVisible) Icons.Filled.Visibility
                             else Icons.Filled.VisibilityOff,
-                            contentDescription = if (passwordVisible) "Hide password"
-                            else "Show password"
+                            contentDescription = null
                         )
                     }
                 },
                 visualTransformation = if (passwordVisible) VisualTransformation.None
                 else PasswordVisualTransformation(),
-                modifier        = Modifier.fillMaxWidth(),
-                singleLine      = true,
-                keyboardOptions = KeyboardOptions(
+                modifier             = Modifier.fillMaxWidth(),
+                singleLine           = true,
+                keyboardOptions      = KeyboardOptions(
                     keyboardType = KeyboardType.Password,
                     imeAction    = ImeAction.Done
                 ),
                 keyboardActions = KeyboardActions(
                     onDone = {
-                        if (canSubmit) {
-                            focusManager.clearFocus()
-                            onLoginClick(email.trim(), password)
-                        }
+                        focusManager.clearFocus()
+                        if (canLogin) onLoginClick(email.trim(), password)
                     }
                 )
             )
 
             Spacer(Modifier.height(24.dp))
 
-            // Login button
+            // ── Login button ──────────────────────────────────────────────────
             Button(
-                onClick  = { if (canSubmit) onLoginClick(email.trim(), password) },
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-                enabled  = canSubmit
+                onClick  = { if (canLogin) onLoginClick(email.trim(), password) },
+                enabled  = canLogin,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
             ) {
-                Text("Login", fontSize = 16.sp, fontWeight = FontWeight.Medium)
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // Divider
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier          = Modifier.fillMaxWidth()
-            ) {
-                HorizontalDivider(Modifier.weight(1f))
-                Text(
-                    "  or  ",
-                    fontSize = 13.sp,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                HorizontalDivider(Modifier.weight(1f))
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // Google Sign-In
-            OutlinedButton(
-                onClick  = onGoogleSignInClick,
-                modifier = Modifier.fillMaxWidth().height(50.dp)
-            ) {
-                Icon(
-                    Icons.Filled.AccountCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Continue with Google", fontSize = 15.sp)
+                Text("Log In", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             }
 
             Spacer(Modifier.height(16.dp))
 
-            // Sign-up link
+            // ── Divider ───────────────────────────────────────────────────────
+            Row(
+                modifier          = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HorizontalDivider(modifier = Modifier.weight(1f))
+                Text(
+                    "  OR  ",
+                    fontSize = 13.sp,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                HorizontalDivider(modifier = Modifier.weight(1f))
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // ── Google Sign-In button ─────────────────────────────────────────
+            OutlinedButton(
+                onClick  = onGoogleSignIn,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+            ) {
+                Icon(
+                    Icons.Filled.AccountCircle,
+                    contentDescription = null,
+                    tint     = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "Continue with Google",
+                    fontSize   = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            // ── Sign-up link ──────────────────────────────────────────────────
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Don't have an account?",
+                    "Don't have an account? ",
                     fontSize = 14.sp,
                     color    = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(Modifier.width(4.dp))
                 TextButton(onClick = onSignUpClick) {
                     Text("Sign Up", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }

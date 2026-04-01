@@ -98,6 +98,15 @@ interface TricountDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExpense(expense: ExpenseEntity): Long
 
+    @Query("SELECT * FROM expenses WHERE id = :expenseId LIMIT 1")
+    suspend fun getExpenseById(expenseId: Int): ExpenseEntity?
+
+    @Query("SELECT * FROM expenses WHERE tricountId = :tricountId")
+    suspend fun getExpensesForTricountOnce(tricountId: Int): List<ExpenseEntity>
+
+    @Query("SELECT * FROM tricounts")
+    suspend fun getAllTricountsOnce(): List<TricountEntity>
+
     @Query("DELETE FROM expenses WHERE id = :expenseId")
     suspend fun deleteExpense(expenseId: Int)
 

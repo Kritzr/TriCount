@@ -5,6 +5,9 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tricount.data.SessionManager
+import com.example.tricount.data.FirebaseSyncRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.example.tricount.data.database.TricountDatabase
 import com.example.tricount.data.dao.PaymentDao
 import com.example.tricount.data.entity.PaymentEntity
@@ -19,6 +22,19 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     private val userDao        = TricountDatabase.getDatabase(application).userDao()
     private val paymentDao     = TricountDatabase.getDatabase(application).paymentDao()
     private val sessionManager = SessionManager(application)
+    private val syncRepo = FirebaseSyncRepository(
+        TricountDatabase.getDatabase(application)
+    )
+
+    // Pull data from Firestore on first load
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            val userId = sessionManager.getUserId()
+            if (userId != null) {
+                syncRepo.pullFromFirebase(userId)
+            }
+        }
+    }
 
     // ── StateFlows ────────────────────────────────────────────────────────────
 
@@ -72,11 +88,11 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun insertTricount(
-        name        : String,
-        description : String,
-        emoji       : String = "⛺",
-        memberEmails: List<String> = emptyList(),
-        onComplete  : (tricountId: Int) -> Unit = {}
+        name         : String,
+        description  : String,
+        emoji        : String = "⛺",
+        memberEmails : List<String> = emptyList(),
+        onComplete   : (tricountId: Int) -> Unit = {}
     ) {
         viewModelScope.launch {
             try {
@@ -98,12 +114,17 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                         val alreadyMember = tricountDao.getTricountMembersWithDetails(tricountId)
                             .any { it.userId == user.id }
                         if (!alreadyMember) {
-                            tricountDao.addMember(TricountMemberCrossRef(userId = user.id, tricountId = tricountId))
+                            tricountDao.addMember(
+                                TricountMemberCrossRef(userId = user.id, tricountId = tricountId)
+                            )
                         }
                     } catch (e: Exception) {
                         Log.e("TricountViewModel", "Add member by email error: $email", e)
                     }
                 }
+                // Push new tricount to Firebase
+                val saved = tricountDao.getTricountById(tricountId)
+                if (saved != null) syncRepo.pushTricount(saved)
                 loadTricounts()
                 onComplete(tricountId)
             } catch (e: Exception) {
@@ -116,6 +137,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 tricountDao.deleteTricountById(tricountId)
+                syncRepo.deleteTricount(tricountId)
                 loadTricounts()
                 loadArchivedTricounts()
             } catch (e: Exception) {
@@ -128,6 +150,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 tricountDao.archiveTricount(tricountId)
+                syncRepo.updateTricountArchived(tricountId, true)
                 loadTricounts()
             } catch (e: Exception) {
                 Log.e("TricountViewModel", "Archive tricount error", e)
@@ -151,6 +174,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 tricountDao.updateTricount(tricountId, name, description)
+                syncRepo.updateTricountFields(tricountId, name, description, "⛺")
                 loadTricounts()
                 _currentTricount.value = tricountDao.getTricountById(tricountId)
             } catch (e: Exception) {
@@ -163,6 +187,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 tricountDao.updateTricountFull(tricountId, name, description, emoji)
+                syncRepo.updateTricountFields(tricountId, name, description, emoji)
                 loadTricounts()
                 _currentTricount.value = tricountDao.getTricountById(tricountId)
             } catch (e: Exception) {
@@ -254,7 +279,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     fun removeMember(userId: Int, tricountId: Int) {
         viewModelScope.launch {
             try {
-                tricountDao.removeMember(tricountId, userId)  // DAO: (tricountId, userId)
+                tricountDao.removeMember(userId, tricountId)
                 loadTricountMembers(tricountId)
             } catch (e: Exception) {
                 Log.e("TricountViewModel", "Remove member error", e)
@@ -368,6 +393,10 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                     }
                 tricountDao.insertExpenseSplits(splits)
 
+                // Push to Firebase
+                val savedExpense = expense.copy(id = expenseId)
+                syncRepo.pushExpense(tricountId, savedExpense, splits)
+
                 loadExpenses(tricountId)
                 onResult(AddExpenseResult.Success)
             } catch (e: Exception) {
@@ -382,6 +411,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             try {
                 tricountDao.deleteExpenseSplits(expenseId)
                 tricountDao.deleteExpense(expenseId)
+                syncRepo.deleteExpense(tricountId, expenseId)
                 loadExpenses(tricountId)
             } catch (e: Exception) {
                 Log.e("TricountViewModel", "Delete expense error", e)
@@ -393,6 +423,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 tricountDao.archiveExpense(expenseId)
+                syncRepo.updateExpenseArchived(tricountId, expenseId, true)
                 loadExpenses(tricountId)
             } catch (e: Exception) {
                 Log.e("TricountViewModel", "Archive expense error", e)

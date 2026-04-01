@@ -325,7 +325,7 @@ fun EditTripScreen(
                 }
             }
 
-            // ── TRIP NAME ─────────────────────────────────────────────────────
+            //  TRIP NAME
             item {
                 ELabel("Trip Name")
                 Spacer(Modifier.height(8.dp))
@@ -358,7 +358,7 @@ fun EditTripScreen(
                 )
             }
 
-            // ── DESCRIPTION ───────────────────────────────────────────────────
+            // ── DESCRIPTION
             item {
                 ELabel("Description")
                 Spacer(Modifier.height(8.dp))
@@ -430,7 +430,7 @@ fun EditTripScreen(
                 }
             }
 
-            // ── MEMBERS HEADER ────────────────────────────────────────────────
+            // ── MEMBERS HEADER
             item {
                 HorizontalDivider()
                 Spacer(Modifier.height(6.dp))
@@ -460,7 +460,7 @@ fun EditTripScreen(
                 }
             }
 
-            // ── MEMBER ROWS ───────────────────────────────────────────────────
+            // MEMBER ROWS
             items(members, key = { it.userId }) { member ->
                 val isMe = member.userId == currentUserId
                 Surface(
