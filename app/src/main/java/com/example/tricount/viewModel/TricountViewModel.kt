@@ -4,13 +4,9 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.tricount.data.SessionManager
 import com.example.tricount.data.FirebaseSyncRepository
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import com.example.tricount.data.SessionManager
 import com.example.tricount.data.database.TricountDatabase
-import com.example.tricount.data.dao.PaymentDao
-import com.example.tricount.data.entity.PaymentEntity
 import com.example.tricount.data.entity.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,23 +14,16 @@ import kotlinx.coroutines.launch
 
 class TricountViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val tricountDao    = TricountDatabase.getDatabase(application).tricountDao()
-    private val userDao        = TricountDatabase.getDatabase(application).userDao()
-    private val paymentDao     = TricountDatabase.getDatabase(application).paymentDao()
+    private val db             = TricountDatabase.getDatabase(application)
+    private val tricountDao    = db.tricountDao()
+    private val userDao        = db.userDao()
+    private val paymentDao     = db.paymentDao()
     private val sessionManager = SessionManager(application)
-    private val syncRepo = FirebaseSyncRepository(
-        TricountDatabase.getDatabase(application)
-    )
+    private val syncRepo       = FirebaseSyncRepository(db, sessionManager)
 
-    // Pull data from Firestore on first load
-    init {
-        viewModelScope.launch(Dispatchers.IO) {
-            val userId = sessionManager.getUserId()
-            if (userId != null) {
-                syncRepo.pullFromFirebase(userId)
-            }
-        }
-    }
+    // pullFromFirebase is intentionally NOT called here.
+    // It is called once in AuthViewModel.handleGoogleSignIn after login.
+    // Calling it here caused a race condition wiping freshly created local data.
 
     // ── StateFlows ────────────────────────────────────────────────────────────
 
@@ -77,11 +66,12 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 val userId = sessionManager.getUserId()
+                Log.d("TricountVM", "loadTricounts: userId=$userId")
                 _tricounts.value =
                     if (userId != null) tricountDao.getTricountsForUser(userId)
                     else emptyList()
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Error loading tricounts", e)
+                Log.e("TricountVM", "loadTricounts error: ${e.message}", e)
                 _tricounts.value = emptyList()
             }
         }
@@ -90,13 +80,26 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     fun insertTricount(
         name         : String,
         description  : String,
-        emoji        : String = "⛺",
+        emoji        : String = "XX",
         memberEmails : List<String> = emptyList(),
         onComplete   : (tricountId: Int) -> Unit = {}
     ) {
         viewModelScope.launch {
             try {
-                val userId = sessionManager.getUserId() ?: return@launch
+                val userId = sessionManager.getUserId()
+                Log.d("TricountVM", "insertTricount: userId=$userId name=$name")
+
+                if (userId == null) {
+                    Log.e("TricountVM", "insertTricount ABORTED: no userId in session")
+                    return@launch
+                }
+
+                val userExists = userDao.getUserById(userId)
+                if (userExists == null) {
+                    Log.e("TricountVM", "insertTricount ABORTED: userId=$userId not in users table")
+                    return@launch
+                }
+
                 val tricount = TricountEntity(
                     name        = name,
                     description = description,
@@ -105,30 +108,47 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                     emoji       = emoji
                 )
                 val tricountId = tricountDao.insertTricount(tricount).toInt()
+                Log.d("TricountVM", "insertTricount: tricountId=$tricountId")
+
                 // Add creator as first member
-                tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = tricountId))
-                // Add any pre-invited members by email
+                tricountDao.addMember(
+                    TricountMemberCrossRef(userId = userId, tricountId = tricountId)
+                )
+
+                // Add pre-invited members — create placeholder UserEntity if needed
                 for (email in memberEmails) {
                     try {
-                        val user = userDao.getUserByEmail(email.trim()) ?: continue
+                        val trimmed = email.trim().lowercase()
+                        val member = userDao.getUserByEmail(trimmed)
+                            ?: run {
+                                val displayName = trimmed.substringBefore("@")
+                                    .replaceFirstChar { it.uppercase() }
+                                val newId = userDao.insertUser(
+                                    UserEntity(email = trimmed, password = "", name = displayName)
+                                ).toInt()
+                                Log.d("TricountVM", "insertTricount: created placeholder user id=$newId for $trimmed")
+                                userDao.getUserById(newId)!!
+                            }
+
                         val alreadyMember = tricountDao.getTricountMembersWithDetails(tricountId)
-                            .any { it.userId == user.id }
+                            .any { it.userId == member.id }
                         if (!alreadyMember) {
                             tricountDao.addMember(
-                                TricountMemberCrossRef(userId = user.id, tricountId = tricountId)
+                                TricountMemberCrossRef(userId = member.id, tricountId = tricountId)
                             )
                         }
                     } catch (e: Exception) {
-                        Log.e("TricountViewModel", "Add member by email error: $email", e)
+                        Log.e("TricountVM", "insertTricount: error adding member $email: ${e.message}", e)
                     }
                 }
-                // Push new tricount to Firebase
+
                 val saved = tricountDao.getTricountById(tricountId)
                 if (saved != null) syncRepo.pushTricount(saved)
+
                 loadTricounts()
                 onComplete(tricountId)
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Insert error", e)
+                Log.e("TricountVM", "insertTricount error: ${e.message}", e)
             }
         }
     }
@@ -141,7 +161,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 loadTricounts()
                 loadArchivedTricounts()
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Delete error", e)
+                Log.e("TricountVM", "deleteTricount error", e)
             }
         }
     }
@@ -153,7 +173,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 syncRepo.updateTricountArchived(tricountId, true)
                 loadTricounts()
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Archive tricount error", e)
+                Log.e("TricountVM", "archiveTricount error", e)
             }
         }
     }
@@ -165,7 +185,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 loadArchivedTricounts()
                 loadTricounts()
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Unarchive tricount error", e)
+                Log.e("TricountVM", "unarchiveTricount error", e)
             }
         }
     }
@@ -174,11 +194,11 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 tricountDao.updateTricount(tricountId, name, description)
-                syncRepo.updateTricountFields(tricountId, name, description, "⛺")
+                syncRepo.updateTricountFields(tricountId, name, description, "XX")
                 loadTricounts()
                 _currentTricount.value = tricountDao.getTricountById(tricountId)
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Edit tricount error", e)
+                Log.e("TricountVM", "editTricount error", e)
             }
         }
     }
@@ -191,7 +211,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 loadTricounts()
                 _currentTricount.value = tricountDao.getTricountById(tricountId)
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Edit tricount full error", e)
+                Log.e("TricountVM", "editTricountFull error", e)
             }
         }
     }
@@ -212,7 +232,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = newId))
                 loadTricounts()
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Duplicate tricount error", e)
+                Log.e("TricountVM", "duplicateTricount error", e)
             }
         }
     }
@@ -237,7 +257,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 loadTricountMembers(tricountId)
                 loadExpenses(tricountId)
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Details error", e)
+                Log.e("TricountVM", "loadTricountDetails error", e)
             }
         }
     }
@@ -245,8 +265,11 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     fun loadTricountMembers(tricountId: Int) {
         viewModelScope.launch {
             try {
-                _tricountMembers.value = tricountDao.getTricountMembersWithDetails(tricountId)
+                val members = tricountDao.getTricountMembersWithDetails(tricountId)
+                Log.d("TricountVM", "loadTricountMembers: tricountId=$tricountId count=${members.size} members=${members.map { "${it.userId}:${it.name}" }}")
+                _tricountMembers.value = members
             } catch (e: Exception) {
+                Log.e("TricountVM", "loadTricountMembers error", e)
                 _tricountMembers.value = emptyList()
             }
         }
@@ -257,20 +280,32 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     fun addMemberByEmail(tricountId: Int, email: String, onResult: (AddMemberResult) -> Unit) {
         viewModelScope.launch {
             try {
-                val user = userDao.getUserByEmail(email)
-                if (user == null) {
-                    onResult(AddMemberResult.Error("No user found with email: $email"))
-                    return@launch
-                }
-                val existing = tricountDao.getTricountMembersWithDetails(tricountId)
-                if (existing.any { it.userId == user.id }) {
+                val trimmedEmail = email.trim().lowercase()
+
+                // Find or create a placeholder UserEntity so the member appears
+                // in split UI even if they haven't signed up on this device yet.
+                val user = userDao.getUserByEmail(trimmedEmail)
+                    ?: run {
+                        val displayName = trimmedEmail.substringBefore("@")
+                            .replaceFirstChar { it.uppercase() }
+                        val newId = userDao.insertUser(
+                            UserEntity(email = trimmedEmail, password = "", name = displayName)
+                        ).toInt()
+                        Log.d("TricountVM", "addMemberByEmail: placeholder created id=$newId for $trimmedEmail")
+                        userDao.getUserById(newId)!!
+                    }
+
+                val existingMembers = tricountDao.getTricountMembersWithDetails(tricountId)
+                if (existingMembers.any { it.userId == user.id }) {
                     onResult(AddMemberResult.Error("${user.name} is already a member"))
                     return@launch
                 }
+
                 tricountDao.addMember(TricountMemberCrossRef(userId = user.id, tricountId = tricountId))
                 loadTricountMembers(tricountId)
                 onResult(AddMemberResult.Success(user.name))
             } catch (e: Exception) {
+                Log.e("TricountVM", "addMemberByEmail error: ${e.message}", e)
                 onResult(AddMemberResult.Error("Failed to add member: ${e.message}"))
             }
         }
@@ -282,7 +317,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 tricountDao.removeMember(userId, tricountId)
                 loadTricountMembers(tricountId)
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Remove member error", e)
+                Log.e("TricountVM", "removeMember error", e)
             }
         }
     }
@@ -292,7 +327,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     fun joinTricountByCode(joinCode: String) {
         viewModelScope.launch {
             try {
-                val userId   = sessionManager.getUserId() ?: run {
+                val userId = sessionManager.getUserId() ?: run {
                     _joinResult.value = JoinResult.Error("Not logged in")
                     return@launch
                 }
@@ -325,6 +360,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 val expensesList = tricountDao.getExpensesWithDetails(tricountId)
+                Log.d("TricountVM", "loadExpenses: tricountId=$tricountId count=${expensesList.size}")
                 _expenses.value = expensesList
                 _payments.value = paymentDao.getPaymentsForTricount(tricountId)
                 loadAllSplits(expensesList)
@@ -334,7 +370,8 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                     _archivedExpenses.value = emptyList()
                 }
             } catch (e: Exception) {
-                _expenses.value = emptyList()
+                Log.e("TricountVM", "loadExpenses error: ${e.message}", e)
+                _expenses.value         = emptyList()
                 _archivedExpenses.value = emptyList()
             }
         }
@@ -363,6 +400,8 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     ) {
         viewModelScope.launch {
             try {
+                Log.d("TricountVM", "addExpense: name=$name amount=$amount paidBy=$paidBy sharesMap=$sharesMap")
+
                 if (name.isBlank()) {
                     onResult(AddExpenseResult.Error("Expense name is required"))
                     return@launch
@@ -376,6 +415,20 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                     return@launch
                 }
 
+                val payer = userDao.getUserById(paidBy)
+                if (payer == null) {
+                    Log.e("TricountVM", "addExpense ABORTED: paidBy=$paidBy not found in users table")
+                    onResult(AddExpenseResult.Error("Payer not found. Please re-login and try again."))
+                    return@launch
+                }
+
+                val tricount = tricountDao.getTricountById(tricountId)
+                if (tricount == null) {
+                    Log.e("TricountVM", "addExpense ABORTED: tricountId=$tricountId not found")
+                    onResult(AddExpenseResult.Error("Tricount not found."))
+                    return@launch
+                }
+
                 val expense = ExpenseEntity(
                     tricountId  = tricountId,
                     name        = name,
@@ -385,6 +438,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                     category    = category
                 )
                 val expenseId = tricountDao.insertExpense(expense).toInt()
+                Log.d("TricountVM", "addExpense: expenseId=$expenseId")
 
                 val splits = sharesMap
                     .filter { it.value > 0 }
@@ -392,15 +446,13 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                         ExpenseSplitEntity(expenseId = expenseId, userId = userId, shares = shares)
                     }
                 tricountDao.insertExpenseSplits(splits)
+                Log.d("TricountVM", "addExpense: inserted ${splits.size} splits")
 
-                // Push to Firebase
-                val savedExpense = expense.copy(id = expenseId)
-                syncRepo.pushExpense(tricountId, savedExpense, splits)
-
+                syncRepo.pushExpense(tricountId, expense.copy(id = expenseId), splits)
                 loadExpenses(tricountId)
                 onResult(AddExpenseResult.Success)
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Error adding expense: ${e.message}", e)
+                Log.e("TricountVM", "addExpense EXCEPTION: ${e.message}", e)
                 onResult(AddExpenseResult.Error("Failed to add expense: ${e.message}"))
             }
         }
@@ -414,7 +466,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 syncRepo.deleteExpense(tricountId, expenseId)
                 loadExpenses(tricountId)
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Delete expense error", e)
+                Log.e("TricountVM", "deleteExpense error", e)
             }
         }
     }
@@ -426,7 +478,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 syncRepo.updateExpenseArchived(tricountId, expenseId, true)
                 loadExpenses(tricountId)
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Archive expense error", e)
+                Log.e("TricountVM", "archiveExpense error", e)
             }
         }
     }
@@ -437,7 +489,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 tricountDao.unarchiveExpense(expenseId)
                 loadExpenses(tricountId)
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Unarchive expense error", e)
+                Log.e("TricountVM", "unarchiveExpense error", e)
             }
         }
     }
@@ -448,34 +500,22 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         val netBalance = mutableMapOf<Int, Double>()
         val nameMap    = mutableMapOf<Int, String>()
 
-        // Build a global name map from all known sources first
         for (member in _tricountMembers.value) {
             nameMap[member.userId] = member.name
         }
-
-        // Step 1 — accumulate expense debts
         for (expense in _expenses.value) {
-            // Payer gets credited the full amount
             netBalance[expense.paidBy] = (netBalance[expense.paidBy] ?: 0.0) + expense.amount
-            nameMap[expense.paidBy] = expense.paidByName
-
+            nameMap[expense.paidBy]    = expense.paidByName
             val splits = _expenseSplits.value[expense.id]
-
             if (!splits.isNullOrEmpty()) {
-                // Use recorded splits — each person owes their proportional share
                 for (split in splits) {
                     netBalance[split.userId] = (netBalance[split.userId] ?: 0.0) - split.amount
-                    nameMap[split.userId] = split.userName
+                    nameMap[split.userId]    = split.userName
                 }
             } else {
-                // No splits recorded — debit the payer their own full share
-                // (they paid for themselves, no one else owes them)
                 netBalance[expense.paidBy] = (netBalance[expense.paidBy] ?: 0.0) - expense.amount
             }
         }
-
-        // Step 2 — subtract already-recorded payments
-        // A payment from A→B means A's debt goes down (credit A) and B's credit goes down (debit B)
         for (payment in _payments.value) {
             netBalance[payment.fromUserId] = (netBalance[payment.fromUserId] ?: 0.0) + payment.amount
             netBalance[payment.toUserId]   = (netBalance[payment.toUserId]   ?: 0.0) - payment.amount
@@ -483,17 +523,14 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             nameMap[payment.toUserId]      = payment.toUserName
         }
 
-        // Step 3 — greedy settle-up
         val creditors = netBalance.filter { it.value >  0.01 }.map { it.key to  it.value }.toMutableList()
         val debtors   = netBalance.filter { it.value < -0.01 }.map { it.key to -it.value }.toMutableList()
         val result    = mutableListOf<Settlement>()
-
         var ci = 0; var di = 0
         while (ci < creditors.size && di < debtors.size) {
             val (creditorId, creditAmt) = creditors[ci]
             val (debtorId,   debtAmt)   = debtors[di]
             val settled = minOf(creditAmt, debtAmt)
-
             result.add(Settlement(
                 fromUserId   = debtorId,
                 fromUserName = nameMap[debtorId]   ?: "",
@@ -501,7 +538,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 toUserName   = nameMap[creditorId] ?: "",
                 amount       = settled
             ))
-
             creditors[ci] = creditorId to (creditAmt - settled)
             debtors[di]   = debtorId   to (debtAmt   - settled)
             if (creditors[ci].second <= 0.01) ci++
@@ -510,7 +546,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         _settlements.value = result
     }
 
-    /** Record that fromUserId paid toUserId [amount] and refresh settlements live. */
     fun markSettlementPaid(
         tricountId   : Int,
         fromUserId   : Int,
@@ -531,12 +566,11 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                     amount       = amount
                 )
                 paymentDao.insertPayment(payment)
-                // Refresh payments then recompute settlements
                 _payments.value = paymentDao.getPaymentsForTricount(tricountId)
                 recomputeSettlements()
                 onDone()
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "markSettlementPaid error", e)
+                Log.e("TricountVM", "markSettlementPaid error", e)
             }
         }
     }
@@ -562,7 +596,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 sessionManager.setNickname(nickname)
                 onDone()
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Save nickname error", e)
+                Log.e("TricountVM", "saveNickname error", e)
             }
         }
     }
@@ -575,7 +609,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 sessionManager.setProfilePhotoUri(uri)
                 onDone()
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Save photo URI error", e)
+                Log.e("TricountVM", "savePhotoUri error", e)
             }
         }
     }
@@ -588,7 +622,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 tricountDao.toggleFavorite(userId, tricountId)
                 loadFavoriteTricounts(userId)
             } catch (e: Exception) {
-                Log.e("TricountViewModel", "Favorite error", e)
+                Log.e("TricountVM", "toggleFavorite error", e)
             }
         }
     }
@@ -611,7 +645,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     }
 }
 
-// ── Sealed classes & data classes ─────────────────────────────────────────────
+// ── Data / sealed classes ─────────────────────────────────────────────────────
 
 data class Settlement(
     val fromUserId   : Int,
@@ -627,11 +661,11 @@ sealed class JoinResult {
 }
 
 sealed class AddExpenseResult {
-    object Success                               : AddExpenseResult()
-    data class Error(val message: String)        : AddExpenseResult()
+    object Success                            : AddExpenseResult()
+    data class Error(val message: String)     : AddExpenseResult()
 }
 
 sealed class AddMemberResult {
-    data class Success(val memberName: String)   : AddMemberResult()
-    data class Error(val message: String)        : AddMemberResult()
+    data class Success(val memberName: String) : AddMemberResult()
+    data class Error(val message: String)      : AddMemberResult()
 }

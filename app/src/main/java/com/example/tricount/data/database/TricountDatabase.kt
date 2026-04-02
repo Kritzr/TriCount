@@ -42,6 +42,7 @@ abstract class TricountDatabase : RoomDatabase() {
         private var INSTANCE: TricountDatabase? = null
 
         fun getDatabase(context: Context): TricountDatabase {
+            context.deleteDatabase("tricount_database")
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
@@ -127,7 +128,7 @@ abstract class TricountDatabase : RoomDatabase() {
         // 9 → 10 : Recreate users + tricounts with exact Room-expected schema.
         // Fixes "Migration didn't properly handle: tricounts / users":
         //   - users: nickname/photoUri had DEFAULT 'NULL' string instead of real NULL
-        //   - tricounts: foreign key was missing ON UPDATE NO ACTION clause
+        //   - tricounts: foreign key was missing ON UPDATE NO ACTION clause   rrrrrrrrrrrrrrrrrrr
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(database: SupportSQLiteDatabase) {
 

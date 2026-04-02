@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.tricount.data.FirebaseSyncRepository
 import com.example.tricount.data.SessionManager
 import com.example.tricount.data.database.TricountDatabase
 import com.example.tricount.data.entity.UserEntity
@@ -59,6 +60,11 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
                 sessionManager.saveSession(roomUserId, email, name)
                 sessionManager.saveFirebaseUid(firebaseUid)
+
+                // Pull Firestore → Room ONCE here after session is fully saved.
+                // Never do this in TricountViewModel.init — that causes a race
+                // condition that wipes freshly created local data.
+                FirebaseSyncRepository(db, sessionManager).pullFromFirebase(roomUserId)
 
                 _authResult.value = AuthResult.Success(roomUserId)
 
