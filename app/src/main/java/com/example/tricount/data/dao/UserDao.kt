@@ -28,5 +28,8 @@ interface UserDao {
     suspend fun updateNickname(userId: Int, nickname: String)
 
     @Query("UPDATE users SET photoUri = :photoUri WHERE id = :userId")
-    suspend fun updatePhotoUri(userId: Int, photoUri: String)
+    suspend fun updatePhotoUri(userId: Int, photoUri: String): Int // Changed from Unit to Int
+
+    @Query("SELECT photoUri FROM users WHERE id = :userId")
+    suspend fun getUserPhotoUri(userId: Int): String?
 }

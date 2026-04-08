@@ -30,19 +30,16 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     private val _authResult = MutableStateFlow<AuthResult?>(null)
     val authResult: StateFlow<AuthResult?> = _authResult
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // GOOGLE SIGN-IN
-    // Call this from LoginActivity after Google returns an idToken
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Google Sign-In ────────────────────────────────────────────────────────
+
     fun handleGoogleSignIn(idToken: String) {
         viewModelScope.launch {
             try {
-                Log.d("AuthViewModel", "handleGoogleSignIn: authenticating with Firebase")
-
+                Log.d("AuthVM", "handleGoogleSignIn start")
                 val credential   = GoogleAuthProvider.getCredential(idToken, null)
                 val firebaseUser = firebaseAuth.signInWithCredential(credential).await().user
                     ?: run {
-                        _authResult.value = AuthResult.Error("Google sign-in failed")
+                        _authResult.value = AuthResult.Error("Google sign-in failed: no user")
                         return@launch
                     }
 
@@ -51,25 +48,23 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 val name        = firebaseUser.displayName
                     ?: email.substringBefore("@").replaceFirstChar { it.uppercase() }
 
-                Log.d("AuthViewModel", "Firebase OK — uid=$firebaseUid email=$email")
-
-                // Find or create the Room integer user for this Google account
                 val roomUserId = findOrCreateRoomUser(email, name)
 
-                Log.d("AuthViewModel", "Room userId=$roomUserId")
-
+                // Save session core fields
                 sessionManager.saveSession(roomUserId, email, name)
                 sessionManager.saveFirebaseUid(firebaseUid)
 
-                // Pull Firestore → Room ONCE here after session is fully saved.
-                // Never do this in TricountViewModel.init — that causes a race
-                // condition that wipes freshly created local data.
+                // Restore photo + nickname from Room so they survive logout/login
+                restoreProfileFromRoom(roomUserId)
+
+                Log.d("AuthVM", "handleGoogleSignIn: roomUserId=$roomUserId uid=$firebaseUid")
+
+                // Pull Firestore data once, right after session is saved
                 FirebaseSyncRepository(db, sessionManager).pullFromFirebase(roomUserId)
 
                 _authResult.value = AuthResult.Success(roomUserId)
-
             } catch (e: Exception) {
-                Log.e("AuthViewModel", "handleGoogleSignIn error: ${e.message}", e)
+                Log.e("AuthVM", "handleGoogleSignIn error: ${e.message}", e)
                 _authResult.value = AuthResult.Error(
                     "Google sign-in failed: ${e.localizedMessage ?: "Unknown error"}"
                 )
@@ -77,137 +72,117 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // EMAIL / PASSWORD SIGN-UP
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Email / Password Sign-Up ──────────────────────────────────────────────
+
     fun signUp(name: String, email: String, password: String) {
         viewModelScope.launch {
             try {
-                val trimmedName     = name.trim()
-                val trimmedEmail    = email.trim().lowercase()
-                val trimmedPassword = password.trim()
-
-                if (trimmedName.isBlank() || trimmedEmail.isBlank() || trimmedPassword.isBlank()) {
-                    _authResult.value = AuthResult.Error("All fields are required")
-                    return@launch
+                val n = name.trim(); val e = email.trim().lowercase(); val p = password.trim()
+                if (n.isBlank() || e.isBlank() || p.isBlank()) {
+                    _authResult.value = AuthResult.Error("All fields are required"); return@launch
                 }
-                if (!isValidEmail(trimmedEmail)) {
-                    _authResult.value = AuthResult.Error("Please enter a valid email address")
-                    return@launch
+                if (!isValidEmail(e)) {
+                    _authResult.value = AuthResult.Error("Please enter a valid email address"); return@launch
                 }
-                if (trimmedPassword.length < 6) {
-                    _authResult.value = AuthResult.Error("Password must be at least 6 characters")
-                    return@launch
+                if (p.length < 6) {
+                    _authResult.value = AuthResult.Error("Password must be at least 6 characters"); return@launch
                 }
-
-                val existingUser = userDao.getUserByEmail(trimmedEmail)
-                if (existingUser != null) {
-                    _authResult.value = AuthResult.Error("Email already registered")
-                    return@launch
+                if (userDao.getUserByEmail(e) != null) {
+                    _authResult.value = AuthResult.Error("Email already registered"); return@launch
                 }
-
-                val newUser = UserEntity(
-                    email    = trimmedEmail,
-                    password = trimmedPassword,
-                    name     = trimmedName
-                )
-                val userId = userDao.insertUser(newUser).toInt()
-
+                val userId = userDao.insertUser(UserEntity(email = e, password = p, name = n)).toInt()
                 if (userId > 0) {
-                    sessionManager.saveSession(userId, trimmedEmail, trimmedName)
+                    sessionManager.saveSession(userId, e, n)
+                    restoreProfileFromRoom(userId)
                     _authResult.value = AuthResult.Success(userId)
-                    Log.d("AuthViewModel", "SignUp OK userId=$userId")
                 } else {
                     _authResult.value = AuthResult.Error("Failed to create account")
                 }
-
             } catch (e: Exception) {
-                Log.e("AuthViewModel", "SignUp error: ${e.message}", e)
-                _authResult.value = AuthResult.Error(
-                    "Registration failed: ${e.localizedMessage ?: "Unknown error"}"
-                )
+                Log.e("AuthVM", "signUp error: ${e.message}", e)
+                _authResult.value = AuthResult.Error("Registration failed: ${e.localizedMessage ?: "Unknown error"}")
             }
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // EMAIL / PASSWORD LOGIN
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Email / Password Login ────────────────────────────────────────────────
+
     fun login(email: String, password: String) {
         viewModelScope.launch {
             try {
-                val trimmedEmail    = email.trim().lowercase()
-                val trimmedPassword = password.trim()
-
-                if (trimmedEmail.isBlank() || trimmedPassword.isBlank()) {
-                    _authResult.value = AuthResult.Error("Email and password are required")
-                    return@launch
+                val e = email.trim().lowercase(); val p = password.trim()
+                if (e.isBlank() || p.isBlank()) {
+                    _authResult.value = AuthResult.Error("Email and password are required"); return@launch
                 }
-                if (!isValidEmail(trimmedEmail)) {
-                    _authResult.value = AuthResult.Error("Please enter a valid email address")
-                    return@launch
+                if (!isValidEmail(e)) {
+                    _authResult.value = AuthResult.Error("Please enter a valid email address"); return@launch
                 }
-
-                val user = userDao.login(trimmedEmail, trimmedPassword)
+                val user = userDao.login(e, p)
                 if (user != null) {
                     sessionManager.saveSession(user.id, user.email, user.name)
+                    // Restore photo + nickname from Room for this specific user
+                    restoreProfileFromRoom(user.id)
                     _authResult.value = AuthResult.Success(user.id)
-                    Log.d("AuthViewModel", "Login OK userId=${user.id}")
                 } else {
                     _authResult.value = AuthResult.Error("Incorrect email or password")
                 }
-
             } catch (e: Exception) {
-                Log.e("AuthViewModel", "Login error: ${e.message}", e)
-                _authResult.value = AuthResult.Error(
-                    "Login failed: ${e.localizedMessage ?: "Unknown error"}"
-                )
+                Log.e("AuthVM", "login error: ${e.message}", e)
+                _authResult.value = AuthResult.Error("Login failed: ${e.localizedMessage ?: "Unknown error"}")
             }
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // LOGOUT  ← fixes the crash: must sign out from Firebase too
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Logout ────────────────────────────────────────────────────────────────
+
     fun logout() {
-        try {
-            firebaseAuth.signOut()
-        } catch (e: Exception) {
-            Log.e("AuthViewModel", "Firebase signOut error: ${e.message}")
-        }
+        try { firebaseAuth.signOut() } catch (e: Exception) { Log.e("AuthVM", "signOut: ${e.message}") }
         sessionManager.clearSession()
-        Log.d("AuthViewModel", "Logged out")
+        Log.d("AuthVM", "logout complete")
     }
 
-    fun resetAuthResult() {
-        _authResult.value = null
-    }
+    fun resetAuthResult() { _authResult.value = null }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // HELPERS
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
-     * Returns the Room integer userId for the given Google-account email.
-     * Creates a new UserEntity if one doesn't exist yet.
-     * Password is empty because Google users authenticate via Firebase, not locally.
+     * Loads photoUri and nickname from the Room users table and writes them
+     * back into SessionManager. Called on every login so each user sees
+     * their own photo regardless of who was previously logged in.
      */
+    private suspend fun restoreProfileFromRoom(userId: Int) {
+        try {
+            val user = userDao.getUserById(userId) ?: return
+            // Restore photo URI — only set if non-null and non-empty
+            if (!user.photoUri.isNullOrEmpty()) {
+                sessionManager.setProfilePhotoUri(user.photoUri)
+                Log.d("AuthVM", "restoreProfileFromRoom: restored photoUri for userId=$userId")
+            } else {
+                // Clear any leftover photo from a previous user's session
+                sessionManager.clearProfilePhotoUri()
+            }
+            // Restore nickname
+            if (!user.nickname.isNullOrEmpty()) {
+                sessionManager.setNickname(user.nickname)
+            } else {
+                sessionManager.setNickname("")
+            }
+        } catch (e: Exception) {
+            Log.e("AuthVM", "restoreProfileFromRoom error: ${e.message}", e)
+        }
+    }
+
     private suspend fun findOrCreateRoomUser(email: String, name: String): Int {
         val existing = userDao.getUserByEmail(email)
         if (existing != null) {
-            Log.d("AuthViewModel", "Found existing Room user id=${existing.id}")
+            Log.d("AuthVM", "findOrCreateRoomUser: found id=${existing.id}")
             return existing.id
         }
-        val newUser = UserEntity(
-            email    = email,
-            password = "",   // Google-auth user — no local password needed
-            name     = name
-        )
-        val newId = userDao.insertUser(newUser).toInt()
-        Log.d("AuthViewModel", "Created new Room user id=$newId for $email")
+        val newId = userDao.insertUser(UserEntity(email = email, password = "", name = name)).toInt()
+        Log.d("AuthVM", "findOrCreateRoomUser: created id=$newId")
         return newId
     }
 
-    private fun isValidEmail(email: String): Boolean =
+    private fun isValidEmail(email: String) =
         "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex().matches(email)
 }

@@ -95,12 +95,15 @@ fun ProfileScreen(
             } catch (e: Exception) { /* permission may already be held */ }
 
             val uriString = uri.toString()
-            photoUriStr = uriString
-            isSaving = true
-            viewModel.savePhotoUri(uriString) {
-                isSaving = false
-                Toast.makeText(context, "Photo saved!", Toast.LENGTH_SHORT).show()
+            if(uriString.isNotEmpty() && uriString != "null"){
+                photoUriStr = uriString
+                isSaving = true
+                viewModel.savePhotoUri(uriString) {
+                    isSaving = false
+                    Toast.makeText(context, "Photo saved!", Toast.LENGTH_SHORT).show()
+                }
             }
+
         }
     }
 
@@ -266,6 +269,7 @@ fun ProfileScreen(
                         isSaving = true
                         // Save empty string to DB, clear from SessionManager
                         viewModel.savePhotoUri("") {
+                            photoUriStr = null
                             sessionManager.clearProfilePhotoUri()
                             isSaving = false
                             Toast.makeText(context, "Photo removed", Toast.LENGTH_SHORT).show()
