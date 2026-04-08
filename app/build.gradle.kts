@@ -89,6 +89,7 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-storage-ktx")   // ← for profile photo upload
     implementation("com.google.firebase:firebase-crashlytics")
 
     // Google Sign-In — must stay on 20.x, version 21+ removed GoogleSignIn legacy API

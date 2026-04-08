@@ -9,7 +9,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -72,38 +71,41 @@ fun ProfileScreen(
 ) {
     val context = LocalContext.current
 
-    // Load current values from SessionManager (single source of truth for UI)
-    var nickname     by remember { mutableStateOf(sessionManager.getNickname()) }
-    var photoUriStr  by remember { mutableStateOf(sessionManager.getProfilePhotoUri()) }
-    var nicknameEdit by remember { mutableStateOf(nickname) }
-    var isSaving     by remember { mutableStateOf(false) }
+    var nickname        by remember { mutableStateOf(sessionManager.getNickname()) }
+    var photoUrl        by remember { mutableStateOf(sessionManager.getProfilePhotoUri()) }
+    var nicknameEdit    by remember { mutableStateOf(nickname) }
+    var isSaving        by remember { mutableStateOf(false) }
+    var uploadProgress  by remember { mutableStateOf<String?>(null) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
     val userName  = sessionManager.getUserName()  ?: "User"
     val userEmail = sessionManager.getUserEmail() ?: ""
 
-    // Image picker — picks from gallery and persists a permanent URI
+    // Pick image → upload to Firebase Storage → get back https:// URL → save everywhere
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        if (uri != null) {
-            // Take persistent read permission so the URI survives app restarts
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (e: Exception) { /* permission may already be held */ }
+        if (uri == null) return@rememberLauncherForActivityResult
 
-            val uriString = uri.toString()
-            if(uriString.isNotEmpty() && uriString != "null"){
-                photoUriStr = uriString
-                isSaving = true
-                viewModel.savePhotoUri(uriString) {
-                    isSaving = false
-                    Toast.makeText(context, "Photo saved!", Toast.LENGTH_SHORT).show()
-                }
+        // Take persistent permission so we can read the file during upload
+        try {
+            context.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (e: Exception) { /* already held */ }
+
+        uploadProgress = "Uploading..."
+        isSaving = true
+
+        viewModel.uploadProfilePhoto(uri) { result ->
+            isSaving      = false
+            uploadProgress = null
+            if (result != null) {
+                photoUrl = result   // result is the https:// Firebase Storage URL
+                Toast.makeText(context, "Photo saved!", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "Upload failed. Try again.", Toast.LENGTH_LONG).show()
             }
-
         }
     }
 
@@ -117,8 +119,8 @@ fun ProfileScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor    = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    containerColor             = MaterialTheme.colorScheme.primary,
+                    titleContentColor          = MaterialTheme.colorScheme.onPrimary,
                     navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
@@ -133,17 +135,16 @@ fun ProfileScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-
             Spacer(Modifier.height(8.dp))
 
             // ── Profile photo ──────────────────────────────────────────────
             Box(contentAlignment = Alignment.BottomEnd) {
-                if (photoUriStr != null) {
+                if (!photoUrl.isNullOrEmpty()) {
                     AsyncImage(
-                        model             = Uri.parse(photoUriStr),
+                        model              = photoUrl,
                         contentDescription = "Profile photo",
-                        contentScale      = ContentScale.Crop,
-                        modifier          = Modifier
+                        contentScale       = ContentScale.Crop,
+                        modifier           = Modifier
                             .size(110.dp)
                             .clip(CircleShape)
                             .border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
@@ -160,7 +161,7 @@ fun ProfileScreen(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
-                                text  = userName.first().uppercase(),
+                                text       = userName.first().uppercase(),
                                 fontSize   = 40.sp,
                                 fontWeight = FontWeight.Bold,
                                 color      = MaterialTheme.colorScheme.onPrimaryContainer
@@ -168,62 +169,48 @@ fun ProfileScreen(
                         }
                     }
                 }
-
-                // Edit badge
+                // Camera badge
                 Surface(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
+                    modifier = Modifier.size(34.dp).clip(CircleShape)
                         .clickable { imagePickerLauncher.launch(arrayOf("image/*")) },
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primary
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Filled.CameraAlt,
-                            contentDescription = "Change photo",
-                            tint     = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Icon(Icons.Filled.CameraAlt, contentDescription = "Change photo",
+                            tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
                     }
                 }
             }
 
-            if (isSaving) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            // Upload progress
+            if (uploadProgress != null) {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text(uploadProgress ?: "", fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
 
-            Text(
-                text  = userName,
-                fontSize   = 22.sp,
-                fontWeight = FontWeight.Bold,
-                color      = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text  = userEmail,
-                fontSize = 14.sp,
-                color    = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text(userName, fontSize = 22.sp, fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface)
+            Text(userEmail, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             HorizontalDivider()
 
             // ── Nickname ───────────────────────────────────────────────────
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors   = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                colors   = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Column(modifier = Modifier.padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
 
-                    Text("Display Nickname",
-                        fontSize   = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color      = MaterialTheme.colorScheme.primary)
-
+                    Text("Display Nickname", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary)
                     Text("This is shown to other members inside a Tricount.",
-                        fontSize = 12.sp,
-                        color    = MaterialTheme.colorScheme.onSurfaceVariant)
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                     OutlinedTextField(
                         value         = nicknameEdit,
@@ -249,11 +236,8 @@ fun ProfileScreen(
                         enabled  = nicknameEdit.trim() != nickname && !isSaving
                     ) {
                         if (isSaving) {
-                            CircularProgressIndicator(
-                                modifier   = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color      = MaterialTheme.colorScheme.onPrimary
-                            )
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                             Spacer(Modifier.width(8.dp))
                         }
                         Text("Save Nickname")
@@ -262,24 +246,19 @@ fun ProfileScreen(
             }
 
             // ── Remove photo ───────────────────────────────────────────────
-            if (photoUriStr != null) {
+            if (!photoUrl.isNullOrEmpty()) {
                 OutlinedButton(
                     onClick = {
-                        photoUriStr = null
                         isSaving = true
-                        // Save empty string to DB, clear from SessionManager
                         viewModel.savePhotoUri("") {
-                            photoUriStr = null
-                            sessionManager.clearProfilePhotoUri()
+                            photoUrl = null
                             isSaving = false
                             Toast.makeText(context, "Photo removed", Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    colors   = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error),
-                    border   = ButtonDefaults.outlinedButtonBorder.copy(
-                        /* keep default */ )
+                    colors   = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    enabled  = !isSaving
                 ) {
                     Icon(Icons.Filled.DeleteForever, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
@@ -292,7 +271,7 @@ fun ProfileScreen(
 
             // ── Logout ─────────────────────────────────────────────────────
             Button(
-                onClick = { showLogoutDialog = true },
+                onClick  = { showLogoutDialog = true },
                 modifier = Modifier.fillMaxWidth(),
                 colors   = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.error,
@@ -314,8 +293,7 @@ fun ProfileScreen(
             confirmButton = {
                 Button(
                     onClick = { showLogoutDialog = false; onLogout() },
-                    colors  = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error)
+                    colors  = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) { Text("Log Out") }
             },
             dismissButton = {

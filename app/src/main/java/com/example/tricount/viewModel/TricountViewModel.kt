@@ -11,6 +11,7 @@ import com.example.tricount.data.entity.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 class TricountViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -21,7 +22,11 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     private val sessionManager = SessionManager(application)
     private val syncRepo       = FirebaseSyncRepository(db, sessionManager)
 
-    // ── State ─────────────────────────────────────────────────────────────────
+    // NOTE: pullFromFirebase is NOT called here.
+    // It is called once in AuthViewModel.handleGoogleSignIn after login.
+    // Calling it here caused a race condition that wiped freshly created local data.
+
+    // ── StateFlows ────────────────────────────────────────────────────────────
 
     private val _tricounts         = MutableStateFlow<List<TricountEntity>>(emptyList())
     val tricounts: StateFlow<List<TricountEntity>> = _tricounts
@@ -56,19 +61,15 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     private val _payments          = MutableStateFlow<List<PaymentEntity>>(emptyList())
     val payments: StateFlow<List<PaymentEntity>> = _payments
 
-
-
-    // ── Tricounts ─────────────────────────────────────────────────────────────
+    // ── Tricount CRUD ─────────────────────────────────────────────────────────
 
     fun loadTricounts() {
         viewModelScope.launch {
             try {
                 val userId = sessionManager.getUserId()
-                Log.d("TricountVM", "loadTricounts userId=$userId")
-                _tricounts.value =
-                    if (userId != null) tricountDao.getTricountsForUser(userId) else emptyList()
+                _tricounts.value = if (userId != null) tricountDao.getTricountsForUser(userId) else emptyList()
             } catch (e: Exception) {
-                Log.e("TricountVM", "loadTricounts: ${e.message}", e)
+                Log.e("TricountVM", "loadTricounts error", e)
                 _tricounts.value = emptyList()
             }
         }
@@ -77,45 +78,36 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     fun insertTricount(
         name         : String,
         description  : String,
-        emoji        : String = "",
+        emoji        : String = "⛺",
         memberEmails : List<String> = emptyList(),
-        onComplete   : (Int) -> Unit = {}
+        onComplete   : (tricountId: Int) -> Unit = {}
     ) {
         viewModelScope.launch {
             try {
-                val userId = sessionManager.getUserId() ?: run {
-                    Log.e("TricountVM", "insertTricount: no userId"); return@launch
-                }
-                if (userDao.getUserById(userId) == null) {
-                    Log.e("TricountVM", "insertTricount: userId=$userId not in users table"); return@launch
-                }
-
-                val tricountId = tricountDao.insertTricount(TricountEntity(
+                val userId = sessionManager.getUserId() ?: return@launch
+                val tricount = TricountEntity(
                     name = name, description = description,
                     creatorId = userId, joinCode = generateJoinCode(), emoji = emoji
-                )).toInt()
-
+                )
+                val tricountId = tricountDao.insertTricount(tricount).toInt()
                 tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = tricountId))
 
-                for (rawEmail in memberEmails) {
+                // Add pre-invited members — create placeholder if not in Room yet
+                for (email in memberEmails) {
                     try {
-                        val email  = rawEmail.trim().lowercase()
-                        val member = userDao.getUserByEmail(email) ?: createPlaceholderUser(email)
+                        val trimmed = email.trim().lowercase()
+                        val member  = userDao.getUserByEmail(trimmed) ?: createPlaceholderUser(trimmed)
                         if (tricountDao.isMember(tricountId, member.id) == 0) {
                             tricountDao.addMember(TricountMemberCrossRef(userId = member.id, tricountId = tricountId))
                         }
-                    } catch (e: Exception) {
-                        Log.e("TricountVM", "insertTricount: failed adding member $rawEmail: ${e.message}")
-                    }
+                    } catch (e: Exception) { Log.e("TricountVM", "insertTricount: failed adding $email", e) }
                 }
 
                 val saved = tricountDao.getTricountById(tricountId)
                 if (saved != null) syncRepo.pushTricount(saved)
                 loadTricounts()
                 onComplete(tricountId)
-            } catch (e: Exception) {
-                Log.e("TricountVM", "insertTricount: ${e.message}", e)
-            }
+            } catch (e: Exception) { Log.e("TricountVM", "insertTricount error", e) }
         }
     }
 
@@ -125,7 +117,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 tricountDao.deleteTricountById(tricountId)
                 syncRepo.deleteTricount(tricountId)
                 loadTricounts(); loadArchivedTricounts()
-            } catch (e: Exception) { Log.e("TricountVM", "deleteTricount: ${e.message}", e) }
+            } catch (e: Exception) { Log.e("TricountVM", "deleteTricount error", e) }
         }
     }
 
@@ -135,7 +127,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 tricountDao.archiveTricount(tricountId)
                 syncRepo.updateTricountArchived(tricountId, true)
                 loadTricounts()
-            } catch (e: Exception) { Log.e("TricountVM", "archiveTricount: ${e.message}", e) }
+            } catch (e: Exception) { Log.e("TricountVM", "archiveTricount error", e) }
         }
     }
 
@@ -143,8 +135,9 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 tricountDao.unarchiveTricount(tricountId)
+                syncRepo.updateTricountArchived(tricountId, false)
                 loadArchivedTricounts(); loadTricounts()
-            } catch (e: Exception) { Log.e("TricountVM", "unarchiveTricount: ${e.message}", e) }
+            } catch (e: Exception) { Log.e("TricountVM", "unarchiveTricount error", e) }
         }
     }
 
@@ -152,10 +145,10 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 tricountDao.updateTricount(tricountId, name, description)
-                syncRepo.updateTricountFields(tricountId, name, description, "")
+                syncRepo.updateTricountFields(tricountId, name, description, "⛺")
                 loadTricounts()
                 _currentTricount.value = tricountDao.getTricountById(tricountId)
-            } catch (e: Exception) { Log.e("TricountVM", "editTricount: ${e.message}", e) }
+            } catch (e: Exception) { Log.e("TricountVM", "editTricount error", e) }
         }
     }
 
@@ -166,7 +159,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 syncRepo.updateTricountFields(tricountId, name, description, emoji)
                 loadTricounts()
                 _currentTricount.value = tricountDao.getTricountById(tricountId)
-            } catch (e: Exception) { Log.e("TricountVM", "editTricountFull: ${e.message}", e) }
+            } catch (e: Exception) { Log.e("TricountVM", "editTricountFull error", e) }
         }
     }
 
@@ -175,14 +168,12 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             try {
                 val userId   = sessionManager.getUserId() ?: return@launch
                 val original = tricountDao.getTricountById(tricountId) ?: return@launch
-                val newId = tricountDao.insertTricount(original.copy(
-                    id = 0, name = "${original.name} (copy)",
-                    joinCode = generateJoinCode(),
-                    createdAt = System.currentTimeMillis(), isArchived = false
-                )).toInt()
+                val copy = original.copy(id = 0, name = "${original.name} (copy)",
+                    joinCode = generateJoinCode(), createdAt = System.currentTimeMillis(), isArchived = false)
+                val newId = tricountDao.insertTricount(copy).toInt()
                 tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = newId))
                 loadTricounts()
-            } catch (e: Exception) { Log.e("TricountVM", "duplicateTricount: ${e.message}", e) }
+            } catch (e: Exception) { Log.e("TricountVM", "duplicateTricount error", e) }
         }
     }
 
@@ -195,7 +186,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // ── Tricount details ──────────────────────────────────────────────────────
+    // ── Tricount Details ──────────────────────────────────────────────────────
 
     fun loadTricountDetails(tricountId: Int) {
         viewModelScope.launch {
@@ -203,20 +194,15 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 _currentTricount.value = tricountDao.getTricountById(tricountId)
                 loadTricountMembers(tricountId)
                 loadExpenses(tricountId)
-            } catch (e: Exception) { Log.e("TricountVM", "loadTricountDetails: ${e.message}", e) }
+            } catch (e: Exception) { Log.e("TricountVM", "loadTricountDetails error", e) }
         }
     }
 
     fun loadTricountMembers(tricountId: Int) {
         viewModelScope.launch {
             try {
-                val members = tricountDao.getTricountMembersWithDetails(tricountId)
-                Log.d("TricountVM", "loadTricountMembers: $tricountId -> ${members.size} members")
-                _tricountMembers.value = members
-            } catch (e: Exception) {
-                Log.e("TricountVM", "loadTricountMembers: ${e.message}", e)
-                _tricountMembers.value = emptyList()
-            }
+                _tricountMembers.value = tricountDao.getTricountMembersWithDetails(tricountId)
+            } catch (e: Exception) { _tricountMembers.value = emptyList() }
         }
     }
 
@@ -229,7 +215,9 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 if (trimmed.isEmpty()) {
                     onResult(AddMemberResult.Error("Please enter an email address")); return@launch
                 }
-                // Find existing Room user or create a placeholder so they show in split UI
+                // Find existing Room user OR create a placeholder so they show in splits immediately.
+                // When they actually sign in, AuthViewModel.findOrCreateRoomUser matches by email
+                // and reuses this same row — their real name/photo will sync then.
                 val user = userDao.getUserByEmail(trimmed) ?: createPlaceholderUser(trimmed)
 
                 if (tricountDao.isMember(tricountId, user.id) > 0) {
@@ -237,10 +225,9 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 }
                 tricountDao.addMember(TricountMemberCrossRef(userId = user.id, tricountId = tricountId))
                 loadTricountMembers(tricountId)
-                Log.d("TricountVM", "addMemberByEmail: added ${user.name} id=${user.id}")
                 onResult(AddMemberResult.Success(user.name))
             } catch (e: Exception) {
-                Log.e("TricountVM", "addMemberByEmail: ${e.message}", e)
+                Log.e("TricountVM", "addMemberByEmail error", e)
                 onResult(AddMemberResult.Error("Failed to add member: ${e.message}"))
             }
         }
@@ -251,7 +238,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             try {
                 tricountDao.removeMember(userId, tricountId)
                 loadTricountMembers(tricountId)
-            } catch (e: Exception) { Log.e("TricountVM", "removeMember: ${e.message}", e) }
+            } catch (e: Exception) { Log.e("TricountVM", "removeMember error", e) }
         }
     }
 
@@ -263,18 +250,15 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 val userId = sessionManager.getUserId() ?: run {
                     _joinResult.value = JoinResult.Error("Not logged in"); return@launch
                 }
-                val tricount = tricountDao.getTricountByJoinCode(joinCode) ?: run {
-                    _joinResult.value = JoinResult.Error("No tricount found with code: $joinCode"); return@launch
-                }
+                val tricount = tricountDao.getTricountByJoinCode(joinCode)
+                if (tricount == null) { _joinResult.value = JoinResult.Error("No tricount found with code: $joinCode"); return@launch }
                 if (tricountDao.isMember(tricount.id, userId) > 0) {
                     _joinResult.value = JoinResult.Error("You are already a member"); return@launch
                 }
                 tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = tricount.id))
                 loadTricounts()
                 _joinResult.value = JoinResult.Success(tricount)
-            } catch (e: Exception) {
-                _joinResult.value = JoinResult.Error("Failed to join: ${e.message}")
-            }
+            } catch (e: Exception) { _joinResult.value = JoinResult.Error("Failed to join: ${e.message}") }
         }
     }
 
@@ -285,15 +269,14 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     fun loadExpenses(tricountId: Int) {
         viewModelScope.launch {
             try {
-                val list = tricountDao.getExpensesWithDetails(tricountId)
-                Log.d("TricountVM", "loadExpenses: $tricountId -> ${list.size}")
-                _expenses.value = list
-                _payments.value = paymentDao.getPaymentsForTricount(tricountId)
-                loadAllSplits(list)
-                try { _archivedExpenses.value = tricountDao.getArchivedExpensesWithDetails(tricountId) }
-                catch (e: Exception) { _archivedExpenses.value = emptyList() }
+                val expensesList = tricountDao.getExpensesWithDetails(tricountId)
+                _expenses.value  = expensesList
+                _payments.value  = paymentDao.getPaymentsForTricount(tricountId)
+                loadAllSplits(expensesList)
+                _archivedExpenses.value = try {
+                    tricountDao.getArchivedExpensesWithDetails(tricountId)
+                } catch (e: Exception) { emptyList() }
             } catch (e: Exception) {
-                Log.e("TricountVM", "loadExpenses: ${e.message}", e)
                 _expenses.value = emptyList(); _archivedExpenses.value = emptyList()
             }
         }
@@ -301,9 +284,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
 
     private suspend fun loadAllSplits(expenses: List<ExpenseWithDetails>) {
         val map = mutableMapOf<Int, List<ExpenseSplitWithUser>>()
-        for (exp in expenses) {
-            map[exp.id] = tricountDao.getExpenseSplitsWithAmounts(exp.id, exp.amount, exp.paidBy)
-        }
+        for (expense in expenses) map[expense.id] = tricountDao.getExpenseSplitsWithAmounts(expense.id, expense.amount, expense.paidBy)
         _expenseSplits.value = map
         recomputeSettlements()
     }
@@ -320,37 +301,19 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     ) {
         viewModelScope.launch {
             try {
-                Log.d("TricountVM", "addExpense: name=$name amount=$amount paidBy=$paidBy shares=$sharesMap")
-                if (name.isBlank()) { onResult(AddExpenseResult.Error("Expense name is required")); return@launch }
-                if (amount <= 0)    { onResult(AddExpenseResult.Error("Amount must be > 0"));       return@launch }
-                if (sharesMap.values.all { it == 0 }) {
-                    onResult(AddExpenseResult.Error("At least one member must have shares > 0")); return@launch
-                }
-                if (userDao.getUserById(paidBy) == null) {
-                    Log.e("TricountVM", "addExpense: paidBy=$paidBy not found")
-                    onResult(AddExpenseResult.Error("Payer not found. Please re-login.")); return@launch
-                }
-                if (tricountDao.getTricountById(tricountId) == null) {
-                    Log.e("TricountVM", "addExpense: tricount $tricountId not found")
-                    onResult(AddExpenseResult.Error("Tricount not found.")); return@launch
-                }
+                if (name.isBlank())               { onResult(AddExpenseResult.Error("Expense name is required")); return@launch }
+                if (amount <= 0)                  { onResult(AddExpenseResult.Error("Amount must be greater than 0")); return@launch }
+                if (sharesMap.values.all { it == 0 }) { onResult(AddExpenseResult.Error("At least one member must have shares > 0")); return@launch }
 
-                val expense = ExpenseEntity(
-                    tricountId = tricountId, name = name, description = description,
-                    amount = amount, paidBy = paidBy, category = category
-                )
+                val expense   = ExpenseEntity(tricountId = tricountId, name = name, description = description, amount = amount, paidBy = paidBy, category = category)
                 val expenseId = tricountDao.insertExpense(expense).toInt()
-                Log.d("TricountVM", "addExpense: inserted expenseId=$expenseId")
-
-                val splits = sharesMap.filter { it.value > 0 }
-                    .map { (uid, shares) -> ExpenseSplitEntity(expenseId = expenseId, userId = uid, shares = shares) }
+                val splits    = sharesMap.filter { it.value > 0 }.map { (uid, shares) -> ExpenseSplitEntity(expenseId = expenseId, userId = uid, shares = shares) }
                 if (splits.isNotEmpty()) tricountDao.insertExpenseSplits(splits)
-
                 syncRepo.pushExpense(tricountId, expense.copy(id = expenseId), splits)
                 loadExpenses(tricountId)
                 onResult(AddExpenseResult.Success)
             } catch (e: Exception) {
-                Log.e("TricountVM", "addExpense EXCEPTION: ${e.message}", e)
+                Log.e("TricountVM", "addExpense error", e)
                 onResult(AddExpenseResult.Error("Failed to add expense: ${e.message}"))
             }
         }
@@ -363,7 +326,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 tricountDao.deleteExpense(expenseId)
                 syncRepo.deleteExpense(tricountId, expenseId)
                 loadExpenses(tricountId)
-            } catch (e: Exception) { Log.e("TricountVM", "deleteExpense: ${e.message}", e) }
+            } catch (e: Exception) { Log.e("TricountVM", "deleteExpense error", e) }
         }
     }
 
@@ -373,7 +336,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 tricountDao.archiveExpense(expenseId)
                 syncRepo.updateExpenseArchived(tricountId, expenseId, true)
                 loadExpenses(tricountId)
-            } catch (e: Exception) { Log.e("TricountVM", "archiveExpense: ${e.message}", e) }
+            } catch (e: Exception) { Log.e("TricountVM", "archiveExpense error", e) }
         }
     }
 
@@ -381,36 +344,48 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 tricountDao.unarchiveExpense(expenseId)
+                syncRepo.updateExpenseArchived(tricountId, expenseId, false)
                 loadExpenses(tricountId)
-            } catch (e: Exception) { Log.e("TricountVM", "unarchiveExpense: ${e.message}", e) }
+            } catch (e: Exception) { Log.e("TricountVM", "unarchiveExpense error", e) }
         }
     }
 
-    // ── Settlements ───────────────────────────────────────────────────────────
+    // ── Settlement logic ──────────────────────────────────────────────────────
 
     private fun recomputeSettlements() {
-        val net = mutableMapOf<Int, Double>(); val nameMap = mutableMapOf<Int, String>()
-        for (m in _tricountMembers.value) nameMap[m.userId] = m.name
-        for (e in _expenses.value) {
-            net[e.paidBy] = (net[e.paidBy] ?: 0.0) + e.amount; nameMap[e.paidBy] = e.paidByName
-            val splits = _expenseSplits.value[e.id]
+        val netBalance = mutableMapOf<Int, Double>()
+        val nameMap    = mutableMapOf<Int, String>()
+        for (member in _tricountMembers.value) nameMap[member.userId] = member.name
+        for (expense in _expenses.value) {
+            netBalance[expense.paidBy] = (netBalance[expense.paidBy] ?: 0.0) + expense.amount
+            nameMap[expense.paidBy]    = expense.paidByName
+            val splits = _expenseSplits.value[expense.id]
             if (!splits.isNullOrEmpty()) {
-                for (s in splits) { net[s.userId] = (net[s.userId] ?: 0.0) - s.amount; nameMap[s.userId] = s.userName }
-            } else { net[e.paidBy] = (net[e.paidBy] ?: 0.0) - e.amount }
+                for (split in splits) {
+                    netBalance[split.userId] = (netBalance[split.userId] ?: 0.0) - split.amount
+                    nameMap[split.userId]    = split.userName
+                }
+            } else {
+                netBalance[expense.paidBy] = (netBalance[expense.paidBy] ?: 0.0) - expense.amount
+            }
         }
-        for (p in _payments.value) {
-            net[p.fromUserId] = (net[p.fromUserId] ?: 0.0) + p.amount
-            net[p.toUserId]   = (net[p.toUserId]   ?: 0.0) - p.amount
-            nameMap[p.fromUserId] = p.fromUserName; nameMap[p.toUserId] = p.toUserName
+        for (payment in _payments.value) {
+            netBalance[payment.fromUserId] = (netBalance[payment.fromUserId] ?: 0.0) + payment.amount
+            netBalance[payment.toUserId]   = (netBalance[payment.toUserId]   ?: 0.0) - payment.amount
+            nameMap[payment.fromUserId]    = payment.fromUserName
+            nameMap[payment.toUserId]      = payment.toUserName
         }
-        val creditors = net.filter { it.value >  0.01 }.map { it.key to  it.value }.toMutableList()
-        val debtors   = net.filter { it.value < -0.01 }.map { it.key to -it.value }.toMutableList()
-        val result = mutableListOf<Settlement>(); var ci = 0; var di = 0
+        val creditors = netBalance.filter { it.value >  0.01 }.map { it.key to  it.value }.toMutableList()
+        val debtors   = netBalance.filter { it.value < -0.01 }.map { it.key to -it.value }.toMutableList()
+        val result    = mutableListOf<Settlement>()
+        var ci = 0; var di = 0
         while (ci < creditors.size && di < debtors.size) {
-            val (cId, cAmt) = creditors[ci]; val (dId, dAmt) = debtors[di]
-            val settled = minOf(cAmt, dAmt)
-            result.add(Settlement(dId, nameMap[dId] ?: "", cId, nameMap[cId] ?: "", settled))
-            creditors[ci] = cId to (cAmt - settled); debtors[di] = dId to (dAmt - settled)
+            val (creditorId, creditAmt) = creditors[ci]
+            val (debtorId,   debtAmt)   = debtors[di]
+            val settled = minOf(creditAmt, debtAmt)
+            result.add(Settlement(debtorId, nameMap[debtorId] ?: "", creditorId, nameMap[creditorId] ?: "", settled))
+            creditors[ci] = creditorId to (creditAmt - settled)
+            debtors[di]   = debtorId   to (debtAmt   - settled)
             if (creditors[ci].second <= 0.01) ci++
             if (debtors[di].second   <= 0.01) di++
         }
@@ -423,82 +398,96 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     ) {
         viewModelScope.launch {
             try {
-                paymentDao.insertPayment(PaymentEntity(
-                    tricountId = tricountId, fromUserId = fromUserId, fromUserName = fromUserName,
-                    toUserId = toUserId, toUserName = toUserName, amount = amount
-                ))
+                val payment = PaymentEntity(tricountId = tricountId, fromUserId = fromUserId,
+                    fromUserName = fromUserName, toUserId = toUserId, toUserName = toUserName, amount = amount)
+                paymentDao.insertPayment(payment)
                 _payments.value = paymentDao.getPaymentsForTricount(tricountId)
-                recomputeSettlements(); onDone()
-            } catch (e: Exception) { Log.e("TricountVM", "markSettlementPaid: ${e.message}", e) }
+                recomputeSettlements()
+                onDone()
+            } catch (e: Exception) { Log.e("TricountVM", "markSettlementPaid error", e) }
         }
     }
 
     fun loadPayments(tricountId: Int) {
         viewModelScope.launch {
-            try { _payments.value = paymentDao.getPaymentsForTricount(tricountId); recomputeSettlements() }
-            catch (e: Exception) { _payments.value = emptyList() }
+            try {
+                _payments.value = paymentDao.getPaymentsForTricount(tricountId)
+                recomputeSettlements()
+            } catch (e: Exception) { _payments.value = emptyList() }
         }
     }
 
     // ── Profile ───────────────────────────────────────────────────────────────
 
+    /**
+     * Uploads the photo to Firebase Storage → gets an https:// URL that never expires
+     * → saves it to Room (permanent per-user), SessionManager (session cache),
+     * and Firestore (syncs across devices/logins).
+     *
+     * Using Firebase Storage means the URL works after logout/login on any device.
+     * A local content:// URI only works on the device that picked the file and
+     * is invalidated when the app's data is cleared or permissions change.
+     */
+    fun uploadProfilePhoto(uri: android.net.Uri, onDone: (String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val userId = sessionManager.getUserId() ?: run { onDone(null); return@launch }
+                val uid    = sessionManager.getFirebaseUid()
+                    ?: com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                    ?: run { onDone(null); return@launch }
+
+                Log.d("TricountVM", "uploadProfilePhoto: uploading for uid=$uid userId=$userId")
+
+                val storageRef = com.google.firebase.storage.FirebaseStorage.getInstance()
+                    .reference
+                    .child("profile_photos/$uid.jpg")
+
+                storageRef.putFile(uri).await()
+                val downloadUrl = storageRef.downloadUrl.await().toString()
+
+                Log.d("TricountVM", "uploadProfilePhoto: got downloadUrl=$downloadUrl")
+
+                // 1. Room — permanent, survives logout/login for this user
+                userDao.updatePhotoUri(userId, downloadUrl)
+                // 2. SessionManager — fast cache for current session
+                sessionManager.setProfilePhotoUri(downloadUrl)
+                // 3. Firestore — syncs to other devices on next login
+                syncRepo.pushProfilePhoto(downloadUrl)
+
+                onDone(downloadUrl)
+            } catch (e: Exception) {
+                Log.e("TricountVM", "uploadProfilePhoto error: ${e.message}", e)
+                onDone(null)
+            }
+        }
+    }
+
     fun saveNickname(nickname: String, onDone: () -> Unit = {}) {
         viewModelScope.launch {
             try {
                 val userId = sessionManager.getUserId() ?: return@launch
-                // Save to Room (permanent) AND SessionManager (current session cache)
                 userDao.updateNickname(userId, nickname)
                 sessionManager.setNickname(nickname)
-                syncRepo.updateNickname(nickname)   // persist to Firebase
+                syncRepo.pushNickname(nickname)
                 onDone()
-            } catch (e: Exception) { Log.e("TricountVM", "saveNickname: ${e.message}", e) }
+            } catch (e: Exception) { Log.e("TricountVM", "saveNickname error", e) }
         }
     }
 
     /**
-     * Saves the profile photo URI to:
-     * 1. Room users table (permanent — survives logout/login for THIS user)
-     * 2. SessionManager (session cache — fast access without DB query)
-     *
-     * Because Room is the source of truth, the photo is restored from Room
-     * on every login via AuthViewModel.restoreProfileFromRoom(), so:
-     * - Logging out and back in shows the same photo
-     * - Switching users shows each user's own photo
+     * Used only for REMOVING the photo (pass empty string).
+     * For setting a photo, always use uploadProfilePhoto() instead.
      */
     fun savePhotoUri(uri: String, onDone: () -> Unit = {}) {
         viewModelScope.launch {
             try {
-                val userId = sessionManager.getUserId() ?: run {
-                    Log.e("TricountVM", "savePhotoUri: No userId found in session")
-                    return@launch
-                }
-
-                // 1. Update Room and check if it actually worked
-                // Ensure your UserDao.updatePhotoUri returns an Int
-                val rowsAffected = userDao.updatePhotoUri(userId, uri)
-
-                if (rowsAffected > 0) {
-                    Log.d("TricountVM", "SUCCESS: Photo URI updated in Room for user $userId")
-
-                    // 2. Update Session Manager cache
-                    if (uri.isEmpty()) {
-                        sessionManager.clearProfilePhotoUri()
-                    } else {
-                        sessionManager.setProfilePhotoUri(uri)
-                    }
-
-                    // 3. Update Firebase Firestore
-                    syncRepo.updateProfilePhoto(uri)
-
-                    // 4. Signal UI that we are done
-                    onDone()
-                } else {
-                    Log.e("TricountVM", "DATABASE ERROR: No user found in Room with ID $userId")
-                }
-
-            } catch (e: Exception) {
-                Log.e("TricountVM", "savePhotoUri EXCEPTION: ${e.message}", e)
-            }
+                val userId = sessionManager.getUserId() ?: return@launch
+                userDao.updatePhotoUri(userId, uri)
+                if (uri.isEmpty()) sessionManager.clearProfilePhotoUri()
+                else               sessionManager.setProfilePhotoUri(uri)
+                syncRepo.pushProfilePhoto(uri)
+                onDone()
+            } catch (e: Exception) { Log.e("TricountVM", "savePhotoUri error", e) }
         }
     }
 
@@ -506,15 +495,18 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
 
     fun toggleFavorite(userId: Int, tricountId: Int) {
         viewModelScope.launch {
-            try { tricountDao.toggleFavorite(userId, tricountId); loadFavoriteTricounts(userId) }
-            catch (e: Exception) { Log.e("TricountVM", "toggleFavorite: ${e.message}", e) }
+            try {
+                tricountDao.toggleFavorite(userId, tricountId)
+                loadFavoriteTricounts(userId)
+            } catch (e: Exception) { Log.e("TricountVM", "toggleFavorite error", e) }
         }
     }
 
     fun loadFavoriteTricounts(userId: Int) {
         viewModelScope.launch {
-            try { _favoriteTricounts.value = tricountDao.getFavoriteTricounts(userId) }
-            catch (e: Exception) { _favoriteTricounts.value = emptyList() }
+            try {
+                _favoriteTricounts.value = tricountDao.getFavoriteTricounts(userId)
+            } catch (e: Exception) { _favoriteTricounts.value = emptyList() }
         }
     }
 
@@ -525,7 +517,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         val newId = userDao.insertUser(
             UserEntity(email = email, password = "", name = displayName)
         ).toInt()
-        Log.d("TricountVM", "createPlaceholderUser: id=$newId email=$email")
+        Log.d("TricountVM", "createPlaceholderUser: id=$newId for $email")
         return userDao.getUserById(newId)!!
     }
 
@@ -535,12 +527,14 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     }
 }
 
-// ── Sealed / data classes ─────────────────────────────────────────────────────
+// ── Sealed classes & data classes ─────────────────────────────────────────────
 
 data class Settlement(
-    val fromUserId: Int, val fromUserName: String,
-    val toUserId: Int,   val toUserName: String,
-    val amount: Double
+    val fromUserId   : Int,
+    val fromUserName : String,
+    val toUserId     : Int,
+    val toUserName   : String,
+    val amount       : Double
 )
 
 sealed class JoinResult {

@@ -13,12 +13,14 @@ class FirebaseSyncRepository(
     private val sessionManager : SessionManager
 ) {
     private val tricountDao = db.tricountDao()
-    private val paymentDao  = db.paymentDao()
     private val firestore   = FirebaseFirestore.getInstance()
 
     private val uid: String?
         get() = sessionManager.getFirebaseUid()
             ?: FirebaseAuth.getInstance().currentUser?.uid
+
+    // ── Pull ALL data from Firestore into Room ────────────────────────────────
+    // Called once after login. Does NOT call itself recursively.
 
     suspend fun pullFromFirebase(localUserId: Int) {
         val uid = uid
@@ -28,7 +30,23 @@ class FirebaseSyncRepository(
         }
         Log.d("FirebaseSync", "pullFromFirebase uid=$uid userId=$localUserId")
         try {
-            val userRoot      = firestore.collection("users").document(uid)
+            val userRoot = firestore.collection("users").document(uid)
+
+            // ── 1. Pull profile (nickname + photoUri) ─────────────────────
+            val userSnap = userRoot.get().await()
+            if (userSnap.exists()) {
+                val remotePhotoUri = userSnap.getString("photoUri") ?: ""
+                val remoteNickname = userSnap.getString("nickname") ?: ""
+                Log.d("FirebaseSync", "profile: nickname=$remoteNickname photoUri=$remotePhotoUri")
+
+                db.userDao().updatePhotoUri(localUserId, remotePhotoUri)
+                db.userDao().updateNickname(localUserId, remoteNickname)
+
+                if (remotePhotoUri.isNotEmpty()) sessionManager.setProfilePhotoUri(remotePhotoUri)
+                if (remoteNickname.isNotEmpty()) sessionManager.setNickname(remoteNickname)
+            }
+
+            // ── 2. Pull tricounts ─────────────────────────────────────────
             val tricountSnaps = userRoot.collection("tricounts").get().await()
             Log.d("FirebaseSync", "pullFromFirebase: ${tricountSnaps.size()} tricounts")
 
@@ -44,13 +62,14 @@ class FirebaseSyncRepository(
                         joinCode    = doc.getString("joinCode")    ?: "",
                         createdAt   = doc.getLong("createdAt")     ?: System.currentTimeMillis(),
                         isArchived  = doc.getBoolean("isArchived") ?: false,
-                        emoji       = doc.getString("emoji")       ?: ""
+                        emoji       = doc.getString("emoji")       ?: "⛺"
                     ))
                     tricountDao.addMember(
                         TricountMemberCrossRef(userId = localUserId, tricountId = firestoreId)
                     )
                 }
 
+                // ── 3. Pull expenses for this tricount ────────────────────
                 val expenseSnaps = userRoot
                     .collection("tricounts").document(doc.id)
                     .collection("expenses").get().await()
@@ -62,13 +81,13 @@ class FirebaseSyncRepository(
                         tricountDao.insertExpense(ExpenseEntity(
                             id          = expenseId,
                             tricountId  = firestoreId,
-                            name        = eDoc.getString("name")        ?: "",
-                            description = eDoc.getString("description") ?: "",
-                            amount      = eDoc.getDouble("amount")      ?: 0.0,
+                            name        = eDoc.getString("name")          ?: "",
+                            description = eDoc.getString("description")   ?: "",
+                            amount      = eDoc.getDouble("amount")        ?: 0.0,
                             paidBy      = eDoc.getLong("paidBy")?.toInt() ?: localUserId,
-                            category    = eDoc.getString("category")    ?: "General",
-                            createdAt   = eDoc.getLong("createdAt")     ?: System.currentTimeMillis(),
-                            isArchived  = eDoc.getBoolean("isArchived") ?: false
+                            category    = eDoc.getString("category")      ?: "General",
+                            createdAt   = eDoc.getLong("createdAt")       ?: System.currentTimeMillis(),
+                            isArchived  = eDoc.getBoolean("isArchived")   ?: false
                         ))
                         val splitSnaps = userRoot
                             .collection("tricounts").document(doc.id)
@@ -83,14 +102,14 @@ class FirebaseSyncRepository(
                     }
                 }
             }
-            // Also restore profile photo and nickname
-            pullProfileFromFirebase(localUserId)
 
             Log.d("FirebaseSync", "pullFromFirebase: done")
         } catch (e: Exception) {
             Log.e("FirebaseSync", "pullFromFirebase failed: ${e.message}", e)
         }
     }
+
+    // ── Tricount writes ───────────────────────────────────────────────────────
 
     fun pushTricount(tricount: TricountEntity) {
         val uid = uid ?: run { Log.w("FirebaseSync", "pushTricount: no uid"); return }
@@ -110,7 +129,7 @@ class FirebaseSyncRepository(
     }
 
     fun pushExpense(tricountId: Int, expense: ExpenseEntity, splits: List<ExpenseSplitEntity> = emptyList()) {
-        val uid = uid ?: run { Log.w("FirebaseSync", "pushExpense: no uid"); return }
+        val uid    = uid ?: run { Log.w("FirebaseSync", "pushExpense: no uid"); return }
         val expRef = firestore.collection("users").document(uid)
             .collection("tricounts").document(tricountId.toString())
             .collection("expenses").document(expense.id.toString())
@@ -138,7 +157,7 @@ class FirebaseSyncRepository(
         val uid = uid ?: return
         firestore.collection("users").document(uid)
             .collection("tricounts").document(tricountId.toString()).delete()
-            .addOnFailureListener { e -> Log.e("FirebaseSync", "deleteTricount failed: ${e.message}") }
+            .addOnFailureListener { e -> Log.e("FirebaseSync", "deleteTricount: ${e.message}") }
     }
 
     fun deleteExpense(tricountId: Int, expenseId: Int) {
@@ -146,7 +165,7 @@ class FirebaseSyncRepository(
         firestore.collection("users").document(uid)
             .collection("tricounts").document(tricountId.toString())
             .collection("expenses").document(expenseId.toString()).delete()
-            .addOnFailureListener { e -> Log.e("FirebaseSync", "deleteExpense failed: ${e.message}") }
+            .addOnFailureListener { e -> Log.e("FirebaseSync", "deleteExpense: ${e.message}") }
     }
 
     fun updateTricountArchived(tricountId: Int, isArchived: Boolean) {
@@ -174,68 +193,22 @@ class FirebaseSyncRepository(
             .addOnFailureListener { e -> Log.e("FirebaseSync", "updateTricountFields: ${e.message}") }
     }
 
-    // ── Profile photo ─────────────────────────────────────────────────────────
+    // ── Profile writes ────────────────────────────────────────────────────────
+    // Both nickname and photoUri are stored under users/{uid} document.
 
-    fun updateProfilePhoto(photoUri: String) {
-        val uid = uid ?: run {
-            Log.w("FirebaseSync", "updateProfilePhoto: no uid, skipping")
-            return
-        }
+    fun pushProfilePhoto(photoUri: String) {
+        val uid = uid ?: run { Log.w("FirebaseSync", "pushProfilePhoto: no uid"); return }
         firestore.collection("users").document(uid)
-            .set(mapOf("photoUri" to photoUri), com.google.firebase.firestore.SetOptions.merge())
-            .addOnSuccessListener { Log.d("FirebaseSync", "updateProfilePhoto: saved to Firestore") }
-            .addOnFailureListener { e -> Log.e("FirebaseSync", "updateProfilePhoto failed: ${e.message}") }
+            .set(mapOf("photoUri" to photoUri), SetOptions.merge())
+            .addOnSuccessListener { Log.d("FirebaseSync", "pushProfilePhoto: saved") }
+            .addOnFailureListener { e -> Log.e("FirebaseSync", "pushProfilePhoto failed: ${e.message}") }
     }
 
-    fun updateNickname(nickname: String) {
-        val uid = uid ?: return
+    fun pushNickname(nickname: String) {
+        val uid = uid ?: run { Log.w("FirebaseSync", "pushNickname: no uid"); return }
         firestore.collection("users").document(uid)
-            .set(mapOf("nickname" to nickname), com.google.firebase.firestore.SetOptions.merge())
-            .addOnFailureListener { e -> Log.e("FirebaseSync", "updateNickname failed: ${e.message}") }
-    }
-
-    // ── Pull profile fields from Firestore (called during pullFromFirebase) ───
-
-    suspend fun pullProfileFromFirebase(localUserId: Int) {
-        val uid = uid ?: run {
-            Log.w("FirebaseSync", "pullProfileFromFirebase: No UID, skipping sync")
-            return
-        }
-
-        try {
-            val userRoot = firestore.collection("users").document(uid)
-
-            // 1. Fetch the user profile once
-            val userSnap = userRoot.get().await()
-
-            if (userSnap.exists()) {
-                val remotePhotoUri = userSnap.getString("photoUri") ?: ""
-                val remoteNickname = userSnap.getString("nickname") ?: ""
-
-                Log.d("FirebaseSync", "Found profile: nickname=$remoteNickname, photoUri=$remotePhotoUri")
-
-                // 2. Update local Room database
-                db.userDao().updatePhotoUri(localUserId, remotePhotoUri)
-                db.userDao().updateNickname(localUserId, remoteNickname)
-
-                // 3. Update SessionManager (Source of truth for current UI)
-                if (remotePhotoUri.isNotEmpty()) {
-                    sessionManager.setProfilePhotoUri(remotePhotoUri)
-                }
-                if (remoteNickname.isNotEmpty()) {
-                    sessionManager.setNickname(remoteNickname)
-                }
-            } else {
-                Log.d("FirebaseSync", "No remote profile found for UID: $uid")
-            }
-
-            // 4. Continue to pull the rest of the data (Tricounts/Expenses)
-            // Note: You must actually call your existing pullFromFirebase logic here
-            // or ensure this function is called alongside it.
-            pullFromFirebase(localUserId)
-
-        } catch (e: Exception) {
-            Log.e("FirebaseSync", "pullProfileFromFirebase failed: ${e.message}", e)
-        }
+            .set(mapOf("nickname" to nickname), SetOptions.merge())
+            .addOnSuccessListener { Log.d("FirebaseSync", "pushNickname: saved") }
+            .addOnFailureListener { e -> Log.e("FirebaseSync", "pushNickname failed: ${e.message}") }
     }
 }
