@@ -351,7 +351,11 @@ fun TricountDetailScreen(
                         .padding(top = 4.dp, bottom = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("⛺", fontSize = 48.sp)
+                    // ✅ Uses actual tricount emoji
+                    Text(
+                        tricountDetails?.emoji?.ifBlank { "⛺" } ?: "⛺",
+                        fontSize = 48.sp
+                    )
                     Spacer(Modifier.height(4.dp))
                     Row(
                         verticalAlignment     = Alignment.CenterVertically,
