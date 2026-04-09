@@ -48,7 +48,7 @@
             android:exported="false" />
 
         <activity android:name=".ExpensesActivity" android:exported="false" />
-        <activity android:name=".ArchivedTricountsActivity" />
+        <activity android:name=".AchivedTricountsActivity" />
         <activity android:name=".ProfileActivity" />
 
 

@@ -29,7 +29,7 @@ import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.ui.theme.AppTheme
 import com.example.tricount.viewModel.TricountViewModel
 
-class ArchivedTricountsActivity : ComponentActivity() {
+class AchivedTricountsActivity : ComponentActivity() {
 
     private val viewModel: TricountViewModel by viewModels()
 
@@ -41,7 +41,7 @@ class ArchivedTricountsActivity : ComponentActivity() {
         setContent {
             val isDarkMode = sessionManager.getDarkMode()
             TriCountTheme() {
-                ArchivedTricountsScreen(
+                AchivedTricountsScreen(
                     viewModel      = viewModel,
                     sessionManager = sessionManager,
                     onBackClick    = { finish() },
@@ -66,7 +66,7 @@ class ArchivedTricountsActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ArchivedTricountsScreen(
+fun AchivedTricountsScreen(
     viewModel       : TricountViewModel,
     sessionManager  : SessionManager,
     onBackClick     : () -> Unit,
@@ -164,7 +164,7 @@ fun ArchivedTricountsScreen(
                 }
 
                 items(archivedTricounts, key = { it.id }) { tricount ->
-                    ArchivedTricountCard(
+                    AchivedTricountCard(
                         tricount          = tricount,
                         isCreator         = tricount.creatorId == currentUserId,
                         onTricountClick   = { onTricountClick(tricount.id, tricount.name) },
@@ -218,7 +218,7 @@ fun ArchivedTricountsScreen(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ArchivedTricountCard(
+fun AchivedTricountCard(
     tricount         : TricountEntity,
     isCreator        : Boolean,
     onTricountClick  : () -> Unit,

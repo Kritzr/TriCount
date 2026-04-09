@@ -64,6 +64,7 @@ class TricountDetailActivity : ComponentActivity() {
 
         tricountId = intent.getIntExtra("TRICOUNT_ID", -1)
         val tricountName = intent.getStringExtra("TRICOUNT_NAME") ?: "Tricount"
+        val isArchived   = intent.getBooleanExtra("IS_ARCHIVED", false)
         val sessionManager = SessionManager(this)
 
         AppTheme.isDark.value = sessionManager.getDarkMode()
@@ -87,6 +88,7 @@ class TricountDetailActivity : ComponentActivity() {
                 TricountDetailScreen(
                     tricountId       = tricountId,
                     tricountName     = tricountName,
+                    isArchived       = isArchived,
                     tricountDetails  = tricountDetails,
                     members          = members,
                     expenses         = expenses,
@@ -108,25 +110,26 @@ class TricountDetailActivity : ComponentActivity() {
 fun TricountDetailScreen(
     tricountId       : Int,
     tricountName     : String,
+    isArchived       : Boolean = false,
     tricountDetails  : TricountEntity?,
     members          : List<MemberWithDetails>,
     expenses         : List<ExpenseWithDetails>,
     archivedExpenses : List<ExpenseWithDetails>,
     expenseSplits    : Map<Int, List<ExpenseSplitWithUser>>,
     settlements      : List<Settlement>,
-    payments         : List<com.example.tricount.data.entity.PaymentEntity>,
+    payments         : List<PaymentEntity>,
     currentUserId    : Int,
     viewModel        : TricountViewModel,
     onBackClick      : () -> Unit
 ) {
     val context = LocalContext.current
-    var selectedTab      by remember { mutableStateOf(0) }
-    var expenseToEdit    by remember { mutableStateOf<ExpenseWithDetails?>(null) }
-    var showMenu         by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
+    var selectedTab       by remember { mutableStateOf(0) }
+    var expenseToEdit     by remember { mutableStateOf<ExpenseWithDetails?>(null) }
+    var showMenu          by remember { mutableStateOf(false) }
+    var showDeleteDialog  by remember { mutableStateOf(false) }
     var showArchiveDialog by remember { mutableStateOf(false) }
-    var searchActive     by remember { mutableStateOf(false) }
-    var searchQuery      by remember { mutableStateOf("") }
+    var searchActive      by remember { mutableStateOf(false) }
+    var searchQuery       by remember { mutableStateOf("") }
 
     // Filter expenses by search query when search is active
     val displayedExpenses = remember(expenses, searchQuery, searchActive) {
@@ -140,14 +143,13 @@ fun TricountDetailScreen(
         else expenses
     }
 
-    // tabs: 0=Expenses, 1=Balances, 2=Details
     val tabs = listOf("Expenses", "Balances", "Details")
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Column {
-                // ── Top icon bar ─────────────────────────────────────────────
+                // ── Top icon bar ──────────────────────────────────────────────
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -203,11 +205,10 @@ fun TricountDetailScreen(
                                     text    = { Text("Edit") },
                                     onClick = {
                                         showMenu = false
-                                        context.startActivity(
-                                            Intent(context, EditTripActivity::class.java).apply {
-                                                putExtra(EditTripActivity.EXTRA_TRICOUNT_ID, tricountId)
-                                            }
-                                        )
+                                        val editIntent = Intent(context, EditTripActivity::class.java).apply {
+                                            putExtra(EditTripActivity.EXTRA_TRICOUNT_ID, tricountId)
+                                        }
+                                        context.startActivity(editIntent)
                                     }
                                 )
                                 HorizontalDivider()
@@ -223,12 +224,11 @@ fun TricountDetailScreen(
                                     },
                                     onClick = {
                                         showMenu = false
-                                        context.startActivity(
-                                            Intent(context, InsightsActivity::class.java).apply {
-                                                putExtra(InsightsActivity.EXTRA_TRICOUNT_ID,   tricountId)
-                                                putExtra(InsightsActivity.EXTRA_TRICOUNT_NAME, tricountName)
-                                            }
-                                        )
+                                        val insightsIntent = Intent(context, InsightsActivity::class.java).apply {
+                                            putExtra(InsightsActivity.EXTRA_TRICOUNT_ID,   tricountId)
+                                            putExtra(InsightsActivity.EXTRA_TRICOUNT_NAME, tricountName)
+                                        }
+                                        context.startActivity(insightsIntent)
                                     }
                                 )
                                 HorizontalDivider()
@@ -238,30 +238,39 @@ fun TricountDetailScreen(
                                     text    = { Text("Archived Expenses") },
                                     onClick = {
                                         showMenu = false
-                                        context.startActivity(
-                                            Intent(context, ArchivedExpensesActivity::class.java).apply {
-                                                putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_ID,   tricountId)
-                                                putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_NAME, tricountName)
-                                            }
-                                        )
+                                        val archivedIntent = Intent(context, ArchivedExpensesActivity::class.java).apply {
+                                            putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_ID,   tricountId)
+                                            putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_NAME, tricountName)
+                                        }
+                                        context.startActivity(archivedIntent)
                                     }
                                 )
-                                HorizontalDivider()
-                                // Archive tricount
-                                DropdownMenuItem(
-                                    leadingIcon = { Icon(Icons.Filled.Archive, null,
-                                        tint = MaterialTheme.colorScheme.secondary) },
-                                    text    = { Text("Archive Tricount",
-                                        color = MaterialTheme.colorScheme.secondary) },
-                                    onClick = { showMenu = false; showArchiveDialog = true }
-                                )
+                                // Archive tricount — only shown when not already archived
+                                if (!isArchived) {
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        leadingIcon = {
+                                            Icon(Icons.Filled.Archive, null,
+                                                tint = MaterialTheme.colorScheme.secondary)
+                                        },
+                                        text    = {
+                                            Text("Archive Tricount",
+                                                color = MaterialTheme.colorScheme.secondary)
+                                        },
+                                        onClick = { showMenu = false; showArchiveDialog = true }
+                                    )
+                                }
                                 HorizontalDivider()
                                 // Delete tricount
                                 DropdownMenuItem(
-                                    leadingIcon = { Icon(Icons.Filled.Delete, null,
-                                        tint = MaterialTheme.colorScheme.error) },
-                                    text    = { Text("Delete Tricount",
-                                        color = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Delete, null,
+                                            tint = MaterialTheme.colorScheme.error)
+                                    },
+                                    text    = {
+                                        Text("Delete Tricount",
+                                            color = MaterialTheme.colorScheme.error)
+                                    },
                                     onClick = { showMenu = false; showDeleteDialog = true }
                                 )
                             }
@@ -269,7 +278,7 @@ fun TricountDetailScreen(
                     }
                 }
 
-                // ── Search bar — slides in when search is active ──────────────
+                // ── Search bar ────────────────────────────────────────────────
                 if (searchActive) {
                     OutlinedTextField(
                         value         = searchQuery,
@@ -294,7 +303,6 @@ fun TricountDetailScreen(
                         )
                     )
                     Spacer(Modifier.height(4.dp))
-                    // Show result count
                     if (searchQuery.isNotBlank()) {
                         Text(
                             "${displayedExpenses.size} result${if (displayedExpenses.size == 1) "" else "s"}",
@@ -311,12 +319,11 @@ fun TricountDetailScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     FloatingActionButton(
                         onClick = {
-                            context.startActivity(
-                                Intent(context, AddExpenseActivity::class.java).apply {
-                                    putExtra("extra_tricount_id",   tricountId)
-                                    putExtra("extra_tricount_name", tricountName)
-                                }
-                            )
+                            val addExpenseIntent = Intent(context, AddExpenseActivity::class.java).apply {
+                                putExtra("extra_tricount_id",   tricountId)
+                                putExtra("extra_tricount_name", tricountName)
+                            }
+                            context.startActivity(addExpenseIntent)
                         },
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor   = MaterialTheme.colorScheme.onPrimary,
@@ -332,9 +339,11 @@ fun TricountDetailScreen(
             }
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+        Column(modifier = Modifier
+            .padding(padding)
+            .fillMaxSize()) {
 
-            // ── Tricount header: emoji + name + inline pen ───────────────
+            // ── Tricount header ───────────────────────────────────────────────
             if (!searchActive) {
                 Column(
                     modifier            = Modifier
@@ -344,9 +353,8 @@ fun TricountDetailScreen(
                 ) {
                     Text("⛺", fontSize = 48.sp)
                     Spacer(Modifier.height(4.dp))
-                    // Name + pen icon side by side
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalAlignment     = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Text(
@@ -358,11 +366,10 @@ fun TricountDetailScreen(
                         Spacer(Modifier.width(6.dp))
                         IconButton(
                             onClick  = {
-                                context.startActivity(
-                                    Intent(context, EditTripActivity::class.java).apply {
-                                        putExtra(EditTripActivity.EXTRA_TRICOUNT_ID, tricountId)
-                                    }
-                                )
+                                val editTripIntent = Intent(context, EditTripActivity::class.java).apply {
+                                    putExtra(EditTripActivity.EXTRA_TRICOUNT_ID, tricountId)
+                                }
+                                context.startActivity(editTripIntent)
                             },
                             modifier = Modifier.size(28.dp)
                         ) {
@@ -377,7 +384,7 @@ fun TricountDetailScreen(
                 }
             }
 
-            // ── Pill segmented tab row ───────────────────────────────────────
+            // ── Pill segmented tab row ────────────────────────────────────────
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -397,7 +404,7 @@ fun TricountDetailScreen(
                                 },
                             shape = RoundedCornerShape(50),
                             color = if (selected) MaterialTheme.colorScheme.surface
-                            else           androidx.compose.ui.graphics.Color.Transparent
+                            else androidx.compose.ui.graphics.Color.Transparent
                         ) {
                             Text(
                                 label,
@@ -415,7 +422,7 @@ fun TricountDetailScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // ── Tab content ──────────────────────────────────────────────────
+            // ── Tab content ───────────────────────────────────────────────────
             when (selectedTab) {
                 0 -> ExpensesContent(
                     modifier                = Modifier.weight(1f),
@@ -470,8 +477,10 @@ fun TricountDetailScreen(
     if (showArchiveDialog) {
         AlertDialog(
             onDismissRequest = { showArchiveDialog = false },
-            icon  = { Icon(Icons.Filled.Archive, null,
-                tint = MaterialTheme.colorScheme.secondary) },
+            icon  = {
+                Icon(Icons.Filled.Archive, null,
+                    tint = MaterialTheme.colorScheme.secondary)
+            },
             title = { Text("Archive \"$tricountName\"?") },
             text  = { Text("This tricount will be archived. You can restore it from the home screen.") },
             confirmButton = {
@@ -495,8 +504,10 @@ fun TricountDetailScreen(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            icon  = { Icon(Icons.Filled.Delete, null,
-                tint = MaterialTheme.colorScheme.error) },
+            icon  = {
+                Icon(Icons.Filled.Delete, null,
+                    tint = MaterialTheme.colorScheme.error)
+            },
             title = { Text("Delete \"$tricountName\"?") },
             text  = { Text("This will permanently delete the tricount and all its expenses. This cannot be undone.") },
             confirmButton = {
@@ -516,8 +527,9 @@ fun TricountDetailScreen(
         )
     }
 }
+
 // =============================================================================
-// Details tab — read-only: shows icon, name, join code, members
+// Details tab
 // =============================================================================
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -540,8 +552,8 @@ private fun DetailsTab(
     }
 
     LazyColumn(
-        modifier       = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        modifier            = modifier.fillMaxSize(),
+        contentPadding      = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
 
@@ -549,7 +561,7 @@ private fun DetailsTab(
         item {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape    = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                shape    = RoundedCornerShape(14.dp),
                 color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -577,18 +589,14 @@ private fun DetailsTab(
                                 copyToClipboard(context, tricountDetails.joinCode)
                                 Toast.makeText(context, "Code copied!", Toast.LENGTH_SHORT).show()
                             }) {
-                                Icon(
-                                    Icons.Filled.ContentCopy, "Copy",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                                Icon(Icons.Filled.ContentCopy, "Copy",
+                                    tint = MaterialTheme.colorScheme.primary)
                             }
                             IconButton(onClick = {
                                 shareTricount(context, tricountDetails.name, tricountDetails.joinCode)
                             }) {
-                                Icon(
-                                    Icons.Filled.Share, "Share",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                                Icon(Icons.Filled.Share, "Share",
+                                    tint = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
@@ -615,7 +623,7 @@ private fun DetailsTab(
             val isMe = member.userId == currentUserId
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape    = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                shape    = RoundedCornerShape(12.dp),
                 color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             ) {
                 Row(
@@ -624,7 +632,6 @@ private fun DetailsTab(
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Avatar — uniform color for all members
                     Surface(
                         shape    = CircleShape,
                         color    = MaterialTheme.colorScheme.primary,
@@ -651,7 +658,7 @@ private fun DetailsTab(
                             if (member.isCreator) {
                                 Spacer(Modifier.width(8.dp))
                                 Surface(
-                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
+                                    shape = RoundedCornerShape(50),
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                                 ) {
                                     Text(
@@ -692,21 +699,23 @@ fun MemberItem(
     var showRemoveDialog by remember { mutableStateOf(false) }
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier              = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment     = Alignment.CenterVertically
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             Surface(
-                modifier = Modifier.size(40.dp), shape = CircleShape,
-                color = if (member.isCreator) MaterialTheme.colorScheme.primary
+                modifier = Modifier.size(40.dp),
+                shape    = CircleShape,
+                color    = if (member.isCreator) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.secondary
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         if (member.isCreator) Icons.Filled.Star else Icons.Filled.Person,
-                        contentDescription = null, modifier = Modifier.size(24.dp),
-                        tint = if (member.isCreator) MaterialTheme.colorScheme.onPrimary
+                        contentDescription = null,
+                        modifier           = Modifier.size(24.dp),
+                        tint               = if (member.isCreator) MaterialTheme.colorScheme.onPrimary
                         else MaterialTheme.colorScheme.onSecondary
                     )
                 }
@@ -723,10 +732,13 @@ fun MemberItem(
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
             ) {
-                Text("CREATOR",
+                Text(
+                    "CREATOR",
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary)
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         } else if (canRemove) {
             IconButton(onClick = { showRemoveDialog = true }) {
@@ -778,10 +790,13 @@ fun AddMemberDialog(
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
         title = { Text("Add Member") },
-        text = {
+        text  = {
             Column {
-                Text("Enter the email of the person you want to add:",
-                    fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "Enter the email of the person you want to add:",
+                    fontSize = 14.sp,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(Modifier.height(16.dp))
                 OutlinedTextField(
                     value           = email,

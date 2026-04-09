@@ -219,7 +219,7 @@ fun HomeScreen(
                     onTricountClick = onTricountClick,
                     onArchivedClick = {
                         context.startActivity(
-                            Intent(context, ArchivedTricountsActivity::class.java)
+                            Intent(context, AchivedTricountsActivity::class.java)
                         )
                     }
                 )
