@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -132,6 +133,12 @@ fun HomeScreen(
     var selectedBottomTab by remember { mutableStateOf(0) }
     val context           = LocalContext.current
     var showBottomSheet   by remember { mutableStateOf(false) }
+
+    // When the user is on any tab other than the first, back returns to tab 0
+    // instead of exiting the app.
+    BackHandler(enabled = selectedBottomTab != 0) {
+        selectedBottomTab = 0
+    }
     val sheetState        = rememberModalBottomSheetState()
 
     val addTricountLauncher = rememberLauncherForActivityResult(

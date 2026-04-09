@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,12 +41,19 @@ class ProfileActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val sessionManager = SessionManager(this)
 
+        // Register back callback using the modern OnBackPressedDispatcher API
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                navigateToHome()
+            }
+        })
+
         setContent {
             TriCountTheme(darkTheme = sessionManager.getDarkMode()) {
                 ProfileScreen(
                     sessionManager = sessionManager,
                     viewModel      = viewModel,
-                    onBackClick    = { finish() },
+                    onBackClick    = { navigateToHome() },
                     onLogout       = {
                         sessionManager.clearSession()
                         startActivity(
@@ -58,6 +66,17 @@ class ProfileActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    private fun navigateToHome() {
+        startActivity(
+            Intent(this, HomeActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+        )
+        finish()
     }
 }
 
@@ -84,7 +103,7 @@ fun ProfileScreen(
 
     // Image picker → upload to Firebase Storage → save https:// URL everywhere
     val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()   // simpler than OpenDocument
+        contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
 
@@ -92,7 +111,7 @@ fun ProfileScreen(
         isSaving        = true
 
         viewModel.uploadProfilePhoto(
-            uri     = uri
+            uri = uri
         ) { result ->
             isSaving = false
             if (result != null) {
@@ -101,7 +120,6 @@ fun ProfileScreen(
                 Toast.makeText(context, "Photo saved!", Toast.LENGTH_SHORT).show()
             } else {
                 uploadStatusMsg = null
-                // Error toast is shown inside uploadProfilePhoto with the real message
             }
         }
     }

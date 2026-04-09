@@ -47,10 +47,14 @@ class LoginActivity : ComponentActivity() {
     private lateinit var sessionManager: SessionManager
     private lateinit var googleSignInClient: GoogleSignInClient
 
+    // Exposed to the composable so we can flip the loading flag
+    private val isGoogleLoading = mutableStateOf(false)
+
     private val googleSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_CANCELED) {
+            isGoogleLoading.value = false
             Toast.makeText(this, "Sign-in cancelled", Toast.LENGTH_SHORT).show()
             return@registerForActivityResult
         }
@@ -59,9 +63,10 @@ class LoginActivity : ComponentActivity() {
             val account = task.getResult(ApiException::class.java)
             val idToken = account?.idToken
             if (idToken != null) {
-                // Delegate everything to AuthViewModel — single place for auth logic
+                // Still loading — authViewModel result will clear it
                 authViewModel.handleGoogleSignIn(idToken)
             } else {
+                isGoogleLoading.value = false
                 Toast.makeText(
                     this,
                     "Google Sign-In failed: ID Token is null. Check SHA-1 in Firebase.",
@@ -69,6 +74,7 @@ class LoginActivity : ComponentActivity() {
                 ).show()
             }
         } catch (e: ApiException) {
+            isGoogleLoading.value = false
             val message = when (e.statusCode) {
                 10    -> "Developer error: Check SHA-1 fingerprint and Web Client ID in Firebase."
                 7     -> "Network error: Check your internet connection."
@@ -77,6 +83,7 @@ class LoginActivity : ComponentActivity() {
             }
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
+            isGoogleLoading.value = false
             Toast.makeText(this, "Authentication failed: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
@@ -101,10 +108,12 @@ class LoginActivity : ComponentActivity() {
 
         setContent {
             TriCountTheme {
-                val authResult by authViewModel.authResult.collectAsStateWithLifecycle()
+                val authResult   by authViewModel.authResult.collectAsStateWithLifecycle()
+                val googleLoading by isGoogleLoading
 
                 LaunchedEffect(authResult) {
                     authResult?.let { result ->
+                        isGoogleLoading.value = false          // always clear loading on result
                         when (result) {
                             is AuthResult.Success -> {
                                 Toast.makeText(
@@ -127,19 +136,49 @@ class LoginActivity : ComponentActivity() {
                     }
                 }
 
-                LoginScreen(
-                    onLoginClick = { email, password ->
-                        authViewModel.login(email, password)
-                    },
-                    onSignUpClick = {
-                        startActivity(Intent(this@LoginActivity, SignUpActivity::class.java))
-                    },
-                    onGoogleSignInClick = {
-                        googleSignInClient.signOut().addOnCompleteListener {
-                            googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LoginScreen(
+                        onLoginClick = { email, password ->
+                            authViewModel.login(email, password)
+                        },
+                        onSignUpClick = {
+                            startActivity(Intent(this@LoginActivity, SignUpActivity::class.java))
+                        },
+                        onGoogleSignInClick = {
+                            isGoogleLoading.value = true
+                            googleSignInClient.signOut().addOnCompleteListener {
+                                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                            }
+                        }
+                    )
+
+                    // ── Full-screen loading overlay shown during Google sign-in ──
+                    if (googleLoading) {
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color    = MaterialTheme.colorScheme.background.copy(alpha = 0.85f)
+                        ) {
+                            Column(
+                                modifier            = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier    = Modifier.size(56.dp),
+                                    strokeWidth = 4.dp,
+                                    color       = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.height(20.dp))
+                                Text(
+                                    text       = "Signing in with Google…",
+                                    fontSize   = 16.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color      = MaterialTheme.colorScheme.onBackground
+                                )
+                            }
                         }
                     }
-                )
+                }
             }
         }
     }
