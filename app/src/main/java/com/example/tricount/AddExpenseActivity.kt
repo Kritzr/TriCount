@@ -5,35 +5,77 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Balance
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Notes
+import androidx.compose.material.icons.filled.Percent
+import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MaterialTheme.colorScheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.data.SessionManager
 import com.example.tricount.data.entity.MemberWithDetails
-import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.ui.theme.AppTheme
+import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.AddExpenseResult
 import com.example.tricount.viewModel.TricountViewModel
 
@@ -41,19 +83,19 @@ import com.example.tricount.viewModel.TricountViewModel
 // Supported currencies
 // ─────────────────────────────────────────────────────────────────────────────
 
-data class Currency(val code: String, val symbol: String, val name: String)
+data class Currency(val code: String, val symbol: String, val name: String, val flag: String)
 
 val CURRENCIES = listOf(
-    Currency("USD", "$",  "US Dollar"),
-    Currency("EUR", "€",  "Euro"),
-    Currency("GBP", "£",  "British Pound"),
-    Currency("INR", "₹",  "Indian Rupee"),
-    Currency("JPY", "¥",  "Japanese Yen"),
-    Currency("CAD", "C$", "Canadian Dollar"),
-    Currency("AUD", "A$", "Australian Dollar"),
-    Currency("CHF", "Fr", "Swiss Franc"),
-    Currency("SGD", "S$", "Singapore Dollar"),
-    Currency("AED", "د.إ","UAE Dirham"),
+    Currency("USD", "$",   "US Dollar",         "🇺🇸"),
+    Currency("EUR", "€",   "Euro",              "🇪🇺"),
+    Currency("GBP", "£",   "British Pound",     "🇬🇧"),
+    Currency("INR", "₹",   "Indian Rupee",      "🇮🇳"),
+    Currency("JPY", "¥",   "Japanese Yen",      "🇯🇵"),
+    Currency("CAD", "C$",  "Canadian Dollar",   "🇨🇦"),
+    Currency("AUD", "A$",  "Australian Dollar", "🇦🇺"),
+    Currency("CHF", "Fr",  "Swiss Franc",       "🇨🇭"),
+    Currency("SGD", "S$",  "Singapore Dollar",  "🇸🇬"),
+    Currency("AED", "د.إ", "UAE Dirham",        "🇦🇪"),
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,18 +115,16 @@ class AddExpenseActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val tricountId   = intent.getIntExtra(EXTRA_TRICOUNT_ID, -1)
-        val tricountName = intent.getStringExtra(EXTRA_TRICOUNT_NAME) ?: "Tricount"
+        val tricountId     = intent.getIntExtra(EXTRA_TRICOUNT_ID, -1)
+        val tricountName   = intent.getStringExtra(EXTRA_TRICOUNT_NAME) ?: "Tricount"
         val sessionManager = SessionManager(this)
 
         if (tricountId == -1) { finish(); return }
 
         AppTheme.isDark.value = sessionManager.getDarkMode()
         setContent {
-            TriCountTheme() {
-                LaunchedEffect(tricountId) {
-                    viewModel.loadTricountDetails(tricountId)
-                }
+            TriCountTheme {
+                LaunchedEffect(tricountId) { viewModel.loadTricountDetails(tricountId) }
 
                 val members       by viewModel.tricountMembers.collectAsStateWithLifecycle()
                 val currentUserId = sessionManager.getUserId() ?: -1
@@ -125,7 +165,7 @@ fun AddExpenseScreen(
 ) {
     val context = LocalContext.current
 
-    // ── Form state ───────────────────────────────────────────────────────────
+    // ── Form state ────────────────────────────────────────────────────────────
     var expenseName      by remember { mutableStateOf("") }
     var amountText       by remember { mutableStateOf("") }
     var description      by remember { mutableStateOf("") }
@@ -133,63 +173,47 @@ fun AddExpenseScreen(
     var selectedPayerId  by remember { mutableStateOf(currentUserId) }
     var splitMode        by remember { mutableStateOf(SplitMode.EQUALLY) }
     var isLoading        by remember { mutableStateOf(false) }
-
-    // Per-member split inputs (percentage or parts depending on mode)
-    val splitInputs = remember(members) {
-        mutableStateMapOf<Int, String>().also { map ->
-            members.forEach { map[it.userId] = if (splitMode == SplitMode.PERCENTAGE) "" else "1" }
-        }
-    }
-    // Reset split inputs whenever mode changes
-    LaunchedEffect(splitMode) {
-        members.forEach { splitInputs[it.userId] = if (splitMode == SplitMode.PERCENTAGE) "" else "1" }
-    }
-
-    // Dropdown states
     var currencyExpanded by remember { mutableStateOf(false) }
     var payerExpanded    by remember { mutableStateOf(false) }
 
-    // Validation
-    val amountValue   = amountText.toDoubleOrNull()
-    val isAmountValid = amountValue != null && amountValue > 0
-    val isNameValid   = expenseName.isNotBlank()
+    val splitInputs = remember(members) {
+        mutableStateMapOf<Int, String>().also { map ->
+            members.forEach { map[it.userId] = "1" }
+        }
+    }
+    LaunchedEffect(splitMode) {
+        members.forEach {
+            splitInputs[it.userId] = if (splitMode == SplitMode.PERCENTAGE) "" else "1"
+        }
+    }
 
-    val percentageTotal = if (splitMode == SplitMode.PERCENTAGE)
-        members.sumOf { splitInputs[it.userId]?.toDoubleOrNull() ?: 0.0 }
-    else 0.0
+    // ── Validation ────────────────────────────────────────────────────────────
+    val amountValue       = amountText.toDoubleOrNull()
+    val isAmountValid     = amountValue != null && amountValue > 0
+    val isNameValid       = expenseName.isNotBlank()
+    val percentageTotal   = if (splitMode == SplitMode.PERCENTAGE)
+        members.sumOf { splitInputs[it.userId]?.toDoubleOrNull() ?: 0.0 } else 0.0
     val isPercentageValid = splitMode != SplitMode.PERCENTAGE ||
             (percentageTotal >= 99.9 && percentageTotal <= 100.1)
+    val canSave           = isNameValid && isAmountValid && isPercentageValid && !isLoading
 
-    val canSave = isNameValid && isAmountValid && isPercentageValid && !isLoading
-
-    // ── Save ─────────────────────────────────────────────────────────────────
+    // ── Save ──────────────────────────────────────────────────────────────────
     fun save() {
         if (!canSave) return
         val amount = amountValue!!
-
-        // Convert split inputs → sharesMap (Int parts for the ViewModel)
         val sharesMap: Map<Int, Int> = when (splitMode) {
-            SplitMode.EQUALLY -> members.associate { it.userId to 1 }
-
-            SplitMode.PERCENTAGE -> {
-                // Multiply percentage × 100 to get integer weights
-                members.associate { m ->
-                    m.userId to ((splitInputs[m.userId]?.toDoubleOrNull() ?: 0.0) * 100).toInt()
-                }.filter { it.value > 0 }
-            }
-
-            SplitMode.PARTS -> {
-                members.associate { m ->
-                    m.userId to (splitInputs[m.userId]?.toIntOrNull() ?: 0)
-                }.filter { it.value > 0 }
-            }
+            SplitMode.EQUALLY    -> members.associate { it.userId to 1 }
+            SplitMode.PERCENTAGE -> members.associate { m ->
+                m.userId to ((splitInputs[m.userId]?.toDoubleOrNull() ?: 0.0) * 100).toInt()
+            }.filter { it.value > 0 }
+            SplitMode.PARTS      -> members.associate { m ->
+                m.userId to (splitInputs[m.userId]?.toIntOrNull() ?: 0)
+            }.filter { it.value > 0 }
         }
-
         if (sharesMap.isEmpty()) {
             Toast.makeText(context, "At least one member must have a share", Toast.LENGTH_SHORT).show()
             return
         }
-
         isLoading = true
         viewModel.addExpense(
             tricountId  = tricountId,
@@ -211,15 +235,17 @@ fun AddExpenseScreen(
         }
     }
 
-    // ── UI ───────────────────────────────────────────────────────────────────
+    // ── UI ────────────────────────────────────────────────────────────────────
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
                         Text("Add Expense", fontWeight = FontWeight.Bold)
-                        Text(tricountName, fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        Text(
+                            tricountName, fontSize = 12.sp,
+                            color = colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
                     }
                 },
                 navigationIcon = {
@@ -236,93 +262,104 @@ fun AddExpenseScreen(
         }
     ) { padding ->
         LazyColumn(
-            modifier       = Modifier.padding(padding).fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
+            modifier            = Modifier
+                .padding(padding)
+                .fillMaxSize(),
+            contentPadding      = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
 
-            // ── Section: Basic info ──────────────────────────────────────────
+            // ── Expense Details ──────────────────────────────────────────────
             item {
                 SectionCard(title = "Expense Details") {
-                    // Name
+
+                    // Expense name
                     OutlinedTextField(
-                        value         = expenseName,
-                        onValueChange = { expenseName = it },
-                        label         = { Text("Expense Name *") },
-                        placeholder   = { Text("e.g. Dinner, Hotel, Taxi") },
-                        leadingIcon   = { Icon(Icons.Filled.ShoppingCart, null) },
-                        modifier      = Modifier.fillMaxWidth(),
-                        singleLine    = true,
-                        isError       = expenseName.isEmpty(),
+                        value           = expenseName,
+                        onValueChange   = { expenseName = it },
+                        label           = { Text("Expense Name *") },
+                        placeholder     = { Text("e.g. Dinner, Hotel, Taxi") },
+                        leadingIcon     = { Icon(Icons.Filled.ShoppingCart, null) },
+                        modifier        = Modifier.fillMaxWidth(),
+                        singleLine      = true,
+                        isError         = expenseName.isEmpty(),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                        enabled       = !isLoading
+                        enabled         = !isLoading
                     )
 
                     Spacer(Modifier.height(12.dp))
 
-                    // Amount + currency row
-                    Row(modifier = Modifier.fillMaxWidth(),
+                    // ── [Currency button]  [Amount field] ────────────────────
+                    // Box + plain DropdownMenu so the menu is NOT constrained
+                    // to the 108 dp button width — it renders at its own 260 dp.
+                    Row(
+                        modifier              = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment     = Alignment.Top) {
-
-                        // Amount field
-                        OutlinedTextField(
-                            value         = amountText,
-                            onValueChange = {
-                                if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d{0,2}\$")))
-                                    amountText = it
-                            },
-                            label       = { Text("Amount *") },
-                            placeholder = { Text("0.00") },
-                            leadingIcon = {
-                                Text(selectedCurrency.symbol, fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier   = Modifier.padding(start = 4.dp))
-                            },
-                            modifier    = Modifier.weight(1f),
-                            singleLine  = true,
-                            isError     = amountText.isNotEmpty() && !isAmountValid,
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Decimal,
-                                imeAction    = ImeAction.Next),
-                            enabled = !isLoading
-                        )
-
-                        // Currency picker
-                        ExposedDropdownMenuBox(
-                            expanded          = currencyExpanded,
-                            onExpandedChange  = { if (!isLoading) currencyExpanded = it },
-                            modifier          = Modifier.width(110.dp)
-                        ) {
+                        verticalAlignment     = Alignment.CenterVertically
+                    ) {
+                        // Currency trigger
+                        Box {
                             OutlinedTextField(
-                                value         = selectedCurrency.code,
+                                value         = "${selectedCurrency.flag} ${selectedCurrency.code}",
                                 onValueChange = {},
                                 readOnly      = true,
-                                label         = { Text("Currency") },
+                                label         = { Text("Currency", fontSize = 10.sp) },
                                 trailingIcon  = {
-                                    ExposedDropdownMenuDefaults.TrailingIcon(currencyExpanded)
+                                    Icon(
+                                        Icons.Filled.ArrowDropDown,
+                                        contentDescription = "Select currency",
+                                        modifier           = Modifier.size(20.dp)
+                                    )
                                 },
-                                modifier      = Modifier.menuAnchor(),
+                                // disabled so it never steals keyboard focus;
+                                // taps are handled by the Box's clickable modifier
+                                enabled       = false,
+                                modifier      = Modifier
+                                    .width(108.dp)
+                                    .clickable { if (!isLoading) currencyExpanded = true },
                                 singleLine    = true,
-                                enabled       = !isLoading
+                                textStyle     = LocalTextStyle.current.copy(fontSize = 13.sp),
+                                colors        = OutlinedTextFieldDefaults.colors(
+                                    disabledTextColor          = colorScheme.onSurface,
+                                    disabledBorderColor        = colorScheme.outline,
+                                    disabledLabelColor         = colorScheme.onSurfaceVariant,
+                                    disabledTrailingIconColor  = colorScheme.onSurfaceVariant
+                                )
                             )
-                            ExposedDropdownMenu(
+
+                            // Plain DropdownMenu — width is independent of the anchor
+                            DropdownMenu(
                                 expanded         = currencyExpanded,
-                                onDismissRequest = { currencyExpanded = false }
+                                onDismissRequest = { currencyExpanded = false },
+                                modifier         = Modifier.width(260.dp)
                             ) {
                                 CURRENCIES.forEach { currency ->
                                     DropdownMenuItem(
                                         text = {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(currency.symbol, fontSize = 16.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier   = Modifier.width(28.dp))
-                                                Column {
-                                                    Text(currency.code, fontSize = 14.sp,
-                                                        fontWeight = FontWeight.SemiBold)
-                                                    Text(currency.name, fontSize = 11.sp,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Row(
+                                                verticalAlignment     = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                modifier              = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(currency.flag, fontSize = 20.sp)
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        currency.code,
+                                                        fontSize   = 14.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                    Text(
+                                                        currency.name,
+                                                        fontSize = 11.sp,
+                                                        color    = colorScheme.onSurfaceVariant
+                                                    )
                                                 }
+                                                Text(
+                                                    currency.symbol,
+                                                    fontSize   = 15.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color      = colorScheme.onSurfaceVariant
+                                                )
                                             }
                                         },
                                         onClick = {
@@ -331,13 +368,43 @@ fun AddExpenseScreen(
                                         },
                                         trailingIcon = {
                                             if (selectedCurrency.code == currency.code)
-                                                Icon(Icons.Filled.Check, null,
-                                                    tint = MaterialTheme.colorScheme.primary)
+                                                Icon(
+                                                    Icons.Filled.Check, null,
+                                                    tint = colorScheme.primary
+                                                )
                                         }
                                     )
                                 }
                             }
                         }
+
+                        // Amount field — fills remaining space
+                        OutlinedTextField(
+                            value           = amountText,
+                            onValueChange   = {
+                                if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d{0,2}\$")))
+                                    amountText = it
+                            },
+                            label           = { Text("Amount *") },
+                            placeholder     = { Text("0.00") },
+                            leadingIcon     = {
+                                Text(
+                                    selectedCurrency.symbol,
+                                    fontSize   = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier   = Modifier.padding(start = 4.dp),
+                                    color      = colorScheme.onSurfaceVariant
+                                )
+                            },
+                            modifier        = Modifier.weight(1f),
+                            singleLine      = true,
+                            isError         = amountText.isNotEmpty() && !isAmountValid,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Decimal,
+                                imeAction    = ImeAction.Next
+                            ),
+                            enabled         = !isLoading
+                        )
                     }
 
                     Spacer(Modifier.height(12.dp))
@@ -357,12 +424,14 @@ fun AddExpenseScreen(
                 }
             }
 
-            // ── Section: Paid by ─────────────────────────────────────────────
+            // ── Paid By ──────────────────────────────────────────────────────
             item {
                 SectionCard(title = "Paid By") {
                     if (members.isEmpty()) {
-                        Text("No members loaded yet.", fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "No members loaded yet.", fontSize = 14.sp,
+                            color = colorScheme.onSurfaceVariant
+                        )
                     } else {
                         ExposedDropdownMenuBox(
                             expanded         = payerExpanded,
@@ -375,14 +444,17 @@ fun AddExpenseScreen(
                                 readOnly      = true,
                                 label         = { Text("Who paid?") },
                                 leadingIcon   = {
-                                    Surface(modifier = Modifier.size(28.dp), shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.primaryContainer) {
+                                    Surface(
+                                        modifier = Modifier.size(28.dp),
+                                        shape    = CircleShape,
+                                        color    = colorScheme.primaryContainer
+                                    ) {
                                         Box(contentAlignment = Alignment.Center) {
                                             Text(
-                                                (selectedMember?.name?.first()?.uppercase() ?: "?"),
+                                                selectedMember?.name?.first()?.uppercase() ?: "?",
                                                 fontSize   = 12.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color      = MaterialTheme.colorScheme.onPrimaryContainer
+                                                color      = colorScheme.onPrimaryContainer
                                             )
                                         }
                                     }
@@ -390,7 +462,9 @@ fun AddExpenseScreen(
                                 trailingIcon  = {
                                     ExposedDropdownMenuDefaults.TrailingIcon(payerExpanded)
                                 },
-                                modifier      = Modifier.fillMaxWidth().menuAnchor(),
+                                modifier      = Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor(),
                                 singleLine    = true,
                                 enabled       = !isLoading
                             )
@@ -403,16 +477,19 @@ fun AddExpenseScreen(
                                     DropdownMenuItem(
                                         text = {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Surface(modifier = Modifier.size(32.dp),
-                                                    shape = CircleShape,
-                                                    color = if (isCurrentUser)
-                                                        MaterialTheme.colorScheme.primaryContainer
-                                                    else
-                                                        MaterialTheme.colorScheme.secondaryContainer) {
+                                                Surface(
+                                                    modifier = Modifier.size(32.dp),
+                                                    shape    = CircleShape,
+                                                    color    = if (isCurrentUser)
+                                                        colorScheme.primaryContainer
+                                                    else colorScheme.secondaryContainer
+                                                ) {
                                                     Box(contentAlignment = Alignment.Center) {
-                                                        Text(member.name.first().uppercase(),
-                                                            fontSize = 13.sp,
-                                                            fontWeight = FontWeight.Bold)
+                                                        Text(
+                                                            member.name.first().uppercase(),
+                                                            fontSize   = 13.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
                                                     }
                                                 }
                                                 Spacer(Modifier.width(10.dp))
@@ -423,8 +500,10 @@ fun AddExpenseScreen(
                                                         fontWeight = if (isCurrentUser)
                                                             FontWeight.Bold else FontWeight.Normal
                                                     )
-                                                    Text(member.email, fontSize = 11.sp,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    Text(
+                                                        member.email, fontSize = 11.sp,
+                                                        color = colorScheme.onSurfaceVariant
+                                                    )
                                                 }
                                             }
                                         },
@@ -434,8 +513,10 @@ fun AddExpenseScreen(
                                         },
                                         trailingIcon = {
                                             if (selectedPayerId == member.userId)
-                                                Icon(Icons.Filled.Check, null,
-                                                    tint = MaterialTheme.colorScheme.primary)
+                                                Icon(
+                                                    Icons.Filled.Check, null,
+                                                    tint = colorScheme.primary
+                                                )
                                         }
                                     )
                                 }
@@ -445,38 +526,36 @@ fun AddExpenseScreen(
                 }
             }
 
-            // ── Section: Split ───────────────────────────────────────────────
+            // ── Split ────────────────────────────────────────────────────────
             item {
                 SectionCard(title = "Split") {
-                    // Mode selector
-                    Row(modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier              = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         SplitMode.values().forEach { mode ->
                             val label = when (mode) {
-                                SplitMode.EQUALLY     -> "Equally"
-                                SplitMode.PERCENTAGE  -> "Percentage"
-                                SplitMode.PARTS       -> "By Parts"
+                                SplitMode.EQUALLY    -> "Equally"
+                                SplitMode.PERCENTAGE -> "Percentage"
+                                SplitMode.PARTS      -> "By Parts"
                             }
                             val icon = when (mode) {
-                                SplitMode.EQUALLY     -> Icons.Filled.Balance
-                                SplitMode.PERCENTAGE  -> Icons.Filled.Percent
-                                SplitMode.PARTS       -> Icons.Filled.PieChart
+                                SplitMode.EQUALLY    -> Icons.Filled.Balance
+                                SplitMode.PERCENTAGE -> Icons.Filled.Percent
+                                SplitMode.PARTS      -> Icons.Filled.PieChart
                             }
                             FilterChip(
-                                selected = splitMode == mode,
-                                onClick  = { splitMode = mode },
-                                label    = { Text(label, fontSize = 12.sp) },
-                                leadingIcon = {
-                                    Icon(icon, null, modifier = Modifier.size(16.dp))
-                                },
-                                modifier = Modifier.weight(1f)
+                                selected    = splitMode == mode,
+                                onClick     = { splitMode = mode },
+                                label       = { Text(label, fontSize = 12.sp) },
+                                leadingIcon = { Icon(icon, null, modifier = Modifier.size(16.dp)) },
+                                modifier    = Modifier.weight(1f)
                             )
                         }
                     }
 
                     Spacer(Modifier.height(4.dp))
 
-                    // Helper text
                     Text(
                         when (splitMode) {
                             SplitMode.EQUALLY    -> "The expense will be split equally among all members."
@@ -484,65 +563,66 @@ fun AddExpenseScreen(
                             SplitMode.PARTS      -> "Assign parts (e.g. 1 & 2 → one owes ⅓, other ⅔)."
                         },
                         fontSize = 12.sp,
-                        color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color    = colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
 
                     if (members.isEmpty()) {
-                        Text("No members loaded yet.", fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "No members loaded yet.", fontSize = 13.sp,
+                            color = colorScheme.onSurfaceVariant
+                        )
                     } else {
-                        // Per-member split rows
                         members.forEach { member ->
                             val isCurrentUser = member.userId == currentUserId
                             val amount        = amountText.toDoubleOrNull() ?: 0.0
-
-                            // Compute preview amount for this member
                             val preview: Double? = when (splitMode) {
-                                SplitMode.EQUALLY -> {
+                                SplitMode.EQUALLY    ->
                                     if (amount > 0) amount / members.size else null
-                                }
                                 SplitMode.PERCENTAGE -> {
                                     val pct = splitInputs[member.userId]?.toDoubleOrNull()
                                     if (pct != null && amount > 0) amount * pct / 100.0 else null
                                 }
-                                SplitMode.PARTS -> {
+                                SplitMode.PARTS      -> {
                                     val parts      = splitInputs[member.userId]?.toIntOrNull() ?: 0
-                                    val totalParts = members.sumOf {
-                                        splitInputs[it.userId]?.toIntOrNull() ?: 0
-                                    }.coerceAtLeast(1)
+                                    val totalParts = members
+                                        .sumOf { splitInputs[it.userId]?.toIntOrNull() ?: 0 }
+                                        .coerceAtLeast(1)
                                     if (amount > 0 && parts > 0)
                                         amount * parts.toDouble() / totalParts else null
                                 }
                             }
-
                             SplitMemberRow(
-                                member        = member,
-                                isCurrentUser = isCurrentUser,
-                                splitMode     = splitMode,
-                                inputValue    = splitInputs[member.userId] ?: "",
-                                previewAmount = preview,
+                                member         = member,
+                                isCurrentUser  = isCurrentUser,
+                                splitMode      = splitMode,
+                                inputValue     = splitInputs[member.userId] ?: "",
+                                previewAmount  = preview,
                                 currencySymbol = selectedCurrency.symbol,
-                                isLoading     = isLoading,
-                                onInputChange = { v -> splitInputs[member.userId] = v }
+                                isLoading      = isLoading,
+                                onInputChange  = { v -> splitInputs[member.userId] = v }
                             )
                             Spacer(Modifier.height(8.dp))
                         }
 
                         // Percentage validation banner
                         if (splitMode == SplitMode.PERCENTAGE && percentageTotal > 0.0) {
-                            val color = if (isPercentageValid) Color(0xFF2E7D32) else Color(0xFFC62828)
+                            val color = if (isPercentageValid) Color(0xFF2E7D32)
+                            else Color(0xFFC62828)
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape    = RoundedCornerShape(8.dp),
                                 color    = color.copy(alpha = 0.1f)
                             ) {
-                                Row(modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    modifier          = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Icon(
                                         if (isPercentageValid) Icons.Filled.CheckCircle
                                         else Icons.Filled.Warning,
-                                        null, tint = color,
+                                        null,
+                                        tint     = color,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(Modifier.width(8.dp))
@@ -560,18 +640,21 @@ fun AddExpenseScreen(
                 }
             }
 
-            // ── Save button (also at bottom for convenience) ─────────────────
+            // ── Save button ──────────────────────────────────────────────────
             item {
                 Button(
                     onClick  = ::save,
                     enabled  = canSave,
-                    modifier = Modifier.fillMaxWidth().height(54.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp)
                 ) {
                     if (isLoading) {
                         CircularProgressIndicator(
-                            modifier   = Modifier.size(18.dp),
+                            modifier    = Modifier.size(18.dp),
                             strokeWidth = 2.dp,
-                            color      = MaterialTheme.colorScheme.onPrimary)
+                            color       = colorScheme.onPrimary
+                        )
                         Spacer(Modifier.width(10.dp))
                         Text("Saving…")
                     } else {
@@ -602,66 +685,80 @@ private fun SplitMemberRow(
     onInputChange  : (String) -> Unit
 ) {
     Row(
-        modifier          = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
+        modifier              = Modifier.fillMaxWidth(),
+        verticalAlignment     = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Avatar
-        Surface(modifier = Modifier.size(38.dp), shape = CircleShape,
-            color = if (isCurrentUser) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.secondaryContainer) {
+        Surface(
+            modifier = Modifier.size(38.dp),
+            shape    = CircleShape,
+            color    = if (isCurrentUser) colorScheme.primaryContainer
+            else colorScheme.secondaryContainer
+        ) {
             Box(contentAlignment = Alignment.Center) {
-                Text(member.name.first().uppercase(), fontWeight = FontWeight.Bold, fontSize = 15.sp,
-                    color = if (isCurrentUser) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.onSecondaryContainer)
+                Text(
+                    member.name.first().uppercase(),
+                    fontWeight = FontWeight.Bold,
+                    fontSize   = 15.sp,
+                    color      = if (isCurrentUser) colorScheme.onPrimaryContainer
+                    else colorScheme.onSecondaryContainer
+                )
             }
         }
 
-        // Name + preview
         Column(modifier = Modifier.weight(1f)) {
-            Text(if (isCurrentUser) "You" else member.name, fontSize = 14.sp,
-                fontWeight = if (isCurrentUser) FontWeight.Bold else FontWeight.Normal)
+            Text(
+                if (isCurrentUser) "You" else member.name,
+                fontSize   = 14.sp,
+                fontWeight = if (isCurrentUser) FontWeight.Bold else FontWeight.Normal
+            )
             if (previewAmount != null) {
-                Text("≈ $currencySymbol${"%.2f".format(previewAmount)}", fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.primary)
+                Text(
+                    "≈ $currencySymbol${"%.2f".format(previewAmount)}",
+                    fontSize = 11.sp,
+                    color    = colorScheme.primary
+                )
             }
         }
 
-        // Input — only shown for PERCENTAGE and PARTS modes
         when (splitMode) {
             SplitMode.EQUALLY -> {
-                Surface(shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)) {
-                    Text("Equal share", fontSize = 12.sp,
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = colorScheme.primaryContainer.copy(alpha = 0.6f)
+                ) {
+                    Text(
+                        "Equal share", fontSize = 12.sp,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        color    = MaterialTheme.colorScheme.primary)
+                        color    = colorScheme.primary
+                    )
                 }
             }
             SplitMode.PERCENTAGE -> {
                 OutlinedTextField(
-                    value         = inputValue,
-                    onValueChange = { v ->
+                    value           = inputValue,
+                    onValueChange   = { v ->
                         if (v.isEmpty() || v.matches(Regex("^\\d{0,3}(\\.\\d{0,1})?\$")))
                             onInputChange(v)
                     },
-                    modifier      = Modifier.width(90.dp),
-                    singleLine    = true,
-                    suffix        = { Text("%") },
+                    modifier        = Modifier.width(90.dp),
+                    singleLine      = true,
+                    suffix          = { Text("%") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    enabled       = !isLoading
+                    enabled         = !isLoading
                 )
             }
             SplitMode.PARTS -> {
                 OutlinedTextField(
-                    value         = inputValue,
-                    onValueChange = { v ->
+                    value           = inputValue,
+                    onValueChange   = { v ->
                         if (v.isEmpty() || v.all { it.isDigit() }) onInputChange(v)
                     },
-                    modifier      = Modifier.width(90.dp),
-                    singleLine    = true,
-                    suffix        = { Text("pt") },
+                    modifier        = Modifier.width(90.dp),
+                    singleLine      = true,
+                    suffix          = { Text("pt") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    enabled       = !isLoading
+                    enabled         = !isLoading
                 )
             }
         }
@@ -669,7 +766,7 @@ private fun SplitMemberRow(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Reusable section card
+// Section card
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -679,13 +776,21 @@ private fun SectionCard(
 ) {
     Card(
         modifier  = Modifier.fillMaxWidth(),
-        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors    = CardDefaults.cardColors(containerColor = colorScheme.surface),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                color    = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(bottom = 12.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                title,
+                fontSize   = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color      = colorScheme.primary,
+                modifier   = Modifier.padding(bottom = 12.dp)
+            )
             content()
         }
     }

@@ -7,6 +7,11 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
+import android.net.Uri
+import com.google.firebase.storage.FirebaseStorage
+
+
+
 
 class FirebaseSyncRepository(
     private val db             : TricountDatabase,
@@ -21,6 +26,29 @@ class FirebaseSyncRepository(
 
     // ── Pull ALL data from Firestore into Room ────────────────────────────────
     // Called once after login. Does NOT call itself recursively.
+    private val storage = FirebaseStorage.getInstance()
+
+    suspend fun uploadProfileImage(localUri: Uri): String? {
+        val uid = uid ?: return null
+        //create a reference to profile_pic in the bucket
+        val storageRef = storage.reference.child("profile_pics/$uid.jpg")
+        return try {
+            // Upload the file
+            storageRef.putFile(localUri).await()
+            // Get the permanent public download URL
+            val downloadUrl = storageRef.downloadUrl.await().toString()
+
+            // Save this URL to the user's Firestore document immediately
+            firestore.collection("users").document(uid)
+                .update("photoUri", downloadUrl)
+                .await()
+
+            downloadUrl
+        } catch (e: Exception) {
+            Log.e("FirebaseSync", "Upload failed: ${e.message}")
+            null
+        }
+    }
 
     suspend fun pullFromFirebase(localUserId: Int) {
         val uid = uid

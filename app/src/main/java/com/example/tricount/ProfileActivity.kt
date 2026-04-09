@@ -64,47 +64,44 @@ class ProfileActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    sessionManager : SessionManager,
-    viewModel      : TricountViewModel,
-    onBackClick    : () -> Unit,
-    onLogout       : () -> Unit
+    sessionManager  : SessionManager,
+    viewModel       : TricountViewModel,
+    onBackClick     : () -> Unit,
+    onLogout        : () -> Unit
 ) {
     val context = LocalContext.current
 
-    var nickname        by remember { mutableStateOf(sessionManager.getNickname()) }
-    var photoUrl        by remember { mutableStateOf(sessionManager.getProfilePhotoUri()) }
-    var nicknameEdit    by remember { mutableStateOf(nickname) }
-    var isSaving        by remember { mutableStateOf(false) }
-    var uploadProgress  by remember { mutableStateOf<String?>(null) }
+    // Read initial values from SessionManager (populated from Room on login)
+    var photoUrl         by remember { mutableStateOf(sessionManager.getProfilePhotoUri()) }
+    var nickname         by remember { mutableStateOf(sessionManager.getNickname()) }
+    var nicknameEdit     by remember { mutableStateOf(nickname) }
+    var isSaving         by remember { mutableStateOf(false) }
+    var uploadStatusMsg  by remember { mutableStateOf<String?>(null) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
     val userName  = sessionManager.getUserName()  ?: "User"
     val userEmail = sessionManager.getUserEmail() ?: ""
 
-    // Pick image → upload to Firebase Storage → get back https:// URL → save everywhere
+    // Image picker → upload to Firebase Storage → save https:// URL everywhere
     val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
+        contract = ActivityResultContracts.GetContent()   // simpler than OpenDocument
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
 
-        // Take persistent permission so we can read the file during upload
-        try {
-            context.contentResolver.takePersistableUriPermission(
-                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-        } catch (e: Exception) { /* already held */ }
+        uploadStatusMsg = "Uploading photo..."
+        isSaving        = true
 
-        uploadProgress = "Uploading..."
-        isSaving = true
-
-        viewModel.uploadProfilePhoto(uri) { result ->
-            isSaving      = false
-            uploadProgress = null
+        viewModel.uploadProfilePhoto(
+            uri     = uri
+        ) { result ->
+            isSaving = false
             if (result != null) {
-                photoUrl = result   // result is the https:// Firebase Storage URL
+                photoUrl        = result
+                uploadStatusMsg = null
                 Toast.makeText(context, "Photo saved!", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(context, "Upload failed. Try again.", Toast.LENGTH_LONG).show()
+                uploadStatusMsg = null
+                // Error toast is shown inside uploadProfilePhoto with the real message
             }
         }
     }
@@ -148,14 +145,14 @@ fun ProfileScreen(
                             .size(110.dp)
                             .clip(CircleShape)
                             .border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                            .clickable { imagePickerLauncher.launch(arrayOf("image/*")) }
+                            .clickable { imagePickerLauncher.launch("image/*") }
                     )
                 } else {
                     Surface(
                         modifier = Modifier
                             .size(110.dp)
                             .clip(CircleShape)
-                            .clickable { imagePickerLauncher.launch(arrayOf("image/*")) },
+                            .clickable { imagePickerLauncher.launch("image/*") },
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.primaryContainer
                     ) {
@@ -171,47 +168,75 @@ fun ProfileScreen(
                 }
                 // Camera badge
                 Surface(
-                    modifier = Modifier.size(34.dp).clip(CircleShape)
-                        .clickable { imagePickerLauncher.launch(arrayOf("image/*")) },
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .clickable { imagePickerLauncher.launch("image/*") },
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primary
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Filled.CameraAlt, contentDescription = "Change photo",
-                            tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.Filled.CameraAlt,
+                            contentDescription = "Change photo",
+                            tint     = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
             }
 
-            // Upload progress
-            if (uploadProgress != null) {
-                Row(verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Upload progress / status
+            if (uploadStatusMsg != null) {
+                Row(
+                    verticalAlignment      = Alignment.CenterVertically,
+                    horizontalArrangement  = Arrangement.spacedBy(8.dp)
+                ) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text(uploadProgress ?: "", fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        uploadStatusMsg ?: "",
+                        fontSize = 13.sp,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
-            Text(userName, fontSize = 22.sp, fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface)
-            Text(userEmail, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                userName,
+                fontSize   = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color      = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                userEmail,
+                fontSize = 14.sp,
+                color    = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             HorizontalDivider()
 
             // ── Nickname ───────────────────────────────────────────────────
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors   = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                colors   = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
             ) {
-                Column(modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-
-                    Text("Display Nickname", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary)
-                    Text("This is shown to other members inside a Tricount.",
-                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
+                Column(
+                    modifier            = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "Display Nickname",
+                        fontSize   = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color      = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "Shown to other members inside a Tricount.",
+                        fontSize = 12.sp,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     OutlinedTextField(
                         value         = nicknameEdit,
                         onValueChange = { nicknameEdit = it },
@@ -222,9 +247,8 @@ fun ProfileScreen(
                         singleLine    = true,
                         enabled       = !isSaving
                     )
-
                     Button(
-                        onClick = {
+                        onClick  = {
                             isSaving = true
                             viewModel.saveNickname(nicknameEdit.trim()) {
                                 nickname = nicknameEdit.trim()
@@ -236,8 +260,11 @@ fun ProfileScreen(
                         enabled  = nicknameEdit.trim() != nickname && !isSaving
                     ) {
                         if (isSaving) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                            CircularProgressIndicator(
+                                modifier    = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color       = MaterialTheme.colorScheme.onPrimary
+                            )
                             Spacer(Modifier.width(8.dp))
                         }
                         Text("Save Nickname")
@@ -248,7 +275,7 @@ fun ProfileScreen(
             // ── Remove photo ───────────────────────────────────────────────
             if (!photoUrl.isNullOrEmpty()) {
                 OutlinedButton(
-                    onClick = {
+                    onClick  = {
                         isSaving = true
                         viewModel.savePhotoUri("") {
                             photoUrl = null
@@ -257,7 +284,9 @@ fun ProfileScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    colors   = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    colors   = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
                     enabled  = !isSaving
                 ) {
                     Icon(Icons.Filled.DeleteForever, null, modifier = Modifier.size(18.dp))
@@ -275,7 +304,8 @@ fun ProfileScreen(
                 modifier = Modifier.fillMaxWidth(),
                 colors   = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.error,
-                    contentColor   = MaterialTheme.colorScheme.onError)
+                    contentColor   = MaterialTheme.colorScheme.onError
+                )
             ) {
                 Icon(Icons.Filled.Logout, null)
                 Spacer(Modifier.width(8.dp))
@@ -293,7 +323,9 @@ fun ProfileScreen(
             confirmButton = {
                 Button(
                     onClick = { showLogoutDialog = false; onLogout() },
-                    colors  = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    colors  = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
                 ) { Text("Log Out") }
             },
             dismissButton = {

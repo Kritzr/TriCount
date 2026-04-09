@@ -97,4 +97,5 @@ dependencies {
 
     // Coroutines support for Firebase Tasks (.await())
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+    implementation("com.google.firebase:firebase-storage-ktx")
 }
