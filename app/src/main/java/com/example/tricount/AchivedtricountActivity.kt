@@ -1,5 +1,6 @@
 package com.example.tricount
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -43,7 +44,15 @@ class ArchivedTricountsActivity : ComponentActivity() {
                 ArchivedTricountsScreen(
                     viewModel      = viewModel,
                     sessionManager = sessionManager,
-                    onBackClick    = { finish() }
+                    onBackClick    = { finish() },
+                    onTricountClick = { tricountId, tricountName ->
+                        startActivity(
+                            Intent(this, TricountDetailActivity::class.java).apply {
+                                putExtra("TRICOUNT_ID",   tricountId)
+                                putExtra("TRICOUNT_NAME", tricountName)
+                            }
+                        )
+                    }
                 )
             }
         }
@@ -58,9 +67,10 @@ class ArchivedTricountsActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArchivedTricountsScreen(
-    viewModel      : TricountViewModel,
-    sessionManager : SessionManager,
-    onBackClick    : () -> Unit
+    viewModel       : TricountViewModel,
+    sessionManager  : SessionManager,
+    onBackClick     : () -> Unit,
+    onTricountClick : (Int, String) -> Unit
 ) {
     val archivedTricounts by viewModel.archivedTricounts.collectAsStateWithLifecycle()
     val archivedCount: Int = archivedTricounts.size
@@ -157,6 +167,7 @@ fun ArchivedTricountsScreen(
                     ArchivedTricountCard(
                         tricount          = tricount,
                         isCreator         = tricount.creatorId == currentUserId,
+                        onTricountClick   = { onTricountClick(tricount.id, tricount.name) },
                         onUnarchiveClick  = { tricountToUnarchive = tricount },
                         onDeleteClick     = { tricountToDelete = Pair(tricount.id, tricount.name) }
                     )
@@ -210,6 +221,7 @@ fun ArchivedTricountsScreen(
 fun ArchivedTricountCard(
     tricount         : TricountEntity,
     isCreator        : Boolean,
+    onTricountClick  : () -> Unit,
     onUnarchiveClick : () -> Unit,
     onDeleteClick    : () -> Unit
 ) {
@@ -226,7 +238,7 @@ fun ArchivedTricountCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
-                    onClick     = {},
+                    onClick     = { onTricountClick() },
                     onLongClick = { showMenu = true }
                 )
                 .padding(16.dp),
