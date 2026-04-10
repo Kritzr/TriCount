@@ -143,6 +143,7 @@ class LoginActivity : ComponentActivity() {
                         },
                         onSignUpClick = {
                             startActivity(Intent(this@LoginActivity, SignUpActivity::class.java))
+                            overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
                         },
                         onGoogleSignInClick = {
                             isGoogleLoading.value = true
@@ -189,6 +190,7 @@ class LoginActivity : ComponentActivity() {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             }
         )
+        overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
         finish()
     }
 }

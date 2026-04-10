@@ -28,6 +28,11 @@ class InsightsActivity : ComponentActivity() {
         if (tricountId != -1) viewModel.loadExpenses(tricountId)
     }
 
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

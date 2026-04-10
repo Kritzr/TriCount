@@ -59,6 +59,11 @@ class TricountDetailActivity : ComponentActivity() {
         }
     }
 
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -209,6 +214,7 @@ fun TricountDetailScreen(
                                             putExtra(EditTripActivity.EXTRA_TRICOUNT_ID, tricountId)
                                         }
                                         context.startActivity(editIntent)
+                                        (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
                                     }
                                 )
                                 HorizontalDivider()
@@ -229,6 +235,7 @@ fun TricountDetailScreen(
                                             putExtra(InsightsActivity.EXTRA_TRICOUNT_NAME, tricountName)
                                         }
                                         context.startActivity(insightsIntent)
+                                        (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
                                     }
                                 )
                                 HorizontalDivider()
@@ -243,6 +250,7 @@ fun TricountDetailScreen(
                                             putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_NAME, tricountName)
                                         }
                                         context.startActivity(archivedIntent)
+                                        (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
                                     }
                                 )
                                 // Archive tricount — only shown when not already archived
@@ -324,6 +332,7 @@ fun TricountDetailScreen(
                                 putExtra("extra_tricount_name", tricountName)
                             }
                             context.startActivity(addExpenseIntent)
+                            (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
                         },
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor   = MaterialTheme.colorScheme.onPrimary,
@@ -351,7 +360,7 @@ fun TricountDetailScreen(
                         .padding(top = 4.dp, bottom = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // ✅ Uses actual tricount emoji
+                    //
                     Text(
                         tricountDetails?.emoji?.ifBlank { "⛺" } ?: "⛺",
                         fontSize = 48.sp
@@ -374,6 +383,7 @@ fun TricountDetailScreen(
                                     putExtra(EditTripActivity.EXTRA_TRICOUNT_ID, tricountId)
                                 }
                                 context.startActivity(editTripIntent)
+                                (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
                             },
                             modifier = Modifier.size(28.dp)
                         ) {

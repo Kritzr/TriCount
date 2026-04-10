@@ -206,8 +206,16 @@ fun HomeScreen(
         AnimatedContent(
             targetState  = selectedBottomTab,
             transitionSpec = {
-                fadeIn(animationSpec = tween(300)) togetherWith
-                        fadeOut(animationSpec = tween(300))
+                val goingRight = targetState > initialState
+                val enter = slideInHorizontally(
+                    initialOffsetX = { if (goingRight) it else -it },
+                    animationSpec  = tween(300, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(300))
+                val exit = slideOutHorizontally(
+                    targetOffsetX = { if (goingRight) -it else it },
+                    animationSpec = tween(300, easing = FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(300))
+                enter togetherWith exit
             },
             label = "screen_transition"
         ) { target ->

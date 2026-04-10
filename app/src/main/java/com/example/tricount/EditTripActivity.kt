@@ -46,6 +46,11 @@ class EditTripActivity : ComponentActivity() {
 
     private val viewModel: TricountViewModel by viewModels()
 
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    }
+
     override fun onResume() {
         super.onResume()
         val id = intent.getIntExtra(EXTRA_TRICOUNT_ID, -1)

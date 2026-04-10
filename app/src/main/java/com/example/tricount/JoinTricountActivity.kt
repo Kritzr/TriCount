@@ -37,6 +37,11 @@ class JoinTricountActivity : ComponentActivity() {
 
     private val tricountViewModel: TricountViewModel by viewModels()
 
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 

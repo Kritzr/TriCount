@@ -75,6 +75,11 @@ class ArchivedExpensesActivity : ComponentActivity() {
         }
     }
 
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    }
+
     companion object {
         const val EXTRA_TRICOUNT_ID   = "archived_tricount_id"
         const val EXTRA_TRICOUNT_NAME = "archived_tricount_name"

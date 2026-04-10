@@ -142,6 +142,11 @@ class AddExpenseActivity : ComponentActivity() {
         }
     }
 
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    }
+
     companion object {
         const val EXTRA_TRICOUNT_ID   = "extra_tricount_id"
         const val EXTRA_TRICOUNT_NAME = "extra_tricount_name"

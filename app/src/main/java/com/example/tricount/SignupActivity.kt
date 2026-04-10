@@ -35,6 +35,11 @@ class SignUpActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
 
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -54,6 +59,7 @@ class SignUpActivity : ComponentActivity() {
                                 Toast.LENGTH_SHORT
                             ).show()
                             startActivity(Intent(this@SignUpActivity, HomeActivity::class.java))
+                            overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
                             finish()
                         }
                         is AuthResult.Error -> {

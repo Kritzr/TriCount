@@ -50,6 +50,11 @@ class ExpensesActivity : ComponentActivity() {
 
     private val viewModel: TricountViewModel by viewModels()
 
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -291,11 +296,13 @@ fun ExpensesContent(
                         modifier  = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                ctx.startActivity(
-                                    android.content.Intent(ctx, ExpenseDetailActivity::class.java).apply {
-                                        putExtra(ExpenseDetailActivity.EXTRA_EXPENSE_ID,  expense.id)
-                                        putExtra(ExpenseDetailActivity.EXTRA_TRICOUNT_ID, expense.tricountId)
-                                    }
+                                val intent = android.content.Intent(ctx, ExpenseDetailActivity::class.java).apply {
+                                    putExtra(ExpenseDetailActivity.EXTRA_EXPENSE_ID,  expense.id)
+                                    putExtra(ExpenseDetailActivity.EXTRA_TRICOUNT_ID, expense.tricountId)
+                                }
+                                ctx.startActivity(intent)
+                                (ctx as? android.app.Activity)?.overridePendingTransition(
+                                    R.anim.slide_in_right, R.anim.slide_out_left
                                 )
                             },
                         shape    = RoundedCornerShape(0.dp),
