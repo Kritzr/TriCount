@@ -18,7 +18,7 @@ val TeamsViolet50   = Color(0xFFE8E5F7)   // very pale violet — light primaryC
 // Teams Blue / Cyan — secondary, tertiary & highlights
 // ─────────────────────────────────────────────────────────────────────────────
 
-val TeamsBlue500    = Color(0xFF25C3E6)   // electric teal-blue — secondary accent / "Live" badge
+val TeamsBlue500    = Color(0xFF4530A8)   // electric teal-blue — secondary accent / "Live" badge
 val TeamsBlueMid    = Color(0xFF4E5FBF)   // medium periwinkle  — #4E5FBF from your palette
 val TeamsBlueSlate  = Color(0xFF5864A6)   // muted slate-blue   — #5864A6 from your palette
 

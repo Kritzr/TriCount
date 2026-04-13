@@ -10,11 +10,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -23,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -41,11 +44,8 @@ class ProfileActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val sessionManager = SessionManager(this)
 
-        // Register back callback using the modern OnBackPressedDispatcher API
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                navigateToHome()
-            }
+            override fun handleOnBackPressed() { navigateToHome() }
         })
 
         setContent {
@@ -85,17 +85,76 @@ class ProfileActivity : ComponentActivity() {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Reusable settings-style row — matches the Dark Mode row look exactly
+// ─────────────────────────────────────────────────────────────────────────────
+@Composable
+private fun SettingsInfoRow(
+    icon        : ImageVector,
+    label       : String,
+    value       : String,
+    showDivider : Boolean = true
+) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Icon bubble — same style as the sun icon in Dark Mode row
+            Surface(
+                shape    = CircleShape,
+                color    = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(42.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector        = icon,
+                        contentDescription = null,
+                        tint               = MaterialTheme.colorScheme.primary,
+                        modifier           = Modifier.size(20.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text       = label,
+                    fontSize   = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color      = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text     = value,
+                    fontSize = 13.sp,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (showDivider) {
+            HorizontalDivider(
+                modifier  = Modifier.padding(start = 72.dp),
+                color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                thickness = 0.5.dp
+            )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main screen
+// ─────────────────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    sessionManager  : SessionManager,
-    viewModel       : TricountViewModel,
-    onBackClick     : () -> Unit,
-    onLogout        : () -> Unit
+    sessionManager : SessionManager,
+    viewModel      : TricountViewModel,
+    onBackClick    : () -> Unit,
+    onLogout       : () -> Unit
 ) {
     val context = LocalContext.current
 
-    // Read initial values from SessionManager (populated from Room on login)
     var photoUrl         by remember { mutableStateOf(sessionManager.getProfilePhotoUri()) }
     var nickname         by remember { mutableStateOf(sessionManager.getNickname()) }
     var nicknameEdit     by remember { mutableStateOf(nickname) }
@@ -106,18 +165,13 @@ fun ProfileScreen(
     val userName  = sessionManager.getUserName()  ?: "User"
     val userEmail = sessionManager.getUserEmail() ?: ""
 
-    // Image picker → upload to Firebase Storage → save https:// URL everywhere
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
-
-        uploadStatusMsg = "Uploading photo..."
+        uploadStatusMsg = "Uploading photo…"
         isSaving        = true
-
-        viewModel.uploadProfilePhoto(
-            uri = uri
-        ) { result ->
+        viewModel.uploadProfilePhoto(uri = uri) { result ->
             isSaving = false
             if (result != null) {
                 photoUrl        = result
@@ -132,143 +186,196 @@ fun ProfileScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Profile", fontWeight = FontWeight.Bold) },
+                title = { },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor             = MaterialTheme.colorScheme.primary,
-                    titleContentColor          = MaterialTheme.colorScheme.onPrimary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Spacer(Modifier.height(8.dp))
 
-            // ── Profile photo ──────────────────────────────────────────────
-            Box(contentAlignment = Alignment.BottomEnd) {
-                if (!photoUrl.isNullOrEmpty()) {
-                    AsyncImage(
-                        model              = photoUrl,
-                        contentDescription = "Profile photo",
-                        contentScale       = ContentScale.Crop,
-                        modifier           = Modifier
-                            .size(110.dp)
-                            .clip(CircleShape)
-                            .border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                            .clickable { imagePickerLauncher.launch("image/*") }
-                    )
-                } else {
+            // ── Hero section — equal padding above and below the avatar ───
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(vertical = 36.dp),   // same value top & bottom = equal spacing
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(contentAlignment = Alignment.BottomEnd) {
+                    if (!photoUrl.isNullOrEmpty()) {
+                        AsyncImage(
+                            model              = photoUrl,
+                            contentDescription = "Profile photo",
+                            contentScale       = ContentScale.Crop,
+                            modifier           = Modifier
+                                .size(96.dp)
+                                .clip(CircleShape)
+                                .border(
+                                    3.dp,
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                    CircleShape
+                                )
+                                .clickable { imagePickerLauncher.launch("image/*") }
+                        )
+                    } else {
+                        Surface(
+                            modifier = Modifier
+                                .size(96.dp)
+                                .clip(CircleShape)
+                                .clickable { imagePickerLauncher.launch("image/*") },
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text       = userName.first().uppercase(),
+                                    fontSize   = 38.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color      = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
+                    // Camera badge
                     Surface(
                         modifier = Modifier
-                            .size(110.dp)
+                            .size(30.dp)
                             .clip(CircleShape)
                             .clickable { imagePickerLauncher.launch("image/*") },
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer
+                        color = MaterialTheme.colorScheme.primary
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text       = userName.first().uppercase(),
-                                fontSize   = 40.sp,
-                                fontWeight = FontWeight.Bold,
-                                color      = MaterialTheme.colorScheme.onPrimaryContainer
+                            Icon(
+                                Icons.Filled.CameraAlt,
+                                contentDescription = "Change photo",
+                                tint     = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
                 }
-                // Camera badge
-                Surface(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .clickable { imagePickerLauncher.launch("image/*") },
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Filled.CameraAlt,
-                            contentDescription = "Change photo",
-                            tint     = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(18.dp)
+
+                Text(
+                    text       = userName,
+                    fontSize   = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color      = MaterialTheme.colorScheme.onSurface
+                )
+
+                // Upload status pill
+                if (uploadStatusMsg != null) {
+                    Row(
+                        modifier = Modifier
+                            .background(
+                                MaterialTheme.colorScheme.secondaryContainer,
+                                RoundedCornerShape(50)
+                            )
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment     = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(13.dp), strokeWidth = 2.dp)
+                        Text(uploadStatusMsg ?: "", fontSize = 12.sp)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // ── Account info card: email + nickname as settings rows ───────
+            Card(
+                modifier  = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape     = RoundedCornerShape(16.dp),
+                colors    = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                ),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Column {
+                    SettingsInfoRow(
+                        icon        = Icons.Filled.Email,
+                        label       = "Email",
+                        value       = userEmail,
+                        showDivider = !nickname.isNullOrEmpty()
+                    )
+                    if (!nickname.isNullOrEmpty()) {
+                        SettingsInfoRow(
+                            icon        = Icons.Filled.AlternateEmail,
+                            label       = "Nickname",
+                            value       = nickname ?: "",
+                            showDivider = false
                         )
                     }
                 }
             }
 
-            // Upload progress / status
-            if (uploadStatusMsg != null) {
-                Row(
-                    verticalAlignment      = Alignment.CenterVertically,
-                    horizontalArrangement  = Arrangement.spacedBy(8.dp)
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text(
-                        uploadStatusMsg ?: "",
-                        fontSize = 13.sp,
-                        color    = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
+            Spacer(Modifier.height(12.dp))
 
-            Text(
-                userName,
-                fontSize   = 22.sp,
-                fontWeight = FontWeight.Bold,
-                color      = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                userEmail,
-                fontSize = 14.sp,
-                color    = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            HorizontalDivider()
-
-            // ── Nickname ───────────────────────────────────────────────────
+            // ── Nickname edit card ─────────────────────────────────────────
             Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors   = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
+                modifier  = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape     = RoundedCornerShape(16.dp),
+                colors    = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                ),
+                elevation = CardDefaults.cardElevation(0.dp)
             ) {
                 Column(
-                    modifier            = Modifier.padding(20.dp),
+                    modifier            = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        "Display Nickname",
-                        fontSize   = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color      = MaterialTheme.colorScheme.primary
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.Edit,
+                            contentDescription = null,
+                            tint     = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Edit Nickname",
+                            fontSize      = 13.sp,
+                            fontWeight    = FontWeight.SemiBold,
+                            color         = MaterialTheme.colorScheme.primary,
+                            letterSpacing = 0.6.sp
+                        )
+                    }
                     Text(
                         "Shown to other members inside a Tricount.",
-                        fontSize = 12.sp,
-                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontSize   = 12.sp,
+                        color      = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 18.sp
                     )
                     OutlinedTextField(
                         value         = nicknameEdit,
                         onValueChange = { nicknameEdit = it },
                         label         = { Text("Nickname") },
                         placeholder   = { Text("e.g. @${userName.lowercase()}") },
-                        leadingIcon   = { Icon(Icons.Filled.Person, null) },
+                        leadingIcon   = { Icon(Icons.Filled.AlternateEmail, null) },
                         modifier      = Modifier.fillMaxWidth(),
                         singleLine    = true,
-                        enabled       = !isSaving
+                        enabled       = !isSaving,
+                        shape         = RoundedCornerShape(12.dp)
                     )
                     Button(
                         onClick  = {
@@ -279,80 +386,196 @@ fun ProfileScreen(
                                 Toast.makeText(context, "Nickname saved!", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled  = nicknameEdit.trim() != nickname && !isSaving
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp),
+                        enabled  = nicknameEdit.trim() != nickname && !isSaving,
+                        shape    = RoundedCornerShape(12.dp)
                     ) {
                         if (isSaving) {
                             CircularProgressIndicator(
-                                modifier    = Modifier.size(16.dp),
+                                modifier    = Modifier.size(15.dp),
                                 strokeWidth = 2.dp,
                                 color       = MaterialTheme.colorScheme.onPrimary
                             )
                             Spacer(Modifier.width(8.dp))
                         }
-                        Text("Save Nickname")
+                        Text("Save Nickname", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
 
-            // ── Remove photo ───────────────────────────────────────────────
-            if (!photoUrl.isNullOrEmpty()) {
-                OutlinedButton(
-                    onClick  = {
-                        isSaving = true
-                        viewModel.savePhotoUri("") {
-                            photoUrl = null
-                            isSaving = false
-                            Toast.makeText(context, "Photo removed", Toast.LENGTH_SHORT).show()
+            Spacer(Modifier.height(12.dp))
+
+            // ── Danger actions card (remove photo + log out) ───────────────
+            Card(
+                modifier  = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape     = RoundedCornerShape(16.dp),
+                colors    = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                ),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Column {
+                    if (!photoUrl.isNullOrEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !isSaving) {
+                                    isSaving = true
+                                    viewModel.savePhotoUri("") {
+                                        photoUrl = null
+                                        isSaving = false
+                                        Toast.makeText(context, "Photo removed", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape    = CircleShape,
+                                color    = MaterialTheme.colorScheme.errorContainer,
+                                modifier = Modifier.size(42.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Filled.NoPhotography,
+                                        contentDescription = null,
+                                        tint     = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Remove Photo",
+                                    fontSize   = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color      = MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    "Resets to initial letter avatar",
+                                    fontSize = 13.sp,
+                                    color    = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors   = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    ),
-                    enabled  = !isSaving
-                ) {
-                    Icon(Icons.Filled.DeleteForever, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Remove Profile Photo")
+                        HorizontalDivider(
+                            modifier  = Modifier.padding(start = 72.dp),
+                                 color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                            thickness = 0.5.dp
+                        )
+                    }
+
+                    // Log Out row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showLogoutDialog = true }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape    = CircleShape,
+                            color    = MaterialTheme.colorScheme.errorContainer,
+                            modifier = Modifier.size(42.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Filled.Logout,
+                                    contentDescription = null,
+                                    tint     = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Log Out",
+                                fontSize   = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color      = MaterialTheme.colorScheme.error
+                            )
+                            Text(
+                                "You'll be signed out of this device",
+                                fontSize = 13.sp,
+                                color    = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            Icons.Filled.ChevronRight,
+                            contentDescription = null,
+                            tint     = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
-            HorizontalDivider()
-
-            // ── Logout ─────────────────────────────────────────────────────
-            Button(
-                onClick  = { showLogoutDialog = true },
-                modifier = Modifier.fillMaxWidth(),
-                colors   = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor   = MaterialTheme.colorScheme.onError
-                )
-            ) {
-                Icon(Icons.Filled.Logout, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Log Out", fontWeight = FontWeight.SemiBold)
-            }
+            Spacer(Modifier.height(32.dp))
         }
     }
 
+    // ── Logout confirmation dialog ─────────────────────────────────────────
     if (showLogoutDialog) {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
-            icon  = { Icon(Icons.Filled.Logout, null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Log Out?") },
-            text  = { Text("Are you sure you want to log out?") },
+            shape = RoundedCornerShape(20.dp),
+            icon  = {
+                Surface(
+                    shape    = CircleShape,
+                    color    = MaterialTheme.colorScheme.errorContainer,
+                    modifier = Modifier.size(52.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.Logout,
+                            contentDescription = null,
+                            tint     = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+            },
+            title = {
+                Text(
+                    "Log out of TriCount?",
+                    fontWeight = FontWeight.Bold,
+                    fontSize   = 18.sp
+                )
+            },
+            text = {
+                Text(
+                    "You'll be signed out of this device. Your data will remain safe and you can log back in at any time.",
+                    fontSize   = 14.sp,
+                    lineHeight = 20.sp,
+                    color      = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
             confirmButton = {
                 Button(
-                    onClick = { showLogoutDialog = false; onLogout() },
-                    colors  = ButtonDefaults.buttonColors(
+                    onClick  = { showLogoutDialog = false; onLogout() },
+                    shape    = RoundedCornerShape(10.dp),
+                    colors   = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) { Text("Log Out") }
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Yes, Log Out", fontWeight = FontWeight.SemiBold)
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showLogoutDialog = false }) { Text("Cancel") }
+                OutlinedButton(
+                    onClick  = { showLogoutDialog = false },
+                    shape    = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Cancel")
+                }
             }
         )
     }

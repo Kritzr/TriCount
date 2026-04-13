@@ -33,8 +33,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,7 +55,6 @@ class HomeActivity : ComponentActivity() {
 
         val sessionManager = SessionManager(this)
 
-        // Safety check: if somehow session is empty, go back to login
         if (!sessionManager.isLoggedIn()) {
             startActivity(Intent(this, LoginActivity::class.java))
             finish()
@@ -85,22 +82,22 @@ class HomeActivity : ComponentActivity() {
                         )
                     },
                     onLogoutClick = {
-                        // authViewModel.logout() signs out of Firebase AND clears session
                         authViewModel.logout()
-                        val intent = Intent(this, LoginActivity::class.java).apply {
-                            // Clear the back stack so Back doesn't return to HomeActivity
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                        }
-                        startActivity(intent)
+                        startActivity(
+                            Intent(this, LoginActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                            }
+                        )
                         finish()
                     },
                     onDeleteAccountClick = {
                         authViewModel.logout()
                         sessionManager.clearSession()
-                        val intent = Intent(this, LoginActivity::class.java).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                        }
-                        startActivity(intent)
+                        startActivity(
+                            Intent(this, LoginActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                            }
+                        )
                         finish()
                     }
                 )
@@ -115,8 +112,7 @@ class HomeActivity : ComponentActivity() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HomeScreen shell  (unchanged from original — just keeping it here for
-// completeness so you have a single file to drop in)
+// HomeScreen
 // ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -134,12 +130,10 @@ fun HomeScreen(
     val context           = LocalContext.current
     var showBottomSheet   by remember { mutableStateOf(false) }
 
-    // When the user is on any tab other than the first, back returns to tab 0
-    // instead of exiting the app.
     BackHandler(enabled = selectedBottomTab != 0) {
         selectedBottomTab = 0
     }
-    val sheetState        = rememberModalBottomSheetState()
+    val sheetState = rememberModalBottomSheetState()
 
     val addTricountLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -204,7 +198,7 @@ fun HomeScreen(
         }
     ) { padding ->
         AnimatedContent(
-            targetState  = selectedBottomTab,
+            targetState = selectedBottomTab,
             transitionSpec = {
                 fadeIn(animationSpec = tween(300)) togetherWith
                         fadeOut(animationSpec = tween(300))
@@ -338,7 +332,7 @@ fun HomeScreen(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TriCountListScreen — unchanged logic, kept here for completeness
+// TriCountListScreen
 // ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -494,8 +488,8 @@ fun TriCountListScreen(
                     favoriteTricounts.map { it.id }.toSet()
                 }
                 LazyColumn(
-                    modifier       = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
+                    modifier            = Modifier.fillMaxSize(),
+                    contentPadding      = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filteredTricounts, key = { it.id }) { tricount ->
@@ -569,7 +563,7 @@ fun TriCountListScreen(
         }
     }
 
-    // ── Delete confirmation ────────────────────────────────────────────────────
+    // Delete confirmation
     tricountToDelete?.let { (id, name) ->
         AlertDialog(
             onDismissRequest = { tricountToDelete = null },
@@ -589,7 +583,7 @@ fun TriCountListScreen(
         )
     }
 
-    // ── Edit dialog ────────────────────────────────────────────────────────────
+    // Edit dialog
     tricountToEdit?.let { tricount ->
         var editName by remember(tricount.id) { mutableStateOf(tricount.name) }
         var editDesc by remember(tricount.id) { mutableStateOf(tricount.description) }
@@ -630,7 +624,7 @@ fun TriCountListScreen(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AnimatedTricountCard — unchanged
+// AnimatedTricountCard
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -655,7 +649,9 @@ fun AnimatedTricountCard(
     )
 
     Card(
-        modifier  = Modifier.fillMaxWidth().scale(scale),
+        modifier  = Modifier
+            .fillMaxWidth()
+            .scale(scale),
         colors    = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         ),
@@ -677,10 +673,7 @@ fun AnimatedTricountCard(
                 color    = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        tricount.emoji.ifBlank { "⛺" },
-                        fontSize = 22.sp
-                    )
+                    Text(tricount.emoji.ifBlank { "⛺" }, fontSize = 22.sp)
                 }
             }
             Spacer(Modifier.width(16.dp))
@@ -722,8 +715,10 @@ fun AnimatedTricountCard(
                 }
                 Icon(
                     Icons.Filled.ChevronRight, null,
-                    modifier = Modifier.size(20.dp).padding(end = 4.dp),
-                    tint     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    modifier = Modifier
+                        .size(20.dp)
+                        .padding(end = 4.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                 )
             }
         }
@@ -788,14 +783,8 @@ private fun ContextMenuOption(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ProfileScreen — kept here so HomeActivity compiles standalone
+// ProfileScreen
 // ─────────────────────────────────────────────────────────────────────────────
-
-private val LANGUAGES = listOf(
-    "English", "Spanish", "French", "German",
-    "Hindi", "Japanese", "Chinese", "Arabic",
-    "Portuguese", "Korean"
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -813,12 +802,11 @@ fun ProfileScreen(
     var nickname       by remember { mutableStateOf(sessionManager.getNickname()) }
     val email                    = sessionManager.getUserEmail() ?: ""
     var photoUriString by remember { mutableStateOf(sessionManager.getProfilePhotoUri()) }
-    var language       by remember { mutableStateOf(sessionManager.getLanguage()) }
 
     var showEditName     by remember { mutableStateOf(false) }
     var showEditNickname by remember { mutableStateOf(false) }
-    var showLangDialog   by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
 
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -840,7 +828,8 @@ fun ProfileScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        // Header banner
+
+        // ── Header banner — avatar + name only, equal spacing above & below ──
         Box(
             modifier         = Modifier
                 .fillMaxWidth()
@@ -848,7 +837,11 @@ fun ProfileScreen(
                 .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier            = Modifier.fillMaxHeight()
+            ) {
                 Box(contentAlignment = Alignment.BottomEnd) {
                     Surface(
                         modifier        = Modifier.size(90.dp),
@@ -876,62 +869,51 @@ fun ProfileScreen(
                             }
                         }
                     }
+                    // Camera badge
                     Surface(
-                        modifier  = Modifier
+                        modifier        = Modifier
                             .size(30.dp)
                             .clickable { photoPicker.launch("image/*") },
-                        shape     = CircleShape,
-                        color     = MaterialTheme.colorScheme.secondary,
+                        shape           = CircleShape,
+                        color           = MaterialTheme.colorScheme.secondary,
                         shadowElevation = 3.dp
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Filled.CameraAlt, "Change photo",
+                            Icon(
+                                Icons.Filled.CameraAlt, "Change photo",
                                 modifier = Modifier.size(16.dp),
-                                tint     = MaterialTheme.colorScheme.onSecondary)
+                                tint     = MaterialTheme.colorScheme.onSecondary
+                            )
                         }
                     }
                 }
+
                 Spacer(Modifier.height(10.dp))
-                // Tappable display name row
+
+                // Tappable display name
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { showEditName = true }
-                ) {
-                    Text(displayName, fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Spacer(Modifier.width(6.dp))
-                    Icon(
-                        Icons.Filled.Edit, contentDescription = "Edit name",
-                        modifier = Modifier.size(15.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f)
-                    )
-                }
-                // Tappable nickname row
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { showEditNickname = true }
+                    modifier          = Modifier.clickable { showEditName = true }
                 ) {
                     Text(
-                        if (nickname.isNotBlank()) "@$nickname" else "Add nickname…",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(
-                            alpha = if (nickname.isNotBlank()) 0.65f else 0.4f)
+                        displayName,
+                        fontSize   = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color      = MaterialTheme.colorScheme.onPrimaryContainer
                     )
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(6.dp))
                     Icon(
-                        Icons.Filled.Edit, contentDescription = "Edit nickname",
-                        modifier = Modifier.size(12.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.4f)
+                        Icons.Filled.Edit, "Edit name",
+                        modifier = Modifier.size(15.dp),
+                        tint     = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f)
                     )
                 }
-                Text(email, fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f))
             }
         }
 
         Spacer(Modifier.height(8.dp))
 
-        // Dark mode toggle
+        // ── Email row ─────────────────────────────────────────────────────
         Card(
             modifier  = Modifier
                 .fillMaxWidth()
@@ -947,21 +929,116 @@ fun ProfileScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(modifier = Modifier.size(38.dp), shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer) {
+                Surface(
+                    modifier = Modifier.size(38.dp),
+                    shape    = CircleShape,
+                    color    = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.Email, null,
+                            modifier = Modifier.size(20.dp),
+                            tint     = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Email", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        email,
+                        fontSize = 12.sp,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        // ── Nickname row ──────────────────────────────────────────────────
+        Card(
+            modifier  = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            colors    = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            ),
+            elevation = CardDefaults.cardElevation(0.dp)
+        ) {
+            Row(
+                modifier          = Modifier
+                    .fillMaxWidth()
+                    .clickable { showEditNickname = true }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(38.dp),
+                    shape    = CircleShape,
+                    color    = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.AlternateEmail, null,
+                            modifier = Modifier.size(20.dp),
+                            tint     = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Nickname", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        if (nickname.isNotBlank()) "@$nickname" else "Tap to add nickname…",
+                        fontSize = 12.sp,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    Icons.Filled.Edit, null,
+                    modifier = Modifier.size(16.dp),
+                    tint     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+            }
+        }
+
+        // ── Dark Mode row ─────────────────────────────────────────────────
+        Card(
+            modifier  = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            colors    = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            ),
+            elevation = CardDefaults.cardElevation(0.dp)
+        ) {
+            Row(
+                modifier          = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(38.dp),
+                    shape    = CircleShape,
+                    color    = MaterialTheme.colorScheme.primaryContainer
+                ) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Icon(
                             if (isDarkMode) Icons.Filled.DarkMode else Icons.Filled.LightMode,
-                            null, modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                            null,
+                            modifier = Modifier.size(20.dp),
+                            tint     = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
                 Spacer(Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Dark Mode", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                    Text(if (isDarkMode) "On" else "Off", fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (isDarkMode) "On" else "Off",
+                        fontSize = 12.sp,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 Switch(
                     checked         = isDarkMode,
@@ -976,9 +1053,9 @@ fun ProfileScreen(
 
         Spacer(Modifier.height(24.dp))
 
-        // Log out
+        // ── Log Out button ────────────────────────────────────────────────
         Button(
-            onClick  = onLogoutClick,
+            onClick  = { showLogoutDialog = true },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
@@ -995,7 +1072,7 @@ fun ProfileScreen(
 
         Spacer(Modifier.height(10.dp))
 
-        // Delete account
+        // ── Delete account button ─────────────────────────────────────────
         OutlinedButton(
             onClick  = { showDeleteDialog = true },
             modifier = Modifier
@@ -1014,7 +1091,7 @@ fun ProfileScreen(
         Spacer(Modifier.height(32.dp))
     }
 
-    // ── Edit display name dialog ──────────────────────────────────────────────
+    // ── Edit display name dialog ──────────────────────────────────────────
     if (showEditName) {
         var draft by remember { mutableStateOf(displayName) }
         AlertDialog(
@@ -1050,12 +1127,17 @@ fun ProfileScreen(
         )
     }
 
-    // ── Edit nickname dialog ──────────────────────────────────────────────────
+    // ── Edit nickname dialog ──────────────────────────────────────────────
     if (showEditNickname) {
         var draft by remember { mutableStateOf(nickname) }
         AlertDialog(
             onDismissRequest = { showEditNickname = false },
-            icon  = { Icon(Icons.Filled.AlternateEmail, null, tint = MaterialTheme.colorScheme.primary) },
+            icon  = {
+                Icon(
+                    Icons.Filled.AlternateEmail, null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
             title = { Text("Edit Nickname") },
             text  = {
                 OutlinedTextField(
@@ -1082,14 +1164,53 @@ fun ProfileScreen(
         )
     }
 
-    // Delete dialog
+    // ── Logout confirmation dialog ────────────────────────────────────────
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            icon  = {
+                Icon(
+                    Icons.Filled.Logout, null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Log out of TriCount?", fontWeight = FontWeight.Bold) },
+            text  = {
+                Text(
+                    "You'll be signed out of this device. Your data will remain safe and you can log back in any time.",
+                    fontSize   = 14.sp,
+                    lineHeight = 20.sp,
+                    color      = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick  = { showLogoutDialog = false; onLogoutClick() },
+                    colors   = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Yes, Log Out", fontWeight = FontWeight.SemiBold) }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick  = { showLogoutDialog = false },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Cancel") }
+            }
+        )
+    }
+
+    // ── Delete account dialog ─────────────────────────────────────────────
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             icon  = {
-                Icon(Icons.Filled.DeleteForever, null,
+                Icon(
+                    Icons.Filled.DeleteForever, null,
                     tint     = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(32.dp))
+                    modifier = Modifier.size(32.dp)
+                )
             },
             title = { Text("Delete Profile?", color = MaterialTheme.colorScheme.error) },
             text  = {
