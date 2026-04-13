@@ -206,16 +206,8 @@ fun HomeScreen(
         AnimatedContent(
             targetState  = selectedBottomTab,
             transitionSpec = {
-                val goingRight = targetState > initialState
-                val enter = slideInHorizontally(
-                    initialOffsetX = { if (goingRight) it else -it },
-                    animationSpec  = tween(300, easing = FastOutSlowInEasing)
-                ) + fadeIn(animationSpec = tween(300))
-                val exit = slideOutHorizontally(
-                    targetOffsetX = { if (goingRight) -it else it },
-                    animationSpec = tween(300, easing = FastOutSlowInEasing)
-                ) + fadeOut(animationSpec = tween(300))
-                enter togetherWith exit
+                fadeIn(animationSpec = tween(300)) togetherWith
+                        fadeOut(animationSpec = tween(300))
             },
             label = "screen_transition"
         ) { target ->
@@ -900,11 +892,37 @@ fun ProfileScreen(
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                Text(displayName, fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer)
-                if (nickname.isNotBlank()) {
-                    Text("@$nickname", fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.65f))
+                // Tappable display name row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { showEditName = true }
+                ) {
+                    Text(displayName, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Spacer(Modifier.width(6.dp))
+                    Icon(
+                        Icons.Filled.Edit, contentDescription = "Edit name",
+                        modifier = Modifier.size(15.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f)
+                    )
+                }
+                // Tappable nickname row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { showEditNickname = true }
+                ) {
+                    Text(
+                        if (nickname.isNotBlank()) "@$nickname" else "Add nickname…",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(
+                            alpha = if (nickname.isNotBlank()) 0.65f else 0.4f)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        Icons.Filled.Edit, contentDescription = "Edit nickname",
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.4f)
+                    )
                 }
                 Text(email, fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f))
@@ -994,6 +1012,74 @@ fun ProfileScreen(
         }
 
         Spacer(Modifier.height(32.dp))
+    }
+
+    // ── Edit display name dialog ──────────────────────────────────────────────
+    if (showEditName) {
+        var draft by remember { mutableStateOf(displayName) }
+        AlertDialog(
+            onDismissRequest = { showEditName = false },
+            icon  = { Icon(Icons.Filled.Person, null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Edit Name") },
+            text  = {
+                OutlinedTextField(
+                    value         = draft,
+                    onValueChange = { draft = it },
+                    label         = { Text("Display Name") },
+                    singleLine    = true,
+                    modifier      = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = draft.trim()
+                        if (trimmed.isNotBlank()) {
+                            displayName = trimmed
+                            sessionManager.setUserName(trimmed)
+                            Toast.makeText(context, "Name updated!", Toast.LENGTH_SHORT).show()
+                        }
+                        showEditName = false
+                    },
+                    enabled = draft.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditName = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // ── Edit nickname dialog ──────────────────────────────────────────────────
+    if (showEditNickname) {
+        var draft by remember { mutableStateOf(nickname) }
+        AlertDialog(
+            onDismissRequest = { showEditNickname = false },
+            icon  = { Icon(Icons.Filled.AlternateEmail, null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Edit Nickname") },
+            text  = {
+                OutlinedTextField(
+                    value         = draft,
+                    onValueChange = { draft = it.filter { c -> c.isLetterOrDigit() || c == '_' } },
+                    label         = { Text("Nickname") },
+                    placeholder   = { Text("e.g. cool_user") },
+                    leadingIcon   = { Text("@", modifier = Modifier.padding(start = 12.dp)) },
+                    singleLine    = true,
+                    modifier      = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    nickname = draft.trim()
+                    sessionManager.setNickname(draft.trim())
+                    Toast.makeText(context, "Nickname saved!", Toast.LENGTH_SHORT).show()
+                    showEditNickname = false
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditNickname = false }) { Text("Cancel") }
+            }
+        )
     }
 
     // Delete dialog

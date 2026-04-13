@@ -8,98 +8,104 @@ class SessionManager(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
-    // ── Core auth fields ─────────────────────────────────────────────────────
+    // ── Auth ──────────────────────────────────────────────────────────────────
+
+    fun isLoggedIn(): Boolean = prefs.getBoolean(KEY_IS_LOGGED_IN, false)
+
+    fun saveSession(userId: Int, name: String, email: String, firebaseUid: String = "") {
+        prefs.edit()
+            .putBoolean(KEY_IS_LOGGED_IN, true)
+            .putInt(KEY_USER_ID, userId)
+            .putString(KEY_USER_NAME, name)
+            .putString(KEY_USER_EMAIL, email)
+            .putString(KEY_FIREBASE_UID, firebaseUid)
+            .apply()
+    }
+
+    fun clearSession() {
+        // FIX: preserve photo + nickname across logout so they survive re-login
+        val savedPhoto    = getProfilePhotoUri()
+        val savedNickname = getNickname()
+        val savedEmail    = getUserEmail()
+
+        prefs.edit().clear().apply()
+
+        prefs.edit()
+            .putString(KEY_PROFILE_PHOTO_URI, savedPhoto ?: "")
+            .putString(KEY_NICKNAME, savedNickname)
+            .putString(KEY_USER_EMAIL, savedEmail ?: "")
+            .apply()
+    }
+
+    // ── User identity ─────────────────────────────────────────────────────────
 
     fun getUserId(): Int? {
         val id = prefs.getInt(KEY_USER_ID, -1)
         return if (id == -1) null else id
     }
 
-    fun setUserId(id: Int) = prefs.edit().putInt(KEY_USER_ID, id).apply()
-
     fun getUserName(): String? = prefs.getString(KEY_USER_NAME, null)
 
-    fun setUserName(name: String) = prefs.edit().putString(KEY_USER_NAME, name).apply()
+    fun setUserName(name: String) {
+        prefs.edit().putString(KEY_USER_NAME, name).apply()
+    }
 
     fun getUserEmail(): String? = prefs.getString(KEY_USER_EMAIL, null)
 
-    fun setUserEmail(email: String) = prefs.edit().putString(KEY_USER_EMAIL, email).apply()
-
-    fun isLoggedIn(): Boolean = getUserId() != null
-
-    /**
-     * Convenience method called by AuthViewModel on login / signup.
-     * Saves the three core auth fields atomically in one editor commit.
-     */
-    fun saveSession(userId: Int, email: String, name: String) {
-        prefs.edit()
-            .putInt(KEY_USER_ID, userId)
-            .putString(KEY_USER_EMAIL, email)
-            .putString(KEY_USER_NAME, name)
-            .apply()
-    }
-
-    /** Wipes everything — called on logout and account deletion. */
-    fun clearSession() = prefs.edit().clear().apply()
-
-    // ── Profile extras ───────────────────────────────────────────────────────
-
-    /** Public-facing nickname shown to other members (e.g. @krithika) */
-    fun getNickname(): String = prefs.getString(KEY_NICKNAME, "") ?: ""
-
-    fun setNickname(nickname: String) =
-        prefs.edit().putString(KEY_NICKNAME, nickname).apply()
-
-    /** URI string of the user's chosen profile photo (persisted across restarts) */
-    fun getProfilePhotoUri(): String? = prefs.getString(KEY_PROFILE_PHOTO_URI, null)
-
-    fun setProfilePhotoUri(uri: String) =
-        prefs.edit().putString(KEY_PROFILE_PHOTO_URI, uri).apply()
-
-    fun clearProfilePhotoUri() =
-        prefs.edit().remove(KEY_PROFILE_PHOTO_URI).apply()
-
-    // ── Preferences ──────────────────────────────────────────────────────────
-
-    /** UI language label, e.g. "English", "Spanish" */
-    fun getLanguage(): String = prefs.getString(KEY_LANGUAGE, "English") ?: "English"
-
-    fun setLanguage(language: String) =
-        prefs.edit().putString(KEY_LANGUAGE, language).apply()
-
-    /** Dark-mode flag */
-    fun getDarkMode(): Boolean = prefs.getBoolean(KEY_DARK_MODE, false)
-
-    fun setDarkMode(enabled: Boolean) =
-        prefs.edit().putBoolean(KEY_DARK_MODE, enabled).apply()
-
-    // ── Constants ────────────────────────────────────────────────────────────
-
-
-    // ── Firebase ─────────────────────────────────────────────────────────────
-
-    /** Firebase UID (differs from the Room integer userId) */
-    fun saveFirebaseUid(uid: String) =
-        prefs.edit().putString(KEY_FIREBASE_UID, uid).apply()
+    // ── Firebase UID ──────────────────────────────────────────────────────────
 
     fun getFirebaseUid(): String? = prefs.getString(KEY_FIREBASE_UID, null)
 
-    /** True once Room→Firestore one-time migration has completed */
-    fun isMigrated(): Boolean = prefs.getBoolean(KEY_MIGRATED, false)
+    fun setFirebaseUid(uid: String) {
+        prefs.edit().putString(KEY_FIREBASE_UID, uid).apply()
+    }
 
-    fun setMigrated(done: Boolean) =
-        prefs.edit().putBoolean(KEY_MIGRATED, done).apply()
+    // ── Nickname ──────────────────────────────────────────────────────────────
+
+    fun getNickname(): String = prefs.getString(KEY_NICKNAME, "") ?: ""
+
+    fun setNickname(nickname: String) {
+        prefs.edit().putString(KEY_NICKNAME, nickname).apply()
+    }
+
+    // ── Profile photo ─────────────────────────────────────────────────────────
+
+    fun getProfilePhotoUri(): String? = prefs.getString(KEY_PROFILE_PHOTO_URI, null)
+
+    fun setProfilePhotoUri(uri: String) {
+        prefs.edit().putString(KEY_PROFILE_PHOTO_URI, uri).apply()
+    }
+
+    fun clearProfilePhotoUri() {
+        prefs.edit().remove(KEY_PROFILE_PHOTO_URI).apply()
+    }
+
+    // ── Preferences ───────────────────────────────────────────────────────────
+
+    fun getDarkMode(): Boolean = prefs.getBoolean(KEY_DARK_MODE, false)
+
+    fun setDarkMode(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DARK_MODE, enabled).apply()
+    }
+
+    fun getLanguage(): String = prefs.getString(KEY_LANGUAGE, "English") ?: "English"
+
+    fun setLanguage(language: String) {
+        prefs.edit().putString(KEY_LANGUAGE, language).apply()
+    }
+
+    // ── Keys ──────────────────────────────────────────────────────────────────
 
     companion object {
         private const val PREF_NAME             = "tricount_session"
+        private const val KEY_IS_LOGGED_IN      = "is_logged_in"
         private const val KEY_USER_ID           = "user_id"
         private const val KEY_USER_NAME         = "user_name"
         private const val KEY_USER_EMAIL        = "user_email"
+        private const val KEY_FIREBASE_UID      = "firebase_uid"
         private const val KEY_NICKNAME          = "nickname"
         private const val KEY_PROFILE_PHOTO_URI = "profile_photo_uri"
-        private const val KEY_LANGUAGE          = "language"
         private const val KEY_DARK_MODE         = "dark_mode"
-        private const val KEY_FIREBASE_UID      = "firebase_uid"
-        private const val KEY_MIGRATED          = "firebase_migrated"
+        private const val KEY_LANGUAGE          = "language"
     }
 }

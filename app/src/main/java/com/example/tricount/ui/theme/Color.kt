@@ -3,140 +3,143 @@ package com.example.tricount.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Indigo palette
+// Microsoft Teams — Violet / Indigo primary palette
 // ─────────────────────────────────────────────────────────────────────────────
 
-val Indigo50   = Color(0xFFE8EAF6)
-val Indigo100  = Color(0xFFC5CAE9)
-val Indigo200  = Color(0xFF9FA8DA)
-val Indigo300  = Color(0xFF7986CB)
-val Indigo400  = Color(0xFF5C6BC0)
-val Indigo500  = Color(0xFF3F51B5)
-val Indigo600  = Color(0xFF3949AB)
-val Indigo700  = Color(0xFF303F9F)
-val Indigo800  = Color(0xFF283593)
-val Indigo900  = Color(0xFF1A237E)
-
-// Accent — electric indigo/blue, used for FABs, highlights, active states
-val IndigoA100 = Color(0xFF8C9EFF)
-val IndigoA200 = Color(0xFF536DFE)
-val IndigoA400 = Color(0xFF3D5AFE)
-val IndigoA700 = Color(0xFF304FFE)
+val TeamsViolet900  = Color(0xFF3D2F81)   // deep brand violet  — dark primary / light primaryContainer text
+val TeamsViolet800  = Color(0xFF4A3A9A)
+val TeamsViolet700  = Color(0xFF5C4EB5)   // core brand — light primary
+val TeamsViolet600  = Color(0xFF6B5EC4)
+val TeamsViolet400  = Color(0xFF7382FF)   // accent — FABs, highlights  (#7382ff from your palette)
+val TeamsViolet200  = Color(0xFFB182FF)   // soft accent — dark primary / A100 equivalent
+val TeamsViolet50   = Color(0xFFE8E5F7)   // very pale violet — light primaryContainer
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Light Blue palette (600–900) — secondary, tertiary & surface tinting
+// Teams Blue / Cyan — secondary, tertiary & highlights
 // ─────────────────────────────────────────────────────────────────────────────
 
-val LightBlue600 = Color(0xAB039BE5)   // vibrant sky  — light secondary / dark tertiary
-val LightBlue700 = Color(0xFF025FD1)   // deeper sky   — light tertiary / dark secondary
-val LightBlue800 = Color(0xFF0277BD)   // rich ocean   — dark surface tint / containers
-val LightBlue900 = Color(0xFF01579B)   // deep navy    — dark secondaryContainer / outlineVariant
+val TeamsBlue500    = Color(0xFF25C3E6)   // electric teal-blue — secondary accent / "Live" badge
+val TeamsBlueMid    = Color(0xFF4E5FBF)   // medium periwinkle  — #4E5FBF from your palette
+val TeamsBlueSlate  = Color(0xFF5864A6)   // muted slate-blue   — #5864A6 from your palette
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Neutral — surface & on-surface tokens
+// ─────────────────────────────────────────────────────────────────────────────
+
+val TeamsNeutral50  = Color(0xFFF2F2F2)   // near-white surface  — #F2F2F2 from your palette
+val TeamsNeutral100 = Color(0xFFE0E0E0)
+val TeamsNeutral200 = Color(0xFFC8C8C8)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Status — Rose / Busy indicator
+// ─────────────────────────────────────────────────────────────────────────────
+
+val TeamsRose       = Color(0xFFD18088)   // #D18088 — "Busy" / soft red status
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Semantic surface tokens
 // ─────────────────────────────────────────────────────────────────────────────
 
-// List item background (light) — white with a hint of light-blue
-// Contrast ratio against LightBlue900 text ≈ 4.5:1 ✓  (boundary:text = 3:1 ✓)
-val ListSurfaceLight     = Color(0xFFEFF7FD)   // very pale sky blue
-val ListBoundaryLight    = LightBlue600        // #039BE5 — vivid sky border on light
-val ListTextLight        = LightBlue900        // #01579B — deep navy, 4.5:1 on pale bg
+// Light — pale violet card surface with deep violet text
+val ListSurfaceLight     = Color(0xFFF0EEF9)   // very pale violet (lighter than TeamsViolet50)
+val ListBoundaryLight    = TeamsBlueMid        // #4E5FBF — periwinkle border on light
+val ListTextLight        = TeamsViolet900      // #3D2F81 — deep violet, high contrast
 
-// List item background (dark) — deep navy-blue elevated surface
-// Contrast ratio against LightBlue600 text ≈ 4.6:1 ✓  (boundary:text = 3:1 ✓)
-val ListSurfaceDark      = Color(0xFF0D1B2A)   // very dark navy
-val ListBoundaryDark     = LightBlue700        // #0288D1 — ocean blue border on dark
-val ListTextDark         = LightBlue600        // #039BE5 — sky blue text on dark
+// Dark — deep navy-violet elevated surface with light violet text
+// ── List surface (Individual Balances rows) ──
+val ListSurfaceDark      = Color(0xFF1C1C1C)
+val ListBoundaryDark     = Color(0xFF2E2E2E)   // very subtle divider
+val ListTextDark         = Color(0xFFE0E0E0)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Light Theme
 // ─────────────────────────────────────────────────────────────────────────────
 
-val md_theme_light_primary              = IndigoA400        // #3D5AFE — electric accent primary
+val md_theme_light_primary              = TeamsViolet700        // #5C4EB5 — core brand
 val md_theme_light_onPrimary            = Color.White
-val md_theme_light_primaryContainer     = Indigo50          // #E8EAF6
-val md_theme_light_onPrimaryContainer   = Indigo900         // #1A237E
+val md_theme_light_primaryContainer     = TeamsViolet50         // #E8E5F7
+val md_theme_light_onPrimaryContainer   = TeamsViolet900        // #3D2F81
 
-val md_theme_light_secondary            = LightBlue600      // #039BE5 — vibrant sky
+val md_theme_light_secondary            = TeamsBlue500          // #25C3E6 — teal-blue accent
 val md_theme_light_onSecondary          = Color.White
-val md_theme_light_secondaryContainer   = Color(0xFFE1F5FE) // very pale sky (Light Blue 50)
-val md_theme_light_onSecondaryContainer = LightBlue900      // #01579B
+val md_theme_light_secondaryContainer   = Color(0xFFDDF5FA)     // very pale cyan
+val md_theme_light_onSecondaryContainer = Color(0xFF003B47)
 
-val md_theme_light_tertiary             = LightBlue700      // #0288D1 — deeper sky
+val md_theme_light_tertiary             = TeamsBlueMid          // #4E5FBF — periwinkle
 val md_theme_light_onTertiary           = Color.White
-val md_theme_light_tertiaryContainer    = Indigo50          // #E8EAF6 — indigo tint container
-val md_theme_light_onTertiaryContainer  = LightBlue900
+val md_theme_light_tertiaryContainer    = TeamsViolet50         // #E8E5F7
+val md_theme_light_onTertiaryContainer  = TeamsViolet900
 
 val md_theme_light_error                = Color(0xFFBA1A1A)
 val md_theme_light_errorContainer       = Color(0xFFFFDAD6)
 val md_theme_light_onError              = Color.White
 val md_theme_light_onErrorContainer     = Color(0xFF410002)
 
-val md_theme_light_background           = Color(0xFFFFFFFF)
-val md_theme_light_onBackground         = LightBlue900      // #01579B
+val md_theme_light_background           = Color(161618)
+val md_theme_light_onBackground         = TeamsViolet900        // #3D2F81
 
-val md_theme_light_surface              = Color(0xFFFFFFFF)
-val md_theme_light_onSurface            = LightBlue900      // #01579B
-val md_theme_light_surfaceVariant       = ListSurfaceLight  // #EFF7FD — list bg
-val md_theme_light_onSurfaceVariant     = LightBlue800      // #0277BD
+val md_theme_light_surface              = Color(0xFFF0F0F5)
+val md_theme_light_onSurface            = TeamsViolet900        // #3D2F81
+val md_theme_light_surfaceVariant       =Color(0xFFF5F5F8)  // tab bar background
+val md_theme_light_onSurfaceVariant     = TeamsBlueSlate        // #5864A6
 
-val md_theme_light_outline              = LightBlue600      // #039BE5 — boundary
-val md_theme_light_outlineVariant       = ListBoundaryLight // #039BE5 — list border
-val md_theme_light_inverseOnSurface     = Indigo50
-val md_theme_light_inverseSurface       = LightBlue900
-val md_theme_light_inversePrimary       = IndigoA100
-val md_theme_light_surfaceTint          = LightBlue600
+val md_theme_light_outline              = TeamsBlueMid          // #4E5FBF
+val md_theme_light_outlineVariant       = ListBoundaryLight     // #4E5FBF
+val md_theme_light_inverseOnSurface     = TeamsViolet50
+val md_theme_light_inverseSurface       = TeamsViolet900
+val md_theme_light_inversePrimary       = TeamsViolet200        // #B182FF
+val md_theme_light_surfaceTint          = TeamsBlueMid
 val md_theme_light_scrim                = Color(0xFF000000)
 
 val md_theme_light_surfaceContainerLowest  = Color(0xFFFFFFFF)
-val md_theme_light_surfaceContainerLow     = Color(0xFFF5F9FF)  // barely-there sky
-val md_theme_light_surfaceContainer        = ListSurfaceLight   // #EFF7FD
-val md_theme_light_surfaceContainerHigh    = Color(0xFFE1F5FE)  // Light Blue 50
-val md_theme_light_surfaceContainerHighest = Indigo100          // #C5CAE9
+val md_theme_light_surfaceContainerLow     = Color(0xFFF3F3F6)   // barely-there violet
+val md_theme_light_surfaceContainer        =Color(0xFFF5F5F8) // tab bar background
+val md_theme_light_surfaceContainerHigh    = Color(0xFFE8E8EE)  // #E8E5F7
+val md_theme_light_surfaceContainerHighest = Color(0xFFDDDAF5)   // deeper violet tint
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dark Theme — #121212 base, accent palette A100–A400
+// Dark Theme — #1C1C1C base, violet accent palette
 // ─────────────────────────────────────────────────────────────────────────────
 
-val md_theme_dark_primary               = IndigoA100        // #8C9EFF — desaturated accent
-val md_theme_dark_onPrimary             = Indigo900         // #1A237E
-val md_theme_dark_primaryContainer      = IndigoA700        // #304FFE — vivid container
-val md_theme_dark_onPrimaryContainer    = Color.White
+val md_theme_dark_primary               = TeamsViolet200        // #B182FF — desaturated accent
+val md_theme_dark_onPrimary             = TeamsViolet900        // #3D2F81
+val md_theme_dark_primaryContainer      = Color(0xFF1C1C1C)   // was #3A3060 (blue-purple)
+val md_theme_dark_onPrimaryContainer    = Color(0xFFE3E3E3)   // light readable text
+val md_theme_dark_secondary             = TeamsBlue500          // #25C3E6 — teal on dark
+val md_theme_dark_onSecondary           = Color(0xFF002B35)
+val md_theme_dark_secondaryContainer    = Color(0xFF1C1C1C)   // was #004D5E
+val md_theme_dark_onSecondaryContainer  = Color(0xFFE3E3E3)
 
-val md_theme_dark_secondary             = LightBlue600      // #039BE5 — sky on dark
-val md_theme_dark_onSecondary           = Color(0xFF003350)
-val md_theme_dark_secondaryContainer    = LightBlue900      // #01579B — deep navy container
-val md_theme_dark_onSecondaryContainer  = Color(0xFFE1F5FE)
-
-val md_theme_dark_tertiary              = LightBlue700      // #0288D1
+val md_theme_dark_tertiary              = TeamsBlueMid          // #4E5FBF
 val md_theme_dark_onTertiary            = Color.White
-val md_theme_dark_tertiaryContainer     = LightBlue800      // #0277BD
-val md_theme_dark_onTertiaryContainer   = Color(0xFFE1F5FE)
+val md_theme_dark_tertiaryContainer     = Color(0xFF1C1C1C)   // was TeamsBlueSlate
+val md_theme_dark_onTertiaryContainer   = Color(0xFFE3E3E3)
+
 
 val md_theme_dark_error                 = Color(0xFFFFB4AB)
 val md_theme_dark_errorContainer        = Color(0xFF93000A)
 val md_theme_dark_onError               = Color(0xFF690005)
 val md_theme_dark_onErrorContainer      = Color(0xFFFFDAD6)
 
-val md_theme_dark_background            = Color(0xFF121212)
-val md_theme_dark_onBackground          = LightBlue600      // #039BE5 — sky text on dark
+val md_theme_dark_background            = Color(0xFF000000)   // pure black
 
-val md_theme_dark_surface               = Color(0xFF121212)
-val md_theme_dark_onSurface             = Color(0xFFE6E1E5)
-val md_theme_dark_surfaceVariant        = ListSurfaceDark   // #0D1B2A — deep navy list bg
-val md_theme_dark_onSurfaceVariant      = LightBlue600      // #039BE5
+val md_theme_dark_onBackground          = Color(0xFFE3E3E3)      // #B182FF — soft violet on dark
 
-val md_theme_dark_outline               = LightBlue700      // #0288D1 — boundary
-val md_theme_dark_outlineVariant        = LightBlue900      // #01579B — list border
+val md_theme_dark_surface               = Color(0xFF000000)   // pure black
+val md_theme_dark_onSurface              = Color(0xFFE3E3E3)
+val md_theme_dark_surfaceVariant        = Color(0xFF1C1C1C)   // #1A1530 — deep violet-navy list bg
+val md_theme_dark_onSurfaceVariant      = TeamsViolet400        // #7382FF — accent violet
+
+val md_theme_dark_outline               = TeamsViolet400        // #7382FF
+val md_theme_dark_outlineVariant        = TeamsViolet900        // #3D2F81
 val md_theme_dark_inverseOnSurface      = Color(0xFF1C1B1F)
-val md_theme_dark_inverseSurface        = Color(0xFFE1F5FE)
-val md_theme_dark_inversePrimary        = IndigoA400
-val md_theme_dark_surfaceTint           = LightBlue700
+val md_theme_dark_inverseSurface        = Color(0xFFE8E5F7)
+val md_theme_dark_inversePrimary        = TeamsViolet700
+val md_theme_dark_surfaceTint           = TeamsBlueMid
 val md_theme_dark_scrim                 = Color(0xFF000000)
 
-// Elevation steps: dark navy deepening with LightBlue tint
-val md_theme_dark_surfaceContainerLowest  = Color(0xFF0A0F14)
-val md_theme_dark_surfaceContainerLow     = Color(0xFF0D1520)  // darkest navy
-val md_theme_dark_surfaceContainer        = ListSurfaceDark    // #0D1B2A
-val md_theme_dark_surfaceContainerHigh    = Color(0xFF102030)
-val md_theme_dark_surfaceContainerHighest = LightBlue900       // #01579B — richest step
+val md_theme_dark_surfaceContainerLowest  = Color(0xFF000000)
+val md_theme_dark_surfaceContainerLow     = Color(0xFF0A0A0A)
+val md_theme_dark_surfaceContainer        = Color(0xFF1C1C1C)
+val md_theme_dark_surfaceContainerHigh    = Color(0xFF232323)
+val md_theme_dark_surfaceContainerHighest = Color(0xFF2A2A2A)

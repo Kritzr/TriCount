@@ -47,15 +47,13 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
                 val roomUserId = findOrCreateRoomUser(email, name)
 
-                sessionManager.saveSession(roomUserId, email, name)
-                sessionManager.saveFirebaseUid(firebaseUid)
+                // FIX: correct arg order (userId, name, email, firebaseUid)
+                sessionManager.saveSession(roomUserId, name, email, firebaseUid)
 
-                // Pull Firestore data once — this also restores photoUri + nickname
-                // from Firestore into Room and SessionManager
+                // Pull Firestore data once — only overwrites Room if remote values are non-empty
                 FirebaseSyncRepository(db, sessionManager).pullFromFirebase(roomUserId)
 
-                // After pull, make sure SessionManager has the latest photo/nickname
-                // from Room (in case pull updated Room but not SessionManager)
+                // Restore photo + nickname from Room into SessionManager
                 restoreProfileFromRoom(roomUserId)
 
                 Log.d("AuthVM", "handleGoogleSignIn: done roomUserId=$roomUserId")
@@ -87,7 +85,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val userId = userDao.insertUser(UserEntity(email = e, password = p, name = n)).toInt()
                 if (userId > 0) {
-                    sessionManager.saveSession(userId, e, n)
+                    sessionManager.saveSession(userId, n, e)
                     restoreProfileFromRoom(userId)
                     _authResult.value = AuthResult.Success(userId)
                 } else {
@@ -114,8 +112,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val user = userDao.login(e, p)
                 if (user != null) {
-                    sessionManager.saveSession(user.id, user.email, user.name)
-                    // Restore photo + nickname from Room for this specific user
+                    sessionManager.saveSession(user.id, user.name, user.email)
                     restoreProfileFromRoom(user.id)
                     _authResult.value = AuthResult.Success(user.id)
                 } else {
@@ -140,24 +137,17 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /**
-     * Reads the photo URI and nickname stored in Room for [userId] and writes
-     * them back into SessionManager. Called on every login so:
-     *   - Logging out and back in shows the correct photo (from Room)
-     *   - Switching users shows each user's own photo (different Room row)
-     *
-     * Room is the permanent store. SessionManager is just the session cache.
-     */
     private suspend fun restoreProfileFromRoom(userId: Int) {
         try {
             val user = userDao.getUserById(userId) ?: return
+            // FIX: only restore if non-empty, never clear
             if (!user.photoUri.isNullOrEmpty()) {
                 sessionManager.setProfilePhotoUri(user.photoUri)
                 Log.d("AuthVM", "restoreProfileFromRoom: photoUri restored for userId=$userId")
-            } else {
-                sessionManager.clearProfilePhotoUri()
             }
-            sessionManager.setNickname(user.nickname ?: "")
+            if (!user.nickname.isNullOrEmpty()) {
+                sessionManager.setNickname(user.nickname)
+            }
         } catch (e: Exception) {
             Log.e("AuthVM", "restoreProfileFromRoom error: ${e.message}", e)
         }

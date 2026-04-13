@@ -2,144 +2,140 @@ package com.example.tricount.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.googlefonts.Font
-import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.sp
 import com.example.tricount.R
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Roboto Serif — fetched at runtime via Google Fonts provider
+// Lato — bundled in res/font/
+//   lato_regular.ttf  →  FontWeight.Normal  (400)
+//   lato_bold.ttf     →  FontWeight.Bold    (700)
+//
+// Place both .ttf files in app/src/main/res/font/ and add matching
+// entries to R (Android Studio does this automatically on sync):
+//   R.font.lato_regular
+//   R.font.lato_bold
 // ─────────────────────────────────────────────────────────────────────────────
 
-private val provider = GoogleFont.Provider(
-    providerAuthority = "com.google.android.gms.fonts",
-    providerPackage   = "com.google.android.gms",
-    certificates      = R.array.com_google_android_gms_fonts_certs
-)
-
-private val RobotoSerifFont = GoogleFont("Roboto Serif")
-
-val RobotoSerif = FontFamily(
-    Font(googleFont = RobotoSerifFont, fontProvider = provider, weight = FontWeight.Thin),
-    Font(googleFont = RobotoSerifFont, fontProvider = provider, weight = FontWeight.ExtraLight),
-    Font(googleFont = RobotoSerifFont, fontProvider = provider, weight = FontWeight.Light),
-    Font(googleFont = RobotoSerifFont, fontProvider = provider, weight = FontWeight.Normal),
-    Font(googleFont = RobotoSerifFont, fontProvider = provider, weight = FontWeight.Medium),
-    Font(googleFont = RobotoSerifFont, fontProvider = provider, weight = FontWeight.SemiBold),
-    Font(googleFont = RobotoSerifFont, fontProvider = provider, weight = FontWeight.Bold),
-    Font(googleFont = RobotoSerifFont, fontProvider = provider, weight = FontWeight.ExtraBold),
-    Font(googleFont = RobotoSerifFont, fontProvider = provider, weight = FontWeight.Black),
+val Lato = FontFamily(
+    Font(resId = R.font.lato_regular, weight = FontWeight.Normal),
+    Font(resId = R.font.lato_bold,    weight = FontWeight.Bold),
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Typography scale
+// Weights are clamped to Normal / Bold because only those two cuts are
+// bundled. Styles that previously used SemiBold, Medium, or ExtraBold
+// fall back to the nearest available cut automatically (Bold for ≥ 600,
+// Normal for everything below). If you later add lato_light.ttf etc.,
+// just register the extra Font() entries above and restore the weights.
 // ─────────────────────────────────────────────────────────────────────────────
 
 val Typography = Typography(
 
     displayLarge = TextStyle(
-        fontFamily    = RobotoSerif,
+        fontFamily    = Lato,
         fontWeight    = FontWeight.Normal,
         fontSize      = 57.sp,
         lineHeight    = 64.sp,
         letterSpacing = (-0.25).sp
     ),
     displayMedium = TextStyle(
-        fontFamily    = RobotoSerif,
+        fontFamily    = Lato,
         fontWeight    = FontWeight.Normal,
         fontSize      = 45.sp,
         lineHeight    = 52.sp,
         letterSpacing = 0.sp
     ),
     displaySmall = TextStyle(
-        fontFamily    = RobotoSerif,
+        fontFamily    = Lato,
         fontWeight    = FontWeight.Normal,
         fontSize      = 36.sp,
         lineHeight    = 44.sp,
         letterSpacing = 0.sp
     ),
     headlineLarge = TextStyle(
-        fontFamily    = RobotoSerif,
-        fontWeight    = FontWeight.SemiBold,
+        fontFamily    = Lato,
+        fontWeight    = FontWeight.Bold,
         fontSize      = 32.sp,
         lineHeight    = 40.sp,
         letterSpacing = 0.sp
     ),
     headlineMedium = TextStyle(
-        fontFamily    = RobotoSerif,
-        fontWeight    = FontWeight.SemiBold,
+        fontFamily    = Lato,
+        fontWeight    = FontWeight.Bold,
         fontSize      = 28.sp,
         lineHeight    = 36.sp,
         letterSpacing = 0.sp
     ),
     headlineSmall = TextStyle(
-        fontFamily    = RobotoSerif,
-        fontWeight    = FontWeight.SemiBold,
+        fontFamily    = Lato,
+        fontWeight    = FontWeight.Bold,
         fontSize      = 24.sp,
         lineHeight    = 32.sp,
         letterSpacing = 0.sp
     ),
     titleLarge = TextStyle(
-        fontFamily    = RobotoSerif,
+        fontFamily    = Lato,
         fontWeight    = FontWeight.Bold,
         fontSize      = 22.sp,
         lineHeight    = 28.sp,
         letterSpacing = 0.sp
     ),
     titleMedium = TextStyle(
-        fontFamily    = RobotoSerif,
-        fontWeight    = FontWeight.SemiBold,
+        fontFamily    = Lato,
+        fontWeight    = FontWeight.Bold,
         fontSize      = 16.sp,
         lineHeight    = 24.sp,
         letterSpacing = 0.15.sp
     ),
     titleSmall = TextStyle(
-        fontFamily    = RobotoSerif,
-        fontWeight    = FontWeight.Medium,
+        fontFamily    = Lato,
+        fontWeight    = FontWeight.Normal,
         fontSize      = 14.sp,
         lineHeight    = 20.sp,
         letterSpacing = 0.1.sp
     ),
     bodyLarge = TextStyle(
-        fontFamily    = RobotoSerif,
+        fontFamily    = Lato,
         fontWeight    = FontWeight.Normal,
         fontSize      = 16.sp,
         lineHeight    = 24.sp,
         letterSpacing = 0.5.sp
     ),
     bodyMedium = TextStyle(
-        fontFamily    = RobotoSerif,
+        fontFamily    = Lato,
         fontWeight    = FontWeight.Normal,
         fontSize      = 14.sp,
         lineHeight    = 20.sp,
         letterSpacing = 0.25.sp
     ),
     bodySmall = TextStyle(
-        fontFamily    = RobotoSerif,
+        fontFamily    = Lato,
         fontWeight    = FontWeight.Normal,
         fontSize      = 12.sp,
         lineHeight    = 16.sp,
         letterSpacing = 0.4.sp
     ),
     labelLarge = TextStyle(
-        fontFamily    = RobotoSerif,
-        fontWeight    = FontWeight.Medium,
+        fontFamily    = Lato,
+        fontWeight    = FontWeight.Bold,
         fontSize      = 14.sp,
         lineHeight    = 20.sp,
         letterSpacing = 0.1.sp
     ),
     labelMedium = TextStyle(
-        fontFamily    = RobotoSerif,
-        fontWeight    = FontWeight.Medium,
+        fontFamily    = Lato,
+        fontWeight    = FontWeight.Normal,
         fontSize      = 12.sp,
         lineHeight    = 16.sp,
         letterSpacing = 0.5.sp
     ),
     labelSmall = TextStyle(
-        fontFamily    = RobotoSerif,
-        fontWeight    = FontWeight.Medium,
+        fontFamily    = Lato,
+        fontWeight    = FontWeight.Normal,
         fontSize      = 11.sp,
         lineHeight    = 16.sp,
         letterSpacing = 0.5.sp
