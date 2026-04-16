@@ -1,0 +1,771 @@
+package com.example.tricount
+
+import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Balance
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Notes
+import androidx.compose.material.icons.filled.Percent
+import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme.colorScheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.tricount.data.SessionManager
+import com.example.tricount.data.entity.ExpenseWithDetails
+import com.example.tricount.data.entity.MemberWithDetails
+import com.example.tricount.ui.theme.AppTheme
+import com.example.tricount.ui.theme.TriCountTheme
+import com.example.tricount.viewModel.AddExpenseResult
+import com.example.tricount.viewModel.TricountViewModel
+import kotlin.collections.forEach
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Activity
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+class EditExpenseActivity : ComponentActivity() {
+
+    private val viewModel: TricountViewModel by viewModels()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        val expenseId    = intent.getIntExtra(EXTRA_EXPENSE_ID,  -1)
+        val tricountId   = intent.getIntExtra(EXTRA_TRICOUNT_ID, -1)
+        val tricountName = intent.getStringExtra(EXTRA_TRICOUNT_NAME) ?: "Tricount"
+
+        if (expenseId == -1 || tricountId == -1) { finish(); return }
+
+        val sessionManager = SessionManager(this)
+        AppTheme.isDark.value = sessionManager.getDarkMode()
+
+        setContent {
+            TriCountTheme {
+                // Load the tricount so we get members + the expense list
+                LaunchedEffect(tricountId) {
+                    viewModel.loadTricountDetails(tricountId)
+                    viewModel.loadExpenses(tricountId)
+                }
+
+                val expenses      by viewModel.expenses.collectAsStateWithLifecycle()
+                val members       by viewModel.tricountMembers.collectAsStateWithLifecycle()
+                val currentUserId = sessionManager.getUserId() ?: -1
+
+                // Find the specific expense we are editing
+                val expense = remember(expenses, expenseId) {
+                    expenses.find { it.id == expenseId }
+                }
+
+                if (expense != null && members.isNotEmpty()) {
+                    EditExpenseScreen(
+                        expense       = expense,
+                        tricountId    = tricountId,
+                        tricountName  = tricountName,
+                        members       = members,
+                        currentUserId = currentUserId,
+                        viewModel     = viewModel,
+                        onBackClick   = { finish() },
+                        onSaved       = {
+                            setResult(android.app.Activity.RESULT_OK)
+                            finish()
+                        }
+                    )
+                } else {
+                    // Show spinner while data is loading
+                    Box(
+                        modifier         = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+            }
+        }
+    }
+
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    }
+
+    companion object {
+        const val EXTRA_EXPENSE_ID    = "extra_edit_expense_id"
+        const val EXTRA_TRICOUNT_ID   = "extra_edit_tricount_id"
+        const val EXTRA_TRICOUNT_NAME = "extra_edit_tricount_name"
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Detect original split mode from stored share values.
+//
+// AddExpenseActivity saves shares as:
+//   EQUALLY    → all shares == 1
+//   PERCENTAGE → share = (pct * 100).toInt()  e.g. 33.3% stored as 3330
+//   PARTS      → share = the raw integer part  e.g. 2
+//
+// So: all-ones → EQUALLY | any value > 100 → PERCENTAGE | else → PARTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+private fun detectSplitMode(shares: List<Int>): SplitMode {
+    if (shares.isEmpty()) return SplitMode.EQUALLY
+    if (shares.all { it == 1 }) return SplitMode.EQUALLY
+    if (shares.any { it > 100 }) return SplitMode.PERCENTAGE
+    return SplitMode.PARTS
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Screen
+// ─────────────────────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditExpenseScreen(
+    expense       : ExpenseWithDetails,
+    tricountId    : Int,
+    tricountName  : String,
+    members       : List<MemberWithDetails>,
+    currentUserId : Int,
+    viewModel     : TricountViewModel,
+    onBackClick   : () -> Unit,
+    onSaved       : () -> Unit
+) {
+    val context = LocalContext.current
+
+    // Map userId → stored share value from the existing expense splits
+    val storedShares =   remember(key1 = expense) {
+        expense.splits.associate { it.userId to it.share }
+    }
+
+    // Detect which split mode this expense was originally saved in
+    val detectedMode = remember(storedShares) {
+        detectSplitMode(storedShares.values.toList())
+    }
+
+    // ── Form state initialised from existing expense ───────────────────────────
+    var expenseName      by remember { mutableStateOf(expense.name) }
+    var amountText       by remember { mutableStateOf("%.2f".format(expense.amount)) }
+    var description      by remember { mutableStateOf(expense.description) }
+    // Amounts are always stored in INR; lock currency to INR for edits
+    val selectedCurrency = CURRENCIES.first { it.code == "INR" }
+    var selectedPayerId  by remember { mutableStateOf(expense.paidBy) }
+    var splitMode        by remember { mutableStateOf(detectedMode) }
+    var isLoading        by remember { mutableStateOf(false) }
+    var payerExpanded    by remember { mutableStateOf(false) }
+
+    // ── Split inputs pre-populated from the stored shares ─────────────────────
+    val splitInputs = remember(members, detectedMode, storedShares) {
+        mutableStateMapOf<Int, String>().also { map ->
+            members.forEach { member ->
+                val stored = storedShares[member.userId]
+                map[member.userId] = when (detectedMode) {
+                    SplitMode.EQUALLY    -> "1"
+                    // stored = (pct * 100).toInt() → reverse to get the pct string
+                    SplitMode.PERCENTAGE ->
+                        if (stored != null) "%.1f".format(stored / 100.0) else ""
+                    SplitMode.PARTS      ->
+                        (stored ?: 1).toString()
+                }
+            }
+        }
+    }
+
+    // When the user manually switches split mode, reset inputs to defaults
+    LaunchedEffect(splitMode) {
+        members.forEach { member ->
+            splitInputs[member.userId] = when (splitMode) {
+                SplitMode.EQUALLY    -> "1"
+                SplitMode.PERCENTAGE -> ""
+                SplitMode.PARTS      -> "1"
+            }
+        }
+    }
+
+    // ── Validation ────────────────────────────────────────────────────────────
+    val amountValue       = amountText.toDoubleOrNull()
+    val isAmountValid     = amountValue != null && amountValue > 0
+    val isNameValid       = expenseName.isNotBlank()
+    val percentageTotal   = if (splitMode == SplitMode.PERCENTAGE)
+        members.sumOf { splitInputs[it.userId]?.toDoubleOrNull() ?: 0.0 } else 0.0
+    val isPercentageValid = splitMode != SplitMode.PERCENTAGE ||
+            (percentageTotal >= 99.9 && percentageTotal <= 100.1)
+    val canSave           = isNameValid && isAmountValid && isPercentageValid && !isLoading
+
+    // ── Save ──────────────────────────────────────────────────────────────────
+    fun save() {
+        if (!canSave) return
+        val rawAmount   = amountValue!!
+        val amountInInr = if (selectedCurrency.code == "INR") rawAmount
+        else convertToInr(rawAmount, selectedCurrency.code)
+
+        val sharesMap: Map<Int, Int> = when (splitMode) {
+            SplitMode.EQUALLY    -> members.associate { it.userId to 1 }
+            SplitMode.PERCENTAGE -> members.associate { m ->
+                m.userId to ((splitInputs[m.userId]?.toDoubleOrNull() ?: 0.0) * 100).toInt()
+            }.filter { it.value > 0 }
+            SplitMode.PARTS      -> members.associate { m ->
+                m.userId to (splitInputs[m.userId]?.toIntOrNull() ?: 0)
+            }.filter { it.value > 0 }
+        }
+
+        if (sharesMap.isEmpty()) {
+            Toast.makeText(context, "At least one member must have a share", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        isLoading = true
+        // Delete old record, then insert the updated one
+        viewModel.deleteExpense(expense.id, tricountId)
+        viewModel.addExpense(
+            tricountId  = tricountId,
+            name        = expenseName.trim(),
+            description = description.trim(),
+            amount      = amountInInr,
+            paidBy      = selectedPayerId,
+            sharesMap   = sharesMap
+        ) { result ->
+            isLoading = false
+            when (result) {
+                is AddExpenseResult.Success -> {
+                    Toast.makeText(context, "Expense updated!", Toast.LENGTH_SHORT).show()
+                    onSaved()
+                }
+                is AddExpenseResult.Error ->
+                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // ── UI ────────────────────────────────────────────────────────────────────
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("Edit Expense", fontWeight = FontWeight.Bold)
+                        Text(
+                            tricountName, fontSize = 12.sp,
+                            color = colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    TextButton(onClick = ::save, enabled = canSave) {
+                        Text("Save", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier            = Modifier
+                .padding(padding)
+                .fillMaxSize(),
+            contentPadding      = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+
+            // ── Expense Details ──────────────────────────────────────────────
+            item {
+                EditSectionCard(title = "Expense Details") {
+
+                    OutlinedTextField(
+                        value           = expenseName,
+                        onValueChange   = { expenseName = it },
+                        label           = { Text("Expense Name *") },
+                        placeholder     = { Text("e.g. Dinner, Hotel, Taxi") },
+                        leadingIcon     = { Icon(Icons.Filled.ShoppingCart, null) },
+                        modifier        = Modifier.fillMaxWidth(),
+                        singleLine      = true,
+                        isError         = expenseName.isEmpty(),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        enabled         = !isLoading
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+
+                    Row(
+                        modifier              = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment     = Alignment.CenterVertically
+                    ) {
+                        // Currency locked to INR for edits
+                        OutlinedTextField(
+                            value         = "${selectedCurrency.flag} ${selectedCurrency.code}",
+                            onValueChange = {},
+                            readOnly      = true,
+                            modifier      = Modifier.width(108.dp),
+                            singleLine    = true,
+                            enabled       = false
+                        )
+                        OutlinedTextField(
+                            value           = amountText,
+                            onValueChange   = { v ->
+                                if (v.isEmpty() || v.matches(Regex("^\\d{0,10}(\\.\\d{0,2})?\$")))
+                                    amountText = v
+                            },
+                            label           = { Text("Amount *") },
+                            placeholder     = { Text("0.00") },
+                            modifier        = Modifier.weight(1f),
+                            singleLine      = true,
+                            isError         = amountText.isNotEmpty() && !isAmountValid,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Decimal,
+                                imeAction    = ImeAction.Next
+                            ),
+                            enabled         = !isLoading
+                        )
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value           = description,
+                        onValueChange   = { description = it },
+                        label           = { Text("Description (Optional)") },
+                        leadingIcon     = { Icon(Icons.Filled.Notes, null) },
+                        modifier        = Modifier.fillMaxWidth(),
+                        minLines        = 2,
+                        maxLines        = 4,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        enabled         = !isLoading
+                    )
+                }
+            }
+
+            // ── Paid By ──────────────────────────────────────────────────────
+            item {
+                EditSectionCard(title = "Paid By") {
+                    ExposedDropdownMenuBox(
+                        expanded         = payerExpanded,
+                        onExpandedChange = { payerExpanded = it && !isLoading }
+                    ) {
+                        val payer = members.find { it.userId == selectedPayerId }
+                        OutlinedTextField(
+                            value         = when {
+                                payer == null                 -> "Select payer"
+                                payer.userId == currentUserId -> "You (${payer.name})"
+                                else                          -> payer.name
+                            },
+                            onValueChange = {},
+                            readOnly      = true,
+                            label         = { Text("Who paid?") },
+                            leadingIcon   = {
+                                payer?.let {
+                                    Surface(
+                                        modifier = Modifier.size(28.dp),
+                                        shape    = CircleShape,
+                                        color    = if (it.userId == currentUserId)
+                                            colorScheme.primaryContainer
+                                        else colorScheme.secondaryContainer
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                it.name.first().uppercase(),
+                                                fontSize   = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color      = if (it.userId == currentUserId)
+                                                    colorScheme.onPrimaryContainer
+                                                else colorScheme.onSecondaryContainer
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            trailingIcon  = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(payerExpanded)
+                            },
+                            modifier      = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(),
+                            singleLine    = true,
+                            enabled       = !isLoading
+                        )
+                        ExposedDropdownMenu(
+                            expanded         = payerExpanded,
+                            onDismissRequest = { payerExpanded = false }
+                        ) {
+                            members.forEach { member ->
+                                val isCurrentUser = member.userId == currentUserId
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Surface(
+                                                modifier = Modifier.size(32.dp),
+                                                shape    = CircleShape,
+                                                color    = if (isCurrentUser)
+                                                    colorScheme.primaryContainer
+                                                else colorScheme.secondaryContainer
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Text(
+                                                        member.name.first().uppercase(),
+                                                        fontSize   = 13.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                            Spacer(Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    if (isCurrentUser) "You (${member.name})"
+                                                    else member.name,
+                                                    fontWeight = if (isCurrentUser)
+                                                        FontWeight.Bold else FontWeight.Normal
+                                                )
+                                                Text(
+                                                    member.email,
+                                                    fontSize = 11.sp,
+                                                    color    = colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onClick      = {
+                                        selectedPayerId = member.userId
+                                        payerExpanded   = false
+                                    },
+                                    trailingIcon = {
+                                        if (selectedPayerId == member.userId)
+                                            Icon(
+                                                Icons.Filled.Check, null,
+                                                tint = colorScheme.primary
+                                            )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Split ────────────────────────────────────────────────────────
+            item {
+                EditSectionCard(title = "Split") {
+
+                    Row(
+                        modifier              = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SplitMode.values().forEach { mode ->
+                            val label = when (mode) {
+                                SplitMode.EQUALLY    -> "Equally"
+                                SplitMode.PERCENTAGE -> "Percentage"
+                                SplitMode.PARTS      -> "By Parts"
+                            }
+                            val icon = when (mode) {
+                                SplitMode.EQUALLY    -> Icons.Filled.Balance
+                                SplitMode.PERCENTAGE -> Icons.Filled.Percent
+                                SplitMode.PARTS      -> Icons.Filled.PieChart
+                            }
+                            FilterChip(
+                                selected    = splitMode == mode,
+                                onClick     = { splitMode = mode },
+                                label       = { Text(label, fontSize = 12.sp) },
+                                leadingIcon = { Icon(icon, null, modifier = Modifier.size(16.dp)) },
+                                modifier    = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+
+                    Text(
+                        when (splitMode) {
+                            SplitMode.EQUALLY    -> "The expense will be split equally among all members."
+                            SplitMode.PERCENTAGE -> "Enter a percentage for each member. Must total 100%."
+                            SplitMode.PARTS      -> "Assign parts (e.g. 1 & 2 → one owes ⅓, other ⅔)."
+                        },
+                        fontSize = 12.sp,
+                        color    = colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+
+                    if (members.isEmpty()) {
+                        Text("No members loaded yet.", fontSize = 13.sp,
+                            color = colorScheme.onSurfaceVariant)
+                    } else {
+                        members.forEach { member ->
+                            val isCurrentUser = member.userId == currentUserId
+                            val amount        = amountText.toDoubleOrNull() ?: 0.0
+                            val preview: Double? = when (splitMode) {
+                                SplitMode.EQUALLY    ->
+                                    if (amount > 0) amount / members.size else null
+                                SplitMode.PERCENTAGE -> {
+                                    val pct = splitInputs[member.userId]?.toDoubleOrNull()
+                                    if (pct != null && amount > 0) amount * pct / 100.0 else null
+                                }
+                                SplitMode.PARTS      -> {
+                                    val parts      = splitInputs[member.userId]?.toIntOrNull() ?: 0
+                                    val totalParts = members
+                                        .sumOf { splitInputs[it.userId]?.toIntOrNull() ?: 0 }
+                                        .coerceAtLeast(1)
+                                    if (amount > 0 && parts > 0)
+                                        amount * parts.toDouble() / totalParts else null
+                                }
+                            }
+                            EditSplitMemberRow(
+                                member         = member,
+                                isCurrentUser  = isCurrentUser,
+                                splitMode      = splitMode,
+                                inputValue     = splitInputs[member.userId] ?: "",
+                                previewAmount  = preview,
+                                currencySymbol = selectedCurrency.symbol,
+                                isLoading      = isLoading,
+                                onInputChange  = { v -> splitInputs[member.userId] = v }
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+
+                        // Percentage validation banner
+                        if (splitMode == SplitMode.PERCENTAGE && percentageTotal > 0.0) {
+                            val color = if (isPercentageValid) Color(0xFF2E7D32)
+                            else Color(0xFFC62828)
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape    = RoundedCornerShape(8.dp),
+                                color    = color.copy(alpha = 0.1f)
+                            ) {
+                                Row(
+                                    modifier          = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        if (isPercentageValid) Icons.Filled.CheckCircle
+                                        else Icons.Filled.Warning,
+                                        null,
+                                        tint     = color,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        if (isPercentageValid) "Total: 100% ✓"
+                                        else "Total: ${"%.1f".format(percentageTotal)}% — must equal 100%",
+                                        fontSize   = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color      = color
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Save button ──────────────────────────────────────────────────
+            item {
+                Button(
+                    onClick  = ::save,
+                    enabled  = canSave,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp)
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier    = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color       = colorScheme.onPrimary
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text("Saving…")
+                    } else {
+                        Icon(Icons.Filled.Check, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Save Changes", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-member split row
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun EditSplitMemberRow(
+    member         : MemberWithDetails,
+    isCurrentUser  : Boolean,
+    splitMode      : SplitMode,
+    inputValue     : String,
+    previewAmount  : Double?,
+    currencySymbol : String,
+    isLoading      : Boolean,
+    onInputChange  : (String) -> Unit
+) {
+    Row(
+        modifier              = Modifier.fillMaxWidth(),
+        verticalAlignment     = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Surface(
+            modifier = Modifier.size(38.dp),
+            shape    = CircleShape,
+            color    = if (isCurrentUser) colorScheme.primaryContainer
+            else colorScheme.secondaryContainer
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    member.name.first().uppercase(),
+                    fontWeight = FontWeight.Bold,
+                    fontSize   = 15.sp,
+                    color      = if (isCurrentUser) colorScheme.onPrimaryContainer
+                    else colorScheme.onSecondaryContainer
+                )
+            }
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                if (isCurrentUser) "You" else member.name,
+                fontSize   = 14.sp,
+                fontWeight = if (isCurrentUser) FontWeight.Bold else FontWeight.Normal
+            )
+            if (previewAmount != null) {
+                Text(
+                    "≈ $currencySymbol${"%.2f".format(previewAmount)}",
+                    fontSize = 11.sp,
+                    color    = colorScheme.primary
+                )
+            }
+        }
+
+        when (splitMode) {
+            SplitMode.EQUALLY -> {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = colorScheme.primaryContainer.copy(alpha = 0.6f)
+                ) {
+                    Text(
+                        "Equal share", fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        color    = colorScheme.primary
+                    )
+                }
+            }
+            SplitMode.PERCENTAGE -> {
+                OutlinedTextField(
+                    value           = inputValue,
+                    onValueChange   = { v ->
+                        if (v.isEmpty() || v.matches(Regex("^\\d{0,3}(\\.\\d{0,1})?\$")))
+                            onInputChange(v)
+                    },
+                    modifier        = Modifier.width(90.dp),
+                    singleLine      = true,
+                    suffix          = { Text("%") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    enabled         = !isLoading
+                )
+            }
+            SplitMode.PARTS -> {
+                OutlinedTextField(
+                    value           = inputValue,
+                    onValueChange   = { v ->
+                        if (v.isEmpty() || v.all { it.isDigit() }) onInputChange(v)
+                    },
+                    modifier        = Modifier.width(90.dp),
+                    singleLine      = true,
+                    suffix          = { Text("pt") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    enabled         = !isLoading
+                )
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section card helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun EditSectionCard(
+    title   : String,
+    content : @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier  = Modifier.fillMaxWidth(),
+        colors    = CardDefaults.cardColors(containerColor = colorScheme.surface),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                title,
+                fontSize   = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color      = colorScheme.primary,
+                modifier   = Modifier.padding(bottom = 12.dp)
+            )
+            content()
+        }
+    }
+}

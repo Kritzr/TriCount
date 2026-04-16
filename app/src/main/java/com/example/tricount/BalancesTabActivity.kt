@@ -31,9 +31,6 @@ import com.example.tricount.viewModel.TricountViewModel
 private val Green = Color(0xFF2E7D32)
 private val Red   = Color(0xFFC62828)
 
-// Light grey used for all containers / cards
-private val CardGrey = Color(0xFFF2F2F2)
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -145,13 +142,12 @@ fun BalancesContent(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
 
-        // ── Overview card ─────────────────────────────────────────────────────
+        // ── Overview card — uses surfaceVariant like Details tab ───────────────
         item {
-            Card(
-                modifier  = Modifier.fillMaxWidth(),
-                colors    = CardDefaults.cardColors(containerColor = CardGrey),
-                elevation = CardDefaults.cardElevation(0.dp),
-                shape     = RoundedCornerShape(14.dp)
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape    = RoundedCornerShape(14.dp),
+                color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
             ) {
                 Column(
                     modifier            = Modifier
@@ -235,11 +231,10 @@ fun BalancesContent(
         }
 
         item {
-            Card(
-                modifier  = Modifier.fillMaxWidth(),
-                colors    = CardDefaults.cardColors(containerColor = CardGrey),
-                elevation = CardDefaults.cardElevation(0.dp),
-                shape     = RoundedCornerShape(14.dp)
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape    = RoundedCornerShape(14.dp),
+                color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     balanceRows.forEachIndexed { idx, (userId, name, net) ->
@@ -361,11 +356,10 @@ fun BalancesContent(
                     enter   = expandVertically(),
                     exit    = shrinkVertically()
                 ) {
-                    Card(
-                        modifier  = Modifier.fillMaxWidth(),
-                        colors    = CardDefaults.cardColors(containerColor = CardGrey),
-                        elevation = CardDefaults.cardElevation(0.dp),
-                        shape     = RoundedCornerShape(14.dp)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape    = RoundedCornerShape(14.dp),
+                        color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                     ) {
                         Column(
                             modifier            = Modifier.padding(16.dp),
@@ -471,7 +465,7 @@ fun BalancesContent(
                         }
                     )
                     Surface(
-                        color = CardGrey,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Row(
@@ -601,7 +595,7 @@ fun BalancesContent(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Settlement card
+// Settlement card — uses surfaceVariant to match Details tab
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -614,11 +608,10 @@ private fun SettlementCard(
     onRemind   : () -> Unit
 ) {
     val s = settlement
-    Card(
-        modifier  = Modifier.fillMaxWidth(),
-        colors    = CardDefaults.cardColors(containerColor = CardGrey),
-        elevation = CardDefaults.cardElevation(0.dp),
-        shape     = RoundedCornerShape(14.dp)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape    = RoundedCornerShape(14.dp),
+        color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
     ) {
         Column(
             modifier            = Modifier
@@ -634,9 +627,9 @@ private fun SettlementCard(
                 MemberChip(
                     name      = if (isDebtor) "You" else s.fromUserName,
                     isHighlit = isDebtor,
-                    chipColor = if (isDebtor) Color(0xFFFFEBEE)
+                    chipColor = if (isDebtor) MaterialTheme.colorScheme.errorContainer
                     else MaterialTheme.colorScheme.secondaryContainer,
-                    textColor = if (isDebtor) Red
+                    textColor = if (isDebtor) MaterialTheme.colorScheme.onErrorContainer
                     else MaterialTheme.colorScheme.onSecondaryContainer
                 )
 
@@ -660,9 +653,9 @@ private fun SettlementCard(
                 MemberChip(
                     name      = if (isCreditor) "You" else s.toUserName,
                     isHighlit = isCreditor,
-                    chipColor = if (isCreditor) Color(0xFFE8F5E9)
+                    chipColor = if (isCreditor) MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.secondaryContainer,
-                    textColor = if (isCreditor) Green
+                    textColor = if (isCreditor) MaterialTheme.colorScheme.onPrimaryContainer
                     else MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }

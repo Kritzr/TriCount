@@ -337,7 +337,6 @@ fun AchivedTricountCard(
                         Spacer(Modifier.width(16.dp))
                         Text("Unarchive", fontSize = 15.sp)
                     }
-                    HorizontalDivider()
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

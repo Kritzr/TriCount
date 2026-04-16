@@ -27,4 +27,6 @@ interface ExpenseDao {
 
     @Query("UPDATE expenses SET isArchived = 1 WHERE id = :expenseId")
     suspend fun archiveExpense(expenseId: Int)
+
+
 }

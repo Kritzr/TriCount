@@ -54,6 +54,8 @@
 
         <activity android:name=".InsightsActivity" />
 
+        <activity android:name=".EditExpenseActivity" />
+
         <!-- Add this -->
         <activity android:name=".BalancesTabActivity" android:exported="false" />
         <activity

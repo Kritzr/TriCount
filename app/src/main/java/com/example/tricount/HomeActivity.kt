@@ -736,7 +736,6 @@ fun AnimatedTricountCard(
                     ContextMenuOption(Icons.Filled.ContentCopy, "Duplicate") {
                         showContextMenu = false; onDuplicateClick()
                     }
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                     ContextMenuOption(
                         Icons.Filled.Archive, "Archive",
                         tint = MaterialTheme.colorScheme.secondary

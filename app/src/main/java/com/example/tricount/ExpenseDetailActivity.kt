@@ -1,5 +1,6 @@
 package com.example.tricount
 
+import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -202,17 +203,13 @@ fun ExpenseDetailScreen(
                                 onClick = {
                                     showMenu = false
                                     expense?.let { exp ->
-                                        val editIntent = Intent(context, AddExpenseActivity::class.java).apply {
-                                            putExtra("extra_tricount_id",   tricountId)
-                                            putExtra("extra_tricount_name", tricountName)
-                                            putExtra("extra_expense_id",    exp.id)
+                                        val editIntent = Intent(context, EditExpenseActivity::class.java).apply {
+                                            putExtra(EditExpenseActivity.EXTRA_EXPENSE_ID,    expenseId)   // the current expense's ID
+                                            putExtra(EditExpenseActivity.EXTRA_TRICOUNT_ID,   tricountId)
+                                            putExtra(EditExpenseActivity.EXTRA_TRICOUNT_NAME, tricountName)
                                         }
                                         context.startActivity(editIntent)
-                                        (context as? android.app.Activity)
-                                            ?.overridePendingTransition(
-                                                R.anim.slide_in_right,
-                                                R.anim.slide_out_left
-                                            )
+                                        (context as? Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
                                     }
                                 }
                             )
