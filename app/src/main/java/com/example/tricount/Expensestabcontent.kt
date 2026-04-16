@@ -1,11 +1,16 @@
 package com.example.tricount
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -56,6 +61,19 @@ class ExpensesActivity : ComponentActivity() {
 
     private val viewModel: TricountViewModel by viewModels()
 
+    // Holds the `createdAt` timestamp sent back by AddExpenseActivity.
+    // The list uses it to highlight the newest expense row for 3 seconds.
+    private val newlyAddedAtState = mutableStateOf(-1L)
+
+    private val addExpenseLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val addedAt = result.data
+                    ?.getLongExtra(AddExpenseActivity.EXTRA_NEW_EXPENSE_ID, -1L) ?: -1L
+                newlyAddedAtState.value = addedAt
+            }
+        }
+
     override fun finish() {
         super.finish()
         overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
@@ -81,6 +99,7 @@ class ExpensesActivity : ComponentActivity() {
                 val archivedExpenses by viewModel.archivedExpenses.collectAsStateWithLifecycle()
                 val members          by viewModel.tricountMembers.collectAsStateWithLifecycle()
                 val currentUserId    = sessionManager.getUserId() ?: -1
+                val newlyAddedAt     by newlyAddedAtState
 
                 ExpensesScreen(
                     tricountId       = tricountId,
@@ -90,7 +109,16 @@ class ExpensesActivity : ComponentActivity() {
                     members          = members,
                     currentUserId    = currentUserId,
                     viewModel        = viewModel,
-                    onBackClick      = { finish() }
+                    newlyAddedAt     = newlyAddedAt,
+                    onBackClick      = { finish() },
+                    onNavigateToAdd  = { id, name ->
+                        val intent = Intent(this, AddExpenseActivity::class.java).apply {
+                            putExtra(AddExpenseActivity.EXTRA_TRICOUNT_ID,   id)
+                            putExtra(AddExpenseActivity.EXTRA_TRICOUNT_NAME, name)
+                        }
+                        addExpenseLauncher.launch(intent)
+                        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+                    }
                 )
             }
         }
@@ -116,7 +144,9 @@ fun ExpensesScreen(
     members          : List<MemberWithDetails>,
     currentUserId    : Int,
     viewModel        : TricountViewModel,
-    onBackClick      : () -> Unit
+    newlyAddedAt     : Long = -1L,
+    onBackClick      : () -> Unit,
+    onNavigateToAdd  : ((tricountId: Int, tricountName: String) -> Unit)? = null
 ) {
     var showAddDialog  by remember { mutableStateOf(false) }
     var expenseToEdit  by remember { mutableStateOf<ExpenseWithDetails?>(null) }
@@ -144,7 +174,13 @@ fun ExpensesScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { showAddDialog = true },
+                onClick = {
+                    if (onNavigateToAdd != null) {
+                        onNavigateToAdd(tricountId, tricountName)
+                    } else {
+                        showAddDialog = true
+                    }
+                },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor   = MaterialTheme.colorScheme.onPrimary,
                 icon = { Icon(Icons.Filled.Add, contentDescription = "Add Expense") },
@@ -157,6 +193,7 @@ fun ExpensesScreen(
             expenses               = expenses,
             archivedExpenses       = archivedExpenses,
             currentUserId          = currentUserId,
+            newlyAddedAt           = newlyAddedAt,
             onDeleteExpense        = { expenseId -> viewModel.deleteExpense(expenseId, tricountId) },
             onArchiveExpense       = { expenseId -> viewModel.archiveExpense(expenseId, tricountId) },
             onUnarchiveExpense     = { expenseId -> viewModel.unarchiveExpense(expenseId, tricountId) },
@@ -199,6 +236,7 @@ fun ExpensesContent(
     expenses               : List<ExpenseWithDetails>,
     archivedExpenses       : List<ExpenseWithDetails> = emptyList(),
     currentUserId          : Int,
+    newlyAddedAt           : Long = -1L,
     onDeleteExpense        : (Int) -> Unit,
     onArchiveExpense       : (Int) -> Unit = {},
     onUnarchiveExpense     : (Int) -> Unit = {},
@@ -378,10 +416,33 @@ fun ExpensesContent(
 
             items(dayExpenses, key = { "active_${it.id}" }) { expense ->
                 val ctx = LocalContext.current
+
+                // ── New-expense highlight ─────────────────────────────────────
+                // If this expense was just added (createdAt within 500 ms of the
+                // timestamp sent back from AddExpenseActivity), highlight it for
+                // 3 seconds then fade back to transparent.
+                val isNewlyAdded = newlyAddedAt > 0 &&
+                        kotlin.math.abs(expense.createdAt - newlyAddedAt) < 5000L
+                var highlight by remember(isNewlyAdded) { mutableStateOf(isNewlyAdded) }
+                LaunchedEffect(isNewlyAdded) {
+                    if (isNewlyAdded) {
+                        kotlinx.coroutines.delay(3000L)
+                        highlight = false
+                    }
+                }
+                val highlightColor by animateColorAsState(
+                    targetValue = if (highlight)
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                    else Color.Transparent,
+                    animationSpec = tween(durationMillis = 800),
+                    label = "expenseHighlight"
+                )
+
                 Column {
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .background(highlightColor)
                             .clickable {
                                 val intent = android.content.Intent(ctx, ExpenseDetailActivity::class.java).apply {
                                     putExtra(ExpenseDetailActivity.EXTRA_EXPENSE_ID,  expense.id)

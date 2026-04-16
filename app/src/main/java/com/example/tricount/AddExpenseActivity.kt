@@ -99,6 +99,28 @@ val CURRENCIES = listOf(
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Exchange rates → INR (approximate fixed rates; replace with live API if needed)
+// ─────────────────────────────────────────────────────────────────────────────
+
+val EXCHANGE_RATES_TO_INR = mapOf(
+    "USD" to 83.50,
+    "EUR" to 90.20,
+    "GBP" to 105.60,
+    "INR" to 1.0,
+    "JPY" to 0.56,
+    "CAD" to 61.80,
+    "AUD" to 54.30,
+    "CHF" to 94.10,
+    "SGD" to 62.50,
+    "AED" to 22.73,
+)
+
+fun convertToInr(amount: Double, fromCurrency: String): Double {
+    val rate = EXCHANGE_RATES_TO_INR[fromCurrency] ?: 1.0
+    return amount * rate
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Split mode
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -136,7 +158,13 @@ class AddExpenseActivity : ComponentActivity() {
                     currentUserId = currentUserId,
                     viewModel     = viewModel,
                     onBackClick   = { finish() },
-                    onSaved       = { finish() }
+                    onSaved       = { addedAt ->
+                        val data = android.content.Intent().apply {
+                            putExtra(EXTRA_NEW_EXPENSE_ID, addedAt)
+                        }
+                        setResult(android.app.Activity.RESULT_OK, data)
+                        finish()
+                    }
                 )
             }
         }
@@ -148,8 +176,9 @@ class AddExpenseActivity : ComponentActivity() {
     }
 
     companion object {
-        const val EXTRA_TRICOUNT_ID   = "extra_tricount_id"
-        const val EXTRA_TRICOUNT_NAME = "extra_tricount_name"
+        const val EXTRA_TRICOUNT_ID    = "extra_tricount_id"
+        const val EXTRA_TRICOUNT_NAME  = "extra_tricount_name"
+        const val EXTRA_NEW_EXPENSE_ID = "extra_new_expense_added_at"  // Long: System.currentTimeMillis() when expense was saved
     }
 }
 
@@ -166,7 +195,7 @@ fun AddExpenseScreen(
     currentUserId : Int,
     viewModel     : TricountViewModel,
     onBackClick   : () -> Unit,
-    onSaved       : () -> Unit
+    onSaved       : (addedAt: Long) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -174,7 +203,7 @@ fun AddExpenseScreen(
     var expenseName      by remember { mutableStateOf("") }
     var amountText       by remember { mutableStateOf("") }
     var description      by remember { mutableStateOf("") }
-    var selectedCurrency by remember { mutableStateOf(CURRENCIES[0]) }
+    var selectedCurrency by remember { mutableStateOf(CURRENCIES.first { it.code == "INR" }) }
     var selectedPayerId  by remember { mutableStateOf(currentUserId) }
     var splitMode        by remember { mutableStateOf(SplitMode.EQUALLY) }
     var isLoading        by remember { mutableStateOf(false) }
@@ -205,7 +234,10 @@ fun AddExpenseScreen(
     // ── Save ──────────────────────────────────────────────────────────────────
     fun save() {
         if (!canSave) return
-        val amount = amountValue!!
+        val rawAmount = amountValue!!
+        // Convert to INR if a different currency is selected
+        val amountInInr = if (selectedCurrency.code == "INR") rawAmount
+        else convertToInr(rawAmount, selectedCurrency.code)
         val sharesMap: Map<Int, Int> = when (splitMode) {
             SplitMode.EQUALLY    -> members.associate { it.userId to 1 }
             SplitMode.PERCENTAGE -> members.associate { m ->
@@ -224,15 +256,18 @@ fun AddExpenseScreen(
             tricountId  = tricountId,
             name        = expenseName.trim(),
             description = description.trim(),
-            amount      = amount,
+            amount      = amountInInr,
             paidBy      = selectedPayerId,
             sharesMap   = sharesMap
         ) { result ->
             isLoading = false
             when (result) {
                 is AddExpenseResult.Success -> {
-                    Toast.makeText(context, "Expense added!", Toast.LENGTH_SHORT).show()
-                    onSaved()
+                    val msg = if (selectedCurrency.code != "INR")
+                        "Expense added! (${selectedCurrency.symbol}${"%.2f".format(rawAmount)} → ₹${"%.2f".format(amountInInr)})"
+                    else "Expense added!"
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    onSaved(System.currentTimeMillis())
                 }
                 is AddExpenseResult.Error ->
                     Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
@@ -410,6 +445,32 @@ fun AddExpenseScreen(
                             ),
                             enabled         = !isLoading
                         )
+                    }
+
+                    // ── INR conversion info banner ────────────────────────────
+                    if (selectedCurrency.code != "INR" && amountValue != null && amountValue > 0) {
+                        val converted = convertToInr(amountValue, selectedCurrency.code)
+                        Spacer(Modifier.height(8.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape    = RoundedCornerShape(8.dp),
+                            color    = colorScheme.tertiaryContainer.copy(alpha = 0.55f)
+                        ) {
+                            Row(
+                                modifier          = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("🔄", fontSize = 14.sp)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "${selectedCurrency.symbol}${"%.2f".format(amountValue)} " +
+                                            "≈ ₹${"%.2f".format(converted)} (saved in INR)",
+                                    fontSize   = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color      = colorScheme.onTertiaryContainer
+                                )
+                            }
+                        }
                     }
 
                     Spacer(Modifier.height(12.dp))
