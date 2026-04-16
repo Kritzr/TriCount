@@ -2,21 +2,18 @@ package com.example.tricount
 
 import android.content.Intent
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -26,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,6 +33,7 @@ import com.example.tricount.data.entity.MemberWithDetails
 import com.example.tricount.ui.theme.AppTheme
 import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.TricountViewModel
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -56,8 +53,9 @@ class ExpenseDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val expenseId   = intent.getIntExtra(EXTRA_EXPENSE_ID, -1)
-        val tricountId  = intent.getIntExtra(EXTRA_TRICOUNT_ID, -1)
+        val expenseId      = intent.getIntExtra(EXTRA_EXPENSE_ID, -1)
+        val tricountId     = intent.getIntExtra(EXTRA_TRICOUNT_ID, -1)
+        val tricountName   = intent.getStringExtra("extra_tricount_name") ?: ""
         val sessionManager = SessionManager(this)
 
         AppTheme.isDark.value = sessionManager.getDarkMode()
@@ -65,7 +63,7 @@ class ExpenseDetailActivity : ComponentActivity() {
         if (expenseId == -1 || tricountId == -1) { finish(); return }
 
         setContent {
-            TriCountTheme() {
+            TriCountTheme {
                 LaunchedEffect(tricountId) {
                     viewModel.loadExpenses(tricountId)
                     viewModel.loadTricountDetails(tricountId)
@@ -76,73 +74,45 @@ class ExpenseDetailActivity : ComponentActivity() {
                 val members       by viewModel.tricountMembers.collectAsStateWithLifecycle()
                 val currentUserId  = sessionManager.getUserId() ?: -1
 
-                // Current index in the sorted list for prev/next navigation
                 val sortedExpenses = remember(expenses) {
                     expenses.sortedByDescending { it.createdAt }
                 }
-                var currentIndex by remember(sortedExpenses, expenseId) {
-                    mutableStateOf(sortedExpenses.indexOfFirst { it.id == expenseId }
-                        .coerceAtLeast(0))
-                }
-                // Track swipe direction so AnimatedContent slides correctly
-                var swipeDir by remember { mutableStateOf(1) }  // 1 = forward, -1 = back
 
-                val expense = sortedExpenses.getOrNull(currentIndex)
-
-                if (expense != null) {
-                    AnimatedContent(
-                        targetState   = currentIndex,
-                        transitionSpec = {
-                            val dir = swipeDir
-                            slideIntoContainer(
-                                towards       = if (dir > 0)
-                                    AnimatedContentTransitionScope.SlideDirection.Start
-                                else
-                                    AnimatedContentTransitionScope.SlideDirection.End,
-                                animationSpec = tween(280)
-                            ) togetherWith slideOutOfContainer(
-                                towards       = if (dir > 0)
-                                    AnimatedContentTransitionScope.SlideDirection.Start
-                                else
-                                    AnimatedContentTransitionScope.SlideDirection.End,
-                                animationSpec = tween(280)
-                            )
-                        },
-                        label = "expense_page"
-                    ) { idx ->
-                        val exp    = sortedExpenses.getOrNull(idx) ?: return@AnimatedContent
-                        val splits = expenseSplits[exp.id] ?: emptyList()
-                        ExpenseDetailScreen(
-                            expense       = exp,
-                            splits        = splits,
-                            members       = members,
-                            currentUserId = currentUserId,
-                            hasPrev       = idx > 0,
-                            hasNext       = idx < sortedExpenses.lastIndex,
-                            currentIndex  = idx,
-                            totalCount    = sortedExpenses.size,
-                            onPrev        = { swipeDir = -1; currentIndex-- },
-                            onNext        = { swipeDir =  1; currentIndex++ },
-                            onDelete      = {
-                                viewModel.deleteExpense(exp.id, tricountId)
-                                finish()
-                            },
-                            onEdit        = { /* handled inside screen via dialog */ },
-                            onBackClick   = { finish() },
-                            viewModel     = viewModel,
-                            tricountId    = tricountId,
-                            onSwipeLeft   = {
-                                if (idx < sortedExpenses.lastIndex) {
-                                    swipeDir = 1; currentIndex++
-                                }
-                            },
-                            onSwipeRight  = {
-                                if (idx > 0) {
-                                    swipeDir = -1; currentIndex--
-                                }
-                            }
-                        )
+                if (sortedExpenses.isNotEmpty()) {
+                    val initialPage = remember(sortedExpenses, expenseId) {
+                        sortedExpenses.indexOfFirst { it.id == expenseId }.coerceAtLeast(0)
                     }
+                    val pagerState = rememberPagerState(
+                        initialPage = initialPage,
+                        pageCount   = { sortedExpenses.size }
+                    )
+                    val scope = rememberCoroutineScope()
+
+                    ExpenseDetailScreen(
+                        sortedExpenses = sortedExpenses,
+                        expenseSplits  = expenseSplits,
+                        members        = members,
+                        currentUserId  = currentUserId,
+                        pagerState     = pagerState,
+                        onPrev         = {
+                            scope.launch {
+                                pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                            }
+                        },
+                        onNext         = {
+                            scope.launch {
+                                pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                            }
+                        },
+                        onDelete       = { expId ->
+                            viewModel.deleteExpense(expId, tricountId)
+                            finish()
+                        },
+                        onBackClick    = { finish() },
+                        viewModel      = viewModel,
+                        tricountId     = tricountId,
+                        tricountName   = tricountName
+                    )
                 } else {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -159,52 +129,39 @@ class ExpenseDetailActivity : ComponentActivity() {
 }
 
 // =============================================================================
-// Screen
+// Screen — static TopAppBar + dots row; only HorizontalPager content swipes
 // =============================================================================
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExpenseDetailScreen(
-    expense       : ExpenseWithDetails,
-    splits        : List<ExpenseSplitWithUser>,
-    members       : List<MemberWithDetails>,
-    currentUserId : Int,
-    hasPrev       : Boolean,
-    hasNext       : Boolean,
-    currentIndex  : Int = 0,
-    totalCount    : Int = 1,
-    onPrev        : () -> Unit,
-    onNext        : () -> Unit,
-    onDelete      : () -> Unit,
-    onEdit        : () -> Unit,
-    onBackClick   : () -> Unit,
-    viewModel     : TricountViewModel,
-    tricountId    : Int,
-    onSwipeLeft   : () -> Unit = {},
-    onSwipeRight  : () -> Unit = {}
+    sortedExpenses : List<ExpenseWithDetails>,
+    expenseSplits  : Map<Int, List<ExpenseSplitWithUser>>,
+    members        : List<MemberWithDetails>,
+    currentUserId  : Int,
+    pagerState     : androidx.compose.foundation.pager.PagerState,
+    onPrev         : () -> Unit,
+    onNext         : () -> Unit,
+    onDelete       : (Int) -> Unit,
+    onBackClick    : () -> Unit,
+    viewModel      : TricountViewModel,
+    tricountId     : Int,
+    tricountName   : String
 ) {
-    val context = LocalContext.current
-
-    var showMenu        by remember { mutableStateOf(false) }
+    val context          = LocalContext.current
+    var showMenu         by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-    var showEditDialog  by remember { mutableStateOf(false) }
 
-    val categoryEmoji = mapOf(
-        "Food & Drinks" to "🍔", "Transport"    to "🚕", "Accommodation" to "🏨",
-        "Entertainment" to "🎬", "Shopping"     to "🛍️", "Health"        to "💊",
-        "Groceries"     to "🛒", "Utilities"    to "⚡", "Travel"        to "✈️",
-        "Education"     to "📚", "General"      to "📌"
-    )
-    val emoji   = categoryEmoji[expense.category] ?: "📌"
-    val isMe    = expense.paidBy == currentUserId
-    val dateStr = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault())
-        .format(Date(expense.createdAt))
-
-    val totalShares = splits.sumOf { it.shares }.coerceAtLeast(1)
+    val currentPage = pagerState.currentPage
+    val hasPrev     = currentPage > 0
+    val hasNext     = currentPage < sortedExpenses.lastIndex
+    val totalCount  = sortedExpenses.size
+    val expense     = sortedExpenses.getOrNull(currentPage)
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
+            // ── Fully static — never moves during swipe ──────────────────────
             TopAppBar(
                 title = {},
                 navigationIcon = {
@@ -213,7 +170,6 @@ fun ExpenseDetailScreen(
                     }
                 },
                 actions = {
-                    // ← prev
                     IconButton(onClick = onPrev, enabled = hasPrev) {
                         Icon(
                             Icons.Filled.ChevronLeft, "Previous",
@@ -221,7 +177,6 @@ fun ExpenseDetailScreen(
                             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
                         )
                     }
-                    // → next
                     IconButton(onClick = onNext, enabled = hasNext) {
                         Icon(
                             Icons.Filled.ChevronRight, "Next",
@@ -229,7 +184,7 @@ fun ExpenseDetailScreen(
                             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
                         )
                     }
-                    // ⋮ three-dot menu
+                    // ⋮ menu
                     Box {
                         IconButton(onClick = { showMenu = true }) {
                             Icon(Icons.Filled.MoreVert, "Options")
@@ -244,7 +199,22 @@ fun ExpenseDetailScreen(
                                         modifier = Modifier.size(20.dp))
                                 },
                                 text    = { Text("Edit", fontSize = 15.sp) },
-                                onClick = { showMenu = false; showEditDialog = true }
+                                onClick = {
+                                    showMenu = false
+                                    expense?.let { exp ->
+                                        val editIntent = Intent(context, AddExpenseActivity::class.java).apply {
+                                            putExtra("extra_tricount_id",   tricountId)
+                                            putExtra("extra_tricount_name", tricountName)
+                                            putExtra("extra_expense_id",    exp.id)
+                                        }
+                                        context.startActivity(editIntent)
+                                        (context as? android.app.Activity)
+                                            ?.overridePendingTransition(
+                                                R.anim.slide_in_right,
+                                                R.anim.slide_out_left
+                                            )
+                                    }
+                                }
                             )
                             DropdownMenuItem(
                                 leadingIcon = {
@@ -262,7 +232,7 @@ fun ExpenseDetailScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor    = MaterialTheme.colorScheme.background,
+                    containerColor             = MaterialTheme.colorScheme.background,
                     navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
                     actionIconContentColor     = MaterialTheme.colorScheme.onBackground
                 )
@@ -270,198 +240,47 @@ fun ExpenseDetailScreen(
         }
     ) { padding ->
 
-        // ── Swipe gesture accumulator ─────────────────────────────────────────
-        var swipeAccum by remember { mutableStateOf(0f) }
-        val swipeThreshold = 80f   // px needed to trigger page change
-
-        Box(
+        Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .pointerInput(hasPrev, hasNext) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = { swipeAccum = 0f },
-                        onDragCancel = { swipeAccum = 0f }
-                    ) { _, dragAmount ->
-                        swipeAccum += dragAmount
-                        when {
-                            swipeAccum < -swipeThreshold -> { onSwipeLeft();  swipeAccum = 0f }
-                            swipeAccum >  swipeThreshold -> { onSwipeRight(); swipeAccum = 0f }
-                        }
-                    }
-                }
         ) {
 
-            // ── Page indicator dots ───────────────────────────────────────────────
+            // ── Number sliding pill indicator ─────────────────────────────────
             if (totalCount > 1) {
-                Row(
-                    modifier              = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment     = Alignment.CenterVertically
-                ) {
-                    val visibleStart = (currentIndex - 2).coerceAtLeast(0)
-                    val visibleEnd   = (currentIndex + 3).coerceAtMost(totalCount)
-                    (visibleStart until visibleEnd).forEach { i ->
-                        val active = i == currentIndex
-                        Box(
-                            modifier = Modifier
-                                .size(if (active) 8.dp else 5.dp)
-                                .background(
-                                    color = if (active) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
-                                    shape = androidx.compose.foundation.shape.CircleShape
-                                )
-                        )
-                    }
-                }
+                PageNumberIndicator(
+                    totalCount  = totalCount,
+                    currentPage = currentPage,
+                    onPrev      = onPrev,
+                    onNext      = onNext,
+                    modifier    = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp, bottom = 4.dp)
+                )
             }
 
-            LazyColumn(
-                modifier       = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = if (totalCount > 1) 24.dp else 0.dp, bottom = 32.dp)
-            ) {
+            // ── HorizontalPager — ONLY this section swipes ───────────────────
+            HorizontalPager(
+                state    = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) { page ->
+                val exp    = sortedExpenses.getOrNull(page) ?: return@HorizontalPager
+                val splits = expenseSplits[exp.id] ?: emptyList()
 
-                // ── Hero: emoji + name + date ─────────────────────────────────
-                item {
-                    Column(
-                        modifier            = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp, bottom = 24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(emoji, fontSize = 56.sp)
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            expense.name,
-                            fontSize   = 26.sp,
-                            fontWeight = FontWeight.Bold,
-                            color      = MaterialTheme.colorScheme.onBackground
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            dateStr,
-                            fontSize = 14.sp,
-                            color    = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                // ── "Paid By" section ─────────────────────────────────────────
-                item {
-                    DetailSectionHeader("Paid By")
-                    Spacer(Modifier.height(8.dp))
-                    DetailPersonRow(
-                        name          = expense.paidByName,
-                        subtitle      = if (isMe) "Me" else null,
-                        amount        = expense.amount,
-                        isCurrentUser = isMe,
-                        amountColor   = Color(0xFFE65100)   // orange like screenshot
-                    )
-                    Spacer(Modifier.height(24.dp))
-                }
-
-                // ── "Participants" section ────────────────────────────────────
-                item {
-                    DetailSectionHeader("Participants")
-                    Spacer(Modifier.height(8.dp))
-                }
-
-                if (splits.isEmpty()) {
-                    item {
-                        // No split data — show all members equally
-                        val equalAmount = expense.amount / members.size.coerceAtLeast(1)
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                            shape    = RoundedCornerShape(12.dp),
-                            color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        ) {
-                            Column {
-                                members.forEachIndexed { index, member ->
-                                    val isCurrent = member.userId == currentUserId
-                                    DetailPersonRow(
-                                        name          = member.name,
-                                        subtitle      = if (isCurrent) "Me" else null,
-                                        amount        = equalAmount,
-                                        isCurrentUser = isCurrent,
-                                        amountColor   = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    if (index < members.lastIndex) {
-                                        HorizontalDivider(
-                                            modifier  = Modifier.padding(start = 72.dp, end = 16.dp),
-                                            thickness = 0.5.dp,
-                                            color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    item {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                            shape    = RoundedCornerShape(12.dp),
-                            color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        ) {
-                            Column {
-                                splits.forEachIndexed { index, split ->
-                                    val owedAmount    = expense.amount * split.shares / totalShares
-                                    val isCurrent     = split.userId == currentUserId
-                                    DetailPersonRow(
-                                        name          = split.userName,
-                                        subtitle      = if (isCurrent) "Me" else null,
-                                        amount        = owedAmount,
-                                        isCurrentUser = isCurrent,
-                                        amountColor   = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    if (index < splits.lastIndex) {
-                                        HorizontalDivider(
-                                            modifier  = Modifier.padding(start = 72.dp, end = 16.dp),
-                                            thickness = 0.5.dp,
-                                            color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── Description note ──────────────────────────────────────────
-                if (expense.description.isNotBlank()) {
-                    item {
-                        Spacer(Modifier.height(24.dp))
-                        DetailSectionHeader("Note")
-                        Spacer(Modifier.height(8.dp))
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                            shape    = RoundedCornerShape(12.dp),
-                            color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        ) {
-                            Text(
-                                expense.description,
-                                modifier = Modifier.padding(16.dp),
-                                fontSize = 14.sp,
-                                color    = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
+                ExpensePageContent(
+                    expense       = exp,
+                    splits        = splits,
+                    members       = members,
+                    currentUserId = currentUserId
+                )
             }
         }
-
-    } // end Box (swipe gesture)
+    }
 
     // ── Delete confirmation dialog ────────────────────────────────────────────
-    if (showDeleteDialog) {
+    if (showDeleteDialog && expense != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             icon  = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
@@ -469,7 +288,7 @@ fun ExpenseDetailScreen(
             text  = { Text("Delete \"${expense.name}\"? This cannot be undone.") },
             confirmButton = {
                 Button(
-                    onClick = { showDeleteDialog = false; onDelete() },
+                    onClick = { showDeleteDialog = false; onDelete(expense.id) },
                     colors  = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error)
                 ) { Text("Delete") }
@@ -479,22 +298,304 @@ fun ExpenseDetailScreen(
             }
         )
     }
+}
 
-    // ── Edit dialog ───────────────────────────────────────────────────────────
-    if (showEditDialog) {
-        ExpenseEditDialog(
-            expense       = expense,
-            tricountId    = tricountId,
-            currentUserId = currentUserId,
-            members       = members,
-            viewModel     = viewModel,
-            onDismiss     = { showEditDialog = false }
-        )
+// =============================================================================
+// Per-page content — this is what slides during swipe
+// =============================================================================
+
+@Composable
+private fun ExpensePageContent(
+    expense       : ExpenseWithDetails,
+    splits        : List<ExpenseSplitWithUser>,
+    members       : List<MemberWithDetails>,
+    currentUserId : Int
+) {
+    val categoryEmoji = mapOf(
+        "Food & Drinks"  to "🍔", "Transport"      to "🚕", "Accommodation" to "🏨",
+        "Entertainment"  to "🎬", "Shopping"       to "🛍️", "Health"         to "💊",
+        "Groceries"      to "🛒", "Utilities"      to "⚡", "Travel"         to "✈️",
+        "Education"      to "📚", "General"        to "📌"
+    )
+    val emoji       = categoryEmoji[expense.category] ?: "📌"
+    val isMe        = expense.paidBy == currentUserId
+    val dateStr     = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault())
+        .format(Date(expense.createdAt))
+    val totalShares = splits.sumOf { it.shares }.coerceAtLeast(1)
+
+    LazyColumn(
+        modifier       = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 32.dp)
+    ) {
+
+        // Hero
+        item {
+            Column(
+                modifier            = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp, bottom = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(emoji, fontSize = 56.sp)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    expense.name,
+                    fontSize   = 26.sp,
+                    fontWeight = FontWeight.Bold,
+                    color      = MaterialTheme.colorScheme.onBackground
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    dateStr,
+                    fontSize = 14.sp,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Paid By
+        item {
+            DetailSectionHeader("Paid By")
+            Spacer(Modifier.height(8.dp))
+            DetailPersonRow(
+                name          = expense.paidByName,
+                subtitle      = if (isMe) "Me" else null,
+                amount        = expense.amount,
+                isCurrentUser = isMe,
+                amountColor   = Color(0xFFE65100)
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+
+        // Participants header
+        item {
+            DetailSectionHeader("Participants")
+            Spacer(Modifier.height(8.dp))
+        }
+
+        // Participants rows
+        if (splits.isEmpty()) {
+            item {
+                val equalAmount = expense.amount / members.size.coerceAtLeast(1)
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    shape    = RoundedCornerShape(12.dp),
+                    color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ) {
+                    Column {
+                        members.forEachIndexed { index, member ->
+                            val isCurrent = member.userId == currentUserId
+                            DetailPersonRow(
+                                name          = member.name,
+                                subtitle      = if (isCurrent) "Me" else null,
+                                amount        = equalAmount,
+                                isCurrentUser = isCurrent,
+                                amountColor   = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (index < members.lastIndex) {
+                                HorizontalDivider(
+                                    modifier  = Modifier.padding(start = 72.dp, end = 16.dp),
+                                    thickness = 0.5.dp,
+                                    color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    shape    = RoundedCornerShape(12.dp),
+                    color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ) {
+                    Column {
+                        splits.forEachIndexed { index, split ->
+                            val owedAmount = expense.amount * split.shares / totalShares
+                            val isCurrent  = split.userId == currentUserId
+                            DetailPersonRow(
+                                name          = split.userName,
+                                subtitle      = if (isCurrent) "Me" else null,
+                                amount        = owedAmount,
+                                isCurrentUser = isCurrent,
+                                amountColor   = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (index < splits.lastIndex) {
+                                HorizontalDivider(
+                                    modifier  = Modifier.padding(start = 72.dp, end = 16.dp),
+                                    thickness = 0.5.dp,
+                                    color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Note
+        if (expense.description.isNotBlank()) {
+            item {
+                Spacer(Modifier.height(24.dp))
+                DetailSectionHeader("Note")
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    shape    = RoundedCornerShape(12.dp),
+                    color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ) {
+                    Text(
+                        expense.description,
+                        modifier = Modifier.padding(16.dp),
+                        fontSize = 14.sp,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
     }
 }
 
 // =============================================================================
-// Section header — bold left-aligned like screenshot
+// Number sliding-window indicator
+// =============================================================================
+//
+//  Visual behaviour (WINDOW_SIZE = 5):
+//
+//    page 1 of 14:   Previous  [1]  2  3  4  5  ›   Next
+//    page 7 of 14:   Previous  ‹  5  6  [7]  8  9  ›   Next
+//    page 14 of 14:  Previous  ‹  10  11  12  13  [14]   Next
+//
+//  Active  → filled primary-colour circle, bold onPrimary text, 180 ms fade
+//  Inactive → plain text, onSurface 45 % alpha
+//  ‹ / ›   → faint chevrons hinting more pages exist outside the window
+//  Previous / Next → coloured text buttons, greyed out at boundaries
+// =============================================================================
+
+private const val WINDOW_SIZE = 5
+
+@Composable
+fun PageNumberIndicator(
+    totalCount  : Int,
+    currentPage : Int,
+    onPrev      : () -> Unit,
+    onNext      : () -> Unit,
+    modifier    : Modifier = Modifier
+) {
+    val primary   = MaterialTheme.colorScheme.primary
+    val onPrimary = MaterialTheme.colorScheme.onPrimary
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val hasPrev   = currentPage > 0
+    val hasNext   = currentPage < totalCount - 1
+
+    val half        = WINDOW_SIZE / 2
+    val windowStart = (currentPage - half)
+        .coerceIn(0, (totalCount - WINDOW_SIZE).coerceAtLeast(0))
+    val windowEnd   = (windowStart + WINDOW_SIZE - 1).coerceAtMost(totalCount - 1)
+
+    Row(
+        modifier              = modifier,
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment     = Alignment.CenterVertically
+    ) {
+
+        // ── "Previous" label ─────────────────────────────────────────────────
+        TextButton(
+            onClick  = onPrev,
+            enabled  = hasPrev,
+            modifier = Modifier.defaultMinSize(minWidth = 72.dp)
+        ) {
+            Text(
+                "Previous",
+                fontSize = 13.sp,
+                color    = if (hasPrev) primary
+                else onSurface.copy(alpha = 0.3f)
+            )
+        }
+
+        // ── Left overflow hint ───────────────────────────────────────────────
+        if (windowStart > 0) {
+            Text(
+                "‹",
+                fontSize   = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color      = onSurface.copy(alpha = 0.35f)
+            )
+            Spacer(Modifier.width(4.dp))
+        }
+
+        // ── Visible window ───────────────────────────────────────────────────
+        (windowStart..windowEnd).forEachIndexed { slot, pageIndex ->
+            if (slot > 0) Spacer(Modifier.width(4.dp))
+
+            val isActive = pageIndex == currentPage
+
+            val pillAlpha by animateFloatAsState(
+                targetValue   = if (isActive) 1f else 0f,
+                animationSpec = tween(durationMillis = 180),
+                label         = "pill_$pageIndex"
+            )
+            val textAlpha by animateFloatAsState(
+                targetValue   = if (isActive) 1f else 0.45f,
+                animationSpec = tween(durationMillis = 180),
+                label         = "text_$pageIndex"
+            )
+
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier         = Modifier
+                    .size(28.dp)
+                    .background(
+                        color = primary.copy(alpha = pillAlpha),
+                        shape = CircleShape
+                    )
+            ) {
+                Text(
+                    text       = "${pageIndex + 1}",
+                    fontSize   = 13.sp,
+                    fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
+                    color      = if (isActive) onPrimary.copy(alpha = pillAlpha)
+                    else onSurface.copy(alpha = textAlpha)
+                )
+            }
+        }
+
+        // ── Right overflow hint ──────────────────────────────────────────────
+        if (windowEnd < totalCount - 1) {
+            Spacer(Modifier.width(4.dp))
+            Text(
+                "›",
+                fontSize   = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color      = onSurface.copy(alpha = 0.35f)
+            )
+        }
+
+        // ── "Next" label ─────────────────────────────────────────────────────
+        TextButton(
+            onClick  = onNext,
+            enabled  = hasNext,
+            modifier = Modifier.defaultMinSize(minWidth = 72.dp)
+        ) {
+            Text(
+                "Next",
+                fontSize = 13.sp,
+                color    = if (hasNext) primary
+                else onSurface.copy(alpha = 0.3f)
+            )
+        }
+    }
+}
+
+// =============================================================================
+// Helpers
 // =============================================================================
 
 @Composable
@@ -507,11 +608,6 @@ private fun DetailSectionHeader(title: String) {
         modifier   = Modifier.padding(horizontal = 16.dp)
     )
 }
-
-// =============================================================================
-// Person row — avatar circle + name + subtitle + amount
-// Matches the Paid By / Participants rows in the screenshot exactly
-// =============================================================================
 
 @Composable
 private fun DetailPersonRow(
@@ -527,7 +623,6 @@ private fun DetailPersonRow(
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Avatar circle — gray with initial letter, matches screenshot
         Surface(
             shape    = CircleShape,
             color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
@@ -535,7 +630,6 @@ private fun DetailPersonRow(
         ) {
             Box(contentAlignment = Alignment.Center) {
                 if (isCurrentUser) {
-                    // Filled person icon for "Me" — like screenshot
                     Icon(
                         Icons.Filled.Person, null,
                         tint     = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
@@ -554,7 +648,6 @@ private fun DetailPersonRow(
 
         Spacer(Modifier.width(14.dp))
 
-        // Name + subtitle
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 name,
@@ -571,7 +664,7 @@ private fun DetailPersonRow(
             }
         }
 
-        // Amount
+        // Default currency: INR ₹
         Text(
             "₹${"%.2f".format(amount)}",
             fontSize   = 17.sp,

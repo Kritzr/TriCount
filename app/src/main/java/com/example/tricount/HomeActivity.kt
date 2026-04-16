@@ -404,7 +404,7 @@ fun TriCountListScreen(
                                     title,
                                     fontWeight = if (selectedTab == index) FontWeight.Bold
                                     else FontWeight.Normal,
-                                    fontSize   = 13.sp
+                                    fontSize   = 16.sp
                                 )
                             },
                             icon = {
@@ -540,13 +540,13 @@ fun TriCountListScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         "Archived Tricounts",
-                                        fontSize   = 15.sp,
+                                        fontSize   = 19.sp,
                                         fontWeight = FontWeight.Medium,
                                         color      = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
                                         "View trips you have archived",
-                                        fontSize = 12.sp,
+                                        fontSize = 14.sp,
                                         color    = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
@@ -591,7 +591,7 @@ fun TriCountListScreen(
             onDismissRequest = { tricountToEdit = null },
             title = { Text("Edit Tricount") },
             text  = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     OutlinedTextField(
                         value         = editName,
                         onValueChange = { editName = it },

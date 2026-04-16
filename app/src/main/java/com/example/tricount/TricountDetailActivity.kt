@@ -203,7 +203,6 @@ fun TricountDetailScreen(
                                         }
                                     }
                                 )
-                                HorizontalDivider()
                                 // Edit → EditTripActivity
                                 DropdownMenuItem(
                                     leadingIcon = { Icon(Icons.Filled.Edit, null) },
@@ -217,7 +216,6 @@ fun TricountDetailScreen(
                                         (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
                                     }
                                 )
-                                HorizontalDivider()
                                 // Insights
                                 DropdownMenuItem(
                                     leadingIcon = {
@@ -238,7 +236,6 @@ fun TricountDetailScreen(
                                         (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
                                     }
                                 )
-                                HorizontalDivider()
                                 // Archived Expenses
                                 DropdownMenuItem(
                                     leadingIcon = { Icon(Icons.Filled.Inventory, null) },
@@ -255,7 +252,6 @@ fun TricountDetailScreen(
                                 )
                                 // Archive tricount — only shown when not already archived
                                 if (!isArchived) {
-                                    HorizontalDivider()
                                     DropdownMenuItem(
                                         leadingIcon = {
                                             Icon(Icons.Filled.Archive, null,
@@ -268,7 +264,6 @@ fun TricountDetailScreen(
                                         onClick = { showMenu = false; showArchiveDialog = true }
                                     )
                                 }
-                                HorizontalDivider()
                                 // Delete tricount
                                 DropdownMenuItem(
                                     leadingIcon = {
@@ -423,7 +418,7 @@ fun TricountDetailScreen(
                             Text(
                                 label,
                                 modifier   = Modifier.padding(vertical = 8.dp),
-                                fontSize   = 12.sp,
+                                fontSize   = 15.sp,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                                 color      = if (selected) MaterialTheme.colorScheme.onSurface
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -581,7 +576,7 @@ private fun DetailsTab(
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         "Join Code",
-                        fontSize   = 13.sp,
+                        fontSize   = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color      = MaterialTheme.colorScheme.primary
                     )

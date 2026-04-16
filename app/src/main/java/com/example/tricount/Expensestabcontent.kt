@@ -24,12 +24,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -122,8 +128,11 @@ fun ExpensesScreen(
                 title = {
                     Column {
                         Text(tricountName, fontWeight = FontWeight.Bold)
-                        Text("Expenses", fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        Text(
+                            "Expenses",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
                     }
                 },
                 navigationIcon = {
@@ -134,13 +143,13 @@ fun ExpensesScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
+            ExtendedFloatingActionButton(
                 onClick = { showAddDialog = true },
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor   = MaterialTheme.colorScheme.onPrimaryContainer
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "Add Expense")
-            }
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor   = MaterialTheme.colorScheme.onPrimary,
+                icon = { Icon(Icons.Filled.Add, contentDescription = "Add Expense") },
+                text = { Text("Add Expense", fontWeight = FontWeight.SemiBold) }
+            )
         }
     ) { padding ->
         ExpensesContent(
@@ -201,24 +210,44 @@ fun ExpensesContent(
     // ── Empty state ──────────────────────────────────────────────────────────
     if (expenses.isEmpty() && archivedExpenses.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(32.dp)) {
-                Icon(Icons.Filled.Receipt, contentDescription = null,
-                    modifier = Modifier.size(80.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
-                Spacer(Modifier.height(20.dp))
-                Text("No expenses yet", fontSize = 22.sp, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.size(100.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.Receipt,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    "No expenses yet",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
                 Spacer(Modifier.height(8.dp))
-                Text("Tap + to add the first expense", fontSize = 15.sp,
+                Text(
+                    "Tap + to add the first expense",
+                    fontSize = 15.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center)
+                    textAlign = TextAlign.Center
+                )
             }
         }
         return
     }
 
-    // ── Group active expenses by full date label ("27 February 2026") ────────
+    // ── Group active expenses by date label ──────────────────────────────────
     val grouped = remember(expenses) {
         expenses
             .sortedByDescending { it.createdAt }
@@ -237,63 +266,121 @@ fun ExpensesContent(
             }
     }
 
-    val myTotal    = expenses.filter { it.paidBy == currentUserId }.sumOf { it.amount }
-    val totalAll   = expenses.sumOf { it.amount }
+    val myTotal  = expenses.filter { it.paidBy == currentUserId }.sumOf { it.amount }
+    val totalAll = expenses.sumOf { it.amount }
 
     LazyColumn(
         modifier       = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 100.dp)   // space for FAB
+        contentPadding = PaddingValues(bottom = 120.dp)
     ) {
-        // ── Summary row — "My Expenses / Total Expenses" ─────────────────────
+        // ── Summary card ─────────────────────────────────────────────────────
         item(key = "summary") {
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
-                Column {
-                    Text("My Expenses", fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(4.dp))
-                    Text("₹${"%.2f".format(myTotal)}",
-                        fontSize = 28.sp, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface)
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("Total Expenses", fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(4.dp))
-                    Text("₹${"%.2f".format(totalAll)}",
-                        fontSize = 28.sp, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface)
+                Surface(
+                    modifier  = Modifier.fillMaxWidth(),
+                    shape     = RoundedCornerShape(20.dp),
+                    color     = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                    tonalElevation = 0.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 18.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                "My Expenses",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "₹${"%.2f".format(myTotal)}",
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        // Vertical divider
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(48.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                )
+                        )
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                "Total Expenses",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "₹${"%.2f".format(totalAll)}",
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                 }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
         }
 
         // ── Date-grouped expense rows ─────────────────────────────────────────
         grouped.forEach { (dateLabel, dayExpenses) ->
 
-            // Date header — big bold like the screenshot
             item(key = "header_$dateLabel") {
-                Text(
-                    text     = dateLabel,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color    = MaterialTheme.colorScheme.onSurface,
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp)
-                )
+                        .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text       = dateLabel,
+                        fontSize   = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color      = MaterialTheme.colorScheme.primary,
+                        letterSpacing = 0.5.sp
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    HorizontalDivider(
+                        modifier  = Modifier.weight(1f),
+                        thickness = 0.8.dp,
+                        color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    ) {
+                        Text(
+                            "${dayExpenses.size} item${if (dayExpenses.size != 1) "s" else ""}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
             }
 
-            // Expense rows — flat, no card background
             items(dayExpenses, key = { "active_${it.id}" }) { expense ->
                 val ctx = LocalContext.current
                 Column {
                     Surface(
-                        modifier  = Modifier
+                        modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
                                 val intent = android.content.Intent(ctx, ExpenseDetailActivity::class.java).apply {
@@ -305,8 +392,8 @@ fun ExpensesContent(
                                     R.anim.slide_in_right, R.anim.slide_out_left
                                 )
                             },
-                        shape    = RoundedCornerShape(0.dp),
-                        color    = Color.Transparent,
+                        shape = RoundedCornerShape(0.dp),
+                        color = Color.Transparent,
                         shadowElevation = 0.dp
                     ) {
                         ExpenseItemCard(
@@ -318,9 +405,44 @@ fun ExpensesContent(
                         )
                     }
                     HorizontalDivider(
-                        modifier  = Modifier.padding(start = 76.dp, end = 16.dp),
+                        modifier  = Modifier.padding(start = 80.dp, end = 16.dp),
                         thickness = 0.5.dp,
-                        color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    )
+                }
+            }
+        }
+
+        // ── Archived section toggle ───────────────────────────────────────────
+        if (archivedExpenses.isNotEmpty()) {
+            item(key = "archived_toggle") {
+                Spacer(Modifier.height(8.dp))
+                TextButton(
+                    onClick  = onToggleArchived,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Icon(
+                        if (showArchived) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (showArchived) "Hide Archived (${archivedExpenses.size})"
+                        else "Show Archived (${archivedExpenses.size})",
+                        fontSize = 13.sp
+                    )
+                }
+            }
+
+            if (showArchived) {
+                items(archivedExpenses, key = { "archived_${it.id}" }) { expense ->
+                    ArchivedExpenseCard(
+                        expense          = expense,
+                        onUnarchiveClick = { onUnarchiveExpense(expense.id) },
+                        onDeleteClick    = { onDeleteArchivedExpense(expense.id) }
                     )
                 }
             }
@@ -331,7 +453,7 @@ fun ExpensesContent(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Archived expense card — long-press to Unarchive or Delete
+// Archived expense card
 // ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -346,10 +468,14 @@ fun ArchivedExpenseCard(
     var showUnarchiveDialog by remember { mutableStateOf(false) }
 
     Card(
-        modifier  = Modifier.fillMaxWidth(),
+        modifier  = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
         colors    = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape     = RoundedCornerShape(14.dp)
     ) {
         Row(
             modifier = Modifier
@@ -361,31 +487,60 @@ fun ArchivedExpenseCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Archive, null, modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                    Icon(
+                        Icons.Filled.Archive, null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
                     Spacer(Modifier.width(6.dp))
-                    Text(expense.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
+                    Text(
+                        expense.name,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
                 if (expense.description.isNotBlank()) {
                     Spacer(Modifier.height(3.dp))
-                    Text(expense.description, fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f))
+                    Text(
+                        expense.description,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
                 Spacer(Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Person, null, modifier = Modifier.size(13.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Paid by ${expense.paidByName}", fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                }
-                Text(formatExpenseDate(expense.createdAt), fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                Text(
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))) {
+                            append("Paid by ")
+                        }
+                        withStyle(SpanStyle(
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                        )) {
+                            append(expense.paidByName)
+                        }
+                    },
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    formatExpenseDate(expense.createdAt),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
             }
-            Text("$${String.format("%.2f", expense.amount)}",
-                fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+            Text(
+                "₹${String.format("%.2f", expense.amount)}",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+            )
         }
     }
 
@@ -395,20 +550,26 @@ fun ArchivedExpenseCard(
             title = { Text(expense.name, fontWeight = FontWeight.Bold) },
             text  = {
                 Column {
-                    Row(modifier = Modifier.fillMaxWidth()
-                        .clickable { showMenu = false; showUnarchiveDialog = true }
-                        .padding(vertical = 14.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showMenu = false; showUnarchiveDialog = true }
+                            .padding(vertical = 14.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(Icons.Filled.Unarchive, null, modifier = Modifier.size(22.dp),
                             tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(16.dp))
                         Text("Unarchive", fontSize = 15.sp)
                     }
                     HorizontalDivider()
-                    Row(modifier = Modifier.fillMaxWidth()
-                        .clickable { showMenu = false; showDeleteDialog = true }
-                        .padding(vertical = 14.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showMenu = false; showDeleteDialog = true }
+                            .padding(vertical = 14.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(Icons.Filled.Delete, null, modifier = Modifier.size(22.dp),
                             tint = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.width(16.dp))
@@ -441,15 +602,18 @@ fun ArchivedExpenseCard(
             title = { Text("Delete \"${expense.name}\"?") },
             text  = { Text("This permanently deletes this expense. This cannot be undone.") },
             confirmButton = {
-                Button(onClick = { onDeleteClick(); showDeleteDialog = false },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error)) { Text("Delete") }
+                Button(
+                    onClick = { onDeleteClick(); showDeleteDialog = false },
+                    colors  = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") } }
         )
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Expense item card  ← ALIGNMENT FIX + REDESIGN HERE
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -461,141 +625,169 @@ fun ExpenseItemCard(
     onDeleteClick  : () -> Unit = {}
 ) {
     val categoryEmoji = mapOf(
-        "Food & Drinks" to "🍔", "Transport"    to "🚕", "Accommodation" to "🏨",
-        "Entertainment" to "🎬", "Shopping"     to "🛍️", "Health"        to "💊",
-        "Groceries"     to "🛒", "Utilities"    to "⚡", "Travel"        to "✈️",
-        "Education"     to "📚", "General"      to "📌"
+        "Food & Drinks" to "🍔", "Transport"     to "🚕", "Accommodation" to "🏨",
+        "Entertainment" to "🎬", "Shopping"      to "🛍️", "Health"        to "💊",
+        "Groceries"     to "🛒", "Utilities"     to "⚡", "Travel"        to "✈️",
+        "Education"     to "📚", "General"       to "📌"
     )
-    val emoji       = categoryEmoji[expense.category] ?: "📌"
-    val isMe        = expense.paidBy == currentUserId
-    val paidByLabel = if (isMe) "${expense.paidByName} (me)" else expense.paidByName
+    val emoji  = categoryEmoji[expense.category] ?: "📌"
+    val isMe   = expense.paidBy == currentUserId
+
+    // ── Build "Paid by <Name>" as a single annotated string ─────────────────
+    // This is the core fix: one Text = no wrapping issues.
+    val paidByText = buildAnnotatedString {
+        withStyle(SpanStyle(color = Color(0xFF8A8A9A))) {
+            append("Paid by ")
+        }
+        withStyle(SpanStyle(
+            fontWeight = FontWeight.SemiBold,
+            color      = if (isMe) MaterialTheme.colorScheme.primary
+            else Color(0xFF2D2D3A)
+        )) {
+            append(expense.paidByName)
+        }
+        if (isMe) {
+            withStyle(SpanStyle(
+                fontWeight = FontWeight.Bold,
+                color      = MaterialTheme.colorScheme.primary
+            )) {
+                append(" (me)")
+            }
+        }
+    }
 
     var showMenu          by remember { mutableStateOf(false) }
     var showDeleteDialog  by remember { mutableStateOf(false) }
     var showArchiveDialog by remember { mutableStateOf(false) }
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color    = androidx.compose.ui.graphics.Color.Transparent
+    Row(
+        modifier          = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, top = 13.dp, bottom = 13.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier          = Modifier
-                .fillMaxWidth()
-                .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // ── Emoji circle ─────────────────────────────────────────────────────
+        Surface(
+            shape    = CircleShape,
+            color    = if (isMe)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+            else
+                MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.size(50.dp)
         ) {
-            // Emoji circle
-            Surface(
-                shape    = CircleShape,
-                color    = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(emoji, fontSize = 22.sp)
-                }
+            Box(contentAlignment = Alignment.Center) {
+                Text(emoji, fontSize = 23.sp)
             }
+        }
 
-            Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(14.dp))
 
-            // Name + Paid by
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    expense.name,
-                    fontSize   = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color      = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(Modifier.height(3.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "Paid by ",
-                        fontSize = 13.sp,
-                        color    = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        paidByLabel,
-                        fontSize   = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color      = if (isMe) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-
-            Spacer(Modifier.width(6.dp))
-
-            // Amount
+        // ── Name + "Paid by …" ───────────────────────────────────────────────
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                "₹${"%.2f".format(expense.amount)}",
-                fontSize   = 16.sp,
+                text       = expense.name,
+                fontSize   = 15.sp,
                 fontWeight = FontWeight.Bold,
+                color      = MaterialTheme.colorScheme.onSurface,
+                maxLines   = 1,
+                overflow   = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(3.dp))
+            // ▶ Single Text composable — fixes the wrapping / next-line bug
+            Text(
+                text     = paidByText,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Spacer(Modifier.width(10.dp))
+
+        // ── Amount + optional "you" badge ────────────────────────────────────
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text       = "₹${"%.2f".format(expense.amount)}",
+                fontSize   = 15.sp,
+                fontWeight = FontWeight.ExtraBold,
                 color      = MaterialTheme.colorScheme.onSurface
             )
-
-            // ── Three-dot menu ───────────────────────────────────────────────
-            Box {
-                IconButton(
-                    onClick  = { showMenu = true },
-                    modifier = Modifier.size(36.dp)
+            if (isMe) {
+                Spacer(Modifier.height(3.dp))
+                Surface(
+                    shape = RoundedCornerShape(5.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
                 ) {
-                    Icon(
-                        Icons.Filled.MoreVert, "Options",
-                        tint     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                DropdownMenu(
-                    expanded         = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        leadingIcon = {
-                            Icon(Icons.Filled.Edit, null,
-                                tint     = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp))
-                        },
-                        text    = { Text("Edit") },
-                        onClick = { showMenu = false; onEditClick() }
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        leadingIcon = {
-                            Icon(Icons.Filled.Archive, null,
-                                tint     = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(18.dp))
-                        },
-                        text    = { Text("Archive",
-                            color = MaterialTheme.colorScheme.secondary) },
-                        onClick = { showMenu = false; showArchiveDialog = true }
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        leadingIcon = {
-                            Icon(Icons.Filled.Delete, null,
-                                tint     = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(18.dp))
-                        },
-                        text    = { Text("Delete",
-                            color = MaterialTheme.colorScheme.error) },
-                        onClick = { showMenu = false; showDeleteDialog = true }
+                    Text(
+                        text     = "you",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color    = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
             }
         }
+
+        // ── Three-dot menu ───────────────────────────────────────────────────
+        Box {
+            IconButton(
+                onClick  = { showMenu = true },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = "Options",
+                    tint     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            DropdownMenu(
+                expanded         = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                DropdownMenuItem(
+                    leadingIcon = {
+                        Icon(Icons.Filled.Edit, null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp))
+                    },
+                    text    = { Text("Edit") },
+                    onClick = { showMenu = false; onEditClick() }
+                )
+                HorizontalDivider()
+                DropdownMenuItem(
+                    leadingIcon = {
+                        Icon(Icons.Filled.Archive, null,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(18.dp))
+                    },
+                    text    = { Text("Archive", color = MaterialTheme.colorScheme.secondary) },
+                    onClick = { showMenu = false; showArchiveDialog = true }
+                )
+                HorizontalDivider()
+                DropdownMenuItem(
+                    leadingIcon = {
+                        Icon(Icons.Filled.Delete, null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp))
+                    },
+                    text    = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                    onClick = { showMenu = false; showDeleteDialog = true }
+                )
+            }
+        }
     }
 
-    // Archive confirmation
+    // Archive confirmation dialog
     if (showArchiveDialog) {
         AlertDialog(
             onDismissRequest = { showArchiveDialog = false },
-            icon  = { Icon(Icons.Filled.Archive, null,
-                tint = MaterialTheme.colorScheme.secondary) },
+            icon  = { Icon(Icons.Filled.Archive, null, tint = MaterialTheme.colorScheme.secondary) },
             title = { Text("Archive Expense?") },
             text  = { Text("\"${expense.name}\" will be moved to the archive. You can restore it anytime.") },
             confirmButton = {
-                Button(onClick = { onArchiveClick(); showArchiveDialog = false }) {
-                    Text("Archive")
-                }
+                Button(onClick = { onArchiveClick(); showArchiveDialog = false }) { Text("Archive") }
             },
             dismissButton = {
                 TextButton(onClick = { showArchiveDialog = false }) { Text("Cancel") }
@@ -603,19 +795,17 @@ fun ExpenseItemCard(
         )
     }
 
-    // Delete confirmation
+    // Delete confirmation dialog
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            icon  = { Icon(Icons.Filled.Delete, null,
-                tint = MaterialTheme.colorScheme.error) },
+            icon  = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Delete Expense?") },
             text  = { Text("Delete \"${expense.name}\"? This cannot be undone.") },
             confirmButton = {
                 TextButton(
                     onClick = { onDeleteClick(); showDeleteDialog = false },
-                    colors  = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error)
+                    colors  = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) { Text("Delete") }
             },
             dismissButton = {
@@ -625,6 +815,8 @@ fun ExpenseItemCard(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Add Expense Dialog
 // ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -650,42 +842,69 @@ fun ExpenseAddDialog(
 
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
-        title = { Text("Add Expense") },
+        title = { Text("Add Expense", fontWeight = FontWeight.Bold) },
         text = {
-            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)) {
-
-                OutlinedTextField(value = name, onValueChange = { name = it },
-                    label = { Text("Expense Name") }, placeholder = { Text("e.g., Dinner, Hotel") },
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it },
+                    label = { Text("Expense Name") },
+                    placeholder = { Text("e.g., Dinner, Hotel") },
                     leadingIcon = { Icon(Icons.Filled.ShoppingCart, null) },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !isLoading)
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    enabled = !isLoading,
+                    shape = RoundedCornerShape(12.dp)
+                )
 
                 OutlinedTextField(
                     value = amount,
                     onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d{0,2}$"))) amount = it },
-                    label = { Text("Amount") }, placeholder = { Text("0.00") },
-                    leadingIcon = { Text("$", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
-                    enabled = !isLoading)
+                    label = { Text("Amount") },
+                    placeholder = { Text("0.00") },
+                    leadingIcon = { Text("₹", fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 4.dp)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Decimal,
+                        imeAction    = ImeAction.Next
+                    ),
+                    enabled = !isLoading,
+                    shape = RoundedCornerShape(12.dp)
+                )
 
-                ExposedDropdownMenuBox(expanded = expanded,
-                    onExpandedChange = { expanded = !expanded && !isLoading }) {
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded && !isLoading }
+                ) {
                     OutlinedTextField(
                         value = members.find { it.userId == selectedPayerId }?.name ?: "Select",
-                        onValueChange = {}, readOnly = true, label = { Text("Paid By") },
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Paid By") },
                         leadingIcon = { Icon(Icons.Filled.Person, null) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(), enabled = !isLoading)
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                        enabled = !isLoading,
+                        shape = RoundedCornerShape(12.dp)
+                    )
                     ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         members.forEach { member ->
                             DropdownMenuItem(
                                 text = {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(if (member.isCreator) Icons.Filled.Star else Icons.Filled.Person,
-                                            null, modifier = Modifier.size(20.dp),
+                                        Icon(
+                                            if (member.isCreator) Icons.Filled.Star else Icons.Filled.Person,
+                                            null,
+                                            modifier = Modifier.size(20.dp),
                                             tint = if (member.isCreator) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.secondary)
+                                            else MaterialTheme.colorScheme.secondary
+                                        )
                                         Spacer(Modifier.width(8.dp))
                                         Text(member.name)
                                     }
@@ -696,23 +915,42 @@ fun ExpenseAddDialog(
                     }
                 }
 
-                OutlinedTextField(value = description, onValueChange = { description = it },
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
                     label = { Text("Description (Optional)") },
                     leadingIcon = { Icon(Icons.Filled.Description, null) },
-                    modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3, enabled = !isLoading)
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 3,
+                    enabled = !isLoading,
+                    shape = RoundedCornerShape(12.dp)
+                )
 
                 HorizontalDivider()
 
-                Row(modifier = Modifier.fillMaxWidth(),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text("Split Ratios", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary)
-                    Text("${sharesInput.values.mapNotNull { it.toIntOrNull() }.sum()} parts total",
-                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Split Ratios",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "${sharesInput.values.mapNotNull { it.toIntOrNull() }.sum()} parts total",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                Text("How many parts does each person owe?",
-                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "How many parts does each person owe?",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
                 members.forEach { member ->
                     val isCurrentUser = member.userId == currentUserId
@@ -721,32 +959,51 @@ fun ExpenseAddDialog(
                     val preview       = amount.toDoubleOrNull()?.let {
                         if (memberShares > 0) (memberShares.toDouble() / totalShares) * it else null
                     }
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Surface(modifier = Modifier.size(36.dp), shape = CircleShape,
-                            color = if (isCurrentUser) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.secondaryContainer) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(36.dp),
+                            shape    = CircleShape,
+                            color    = if (isCurrentUser) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.secondaryContainer
+                        ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Text(member.name.first().uppercase(), fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = if (isCurrentUser) MaterialTheme.colorScheme.onPrimaryContainer
-                                    else MaterialTheme.colorScheme.onSecondaryContainer)
+                                Text(
+                                    member.name.first().uppercase(),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize   = 14.sp,
+                                    color      = if (isCurrentUser) MaterialTheme.colorScheme.onPrimaryContainer
+                                    else MaterialTheme.colorScheme.onSecondaryContainer
+                                )
                             }
                         }
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(if (isCurrentUser) "You" else member.name, fontSize = 14.sp,
-                                fontWeight = if (isCurrentUser) FontWeight.Bold else FontWeight.Normal)
-                            if (preview != null)
-                                Text("≈ ${"$"}${"%.2f".format(preview)}", fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                if (isCurrentUser) "You" else member.name,
+                                fontSize   = 14.sp,
+                                fontWeight = if (isCurrentUser) FontWeight.Bold else FontWeight.Normal
+                            )
+                            if (preview != null) {
+                                Text(
+                                    "≈ ₹${"%.2f".format(preview)}",
+                                    fontSize = 11.sp,
+                                    color    = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                         OutlinedTextField(
                             value = sharesInput[member.userId] ?: "1",
                             onValueChange = { v -> sharesInput[member.userId] = v.filter { it.isDigit() } },
                             modifier = Modifier.width(80.dp),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true, suffix = { Text("pt", fontSize = 11.sp) },
-                            enabled = !isLoading)
+                            singleLine = true,
+                            suffix = { Text("pt", fontSize = 11.sp) },
+                            enabled = !isLoading,
+                            shape = RoundedCornerShape(10.dp)
+                        )
                     }
                 }
             }
@@ -780,17 +1037,23 @@ fun ExpenseAddDialog(
                 },
                 enabled = name.isNotBlank() && amount.toDoubleOrNull() != null &&
                         (amount.toDoubleOrNull() ?: 0.0) > 0 &&
-                        sharesInput.values.any { (it.toIntOrNull() ?: 0) > 0 } && !isLoading
+                        sharesInput.values.any { (it.toIntOrNull() ?: 0) > 0 } && !isLoading,
+                shape = RoundedCornerShape(10.dp)
             ) {
                 if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary)
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
                     Spacer(Modifier.width(8.dp))
                 }
                 Text("Add Expense")
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") } }
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") }
+        }
     )
 }
 
@@ -822,70 +1085,118 @@ fun ExpenseEditDialog(
 
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
-        title = { Text("Edit Expense") },
+        title = { Text("Edit Expense", fontWeight = FontWeight.Bold) },
         text = {
-            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)) {
-
-                OutlinedTextField(value = name, onValueChange = { name = it },
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it },
                     label = { Text("Expense Name") },
                     leadingIcon = { Icon(Icons.Filled.ShoppingCart, null) },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !isLoading)
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    enabled = !isLoading,
+                    shape = RoundedCornerShape(12.dp)
+                )
 
                 OutlinedTextField(
                     value = amount,
                     onValueChange = { if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d{0,2}$"))) amount = it },
                     label = { Text("Amount") },
-                    leadingIcon = { Text("$", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    leadingIcon = { Text("₹", fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 4.dp)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    enabled = !isLoading)
+                    enabled = !isLoading,
+                    shape = RoundedCornerShape(12.dp)
+                )
 
-                ExposedDropdownMenuBox(expanded = expanded,
-                    onExpandedChange = { expanded = !expanded && !isLoading }) {
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded && !isLoading }
+                ) {
                     OutlinedTextField(
                         value = members.find { it.userId == selectedPayerId }?.name ?: "Select",
-                        onValueChange = {}, readOnly = true, label = { Text("Paid By") },
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Paid By") },
                         leadingIcon = { Icon(Icons.Filled.Person, null) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(), enabled = !isLoading)
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                        enabled = !isLoading,
+                        shape = RoundedCornerShape(12.dp)
+                    )
                     ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         members.forEach { member ->
-                            DropdownMenuItem(text = { Text(member.name) },
-                                onClick = { selectedPayerId = member.userId; expanded = false })
+                            DropdownMenuItem(
+                                text = { Text(member.name) },
+                                onClick = { selectedPayerId = member.userId; expanded = false }
+                            )
                         }
                     }
                 }
 
-                OutlinedTextField(value = description, onValueChange = { description = it },
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
                     label = { Text("Description (Optional)") },
                     leadingIcon = { Icon(Icons.Filled.Description, null) },
-                    modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3, enabled = !isLoading)
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 3,
+                    enabled = !isLoading,
+                    shape = RoundedCornerShape(12.dp)
+                )
 
                 HorizontalDivider()
-                Text("Split Ratios", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary)
+
+                Text(
+                    "Split Ratios",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
 
                 members.forEach { member ->
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Surface(modifier = Modifier.size(36.dp), shape = CircleShape,
-                            color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(36.dp),
+                            shape    = CircleShape,
+                            color    = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Text(member.name.first().uppercase(), fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                Text(
+                                    member.name.first().uppercase(),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize   = 14.sp,
+                                    color      = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
                             }
                         }
-                        Text(if (member.userId == currentUserId) "You" else member.name,
-                            modifier = Modifier.weight(1f), fontSize = 14.sp)
+                        Text(
+                            if (member.userId == currentUserId) "You" else member.name,
+                            modifier   = Modifier.weight(1f),
+                            fontSize   = 14.sp
+                        )
                         OutlinedTextField(
                             value = sharesInput[member.userId] ?: "1",
                             onValueChange = { v -> sharesInput[member.userId] = v.filter { it.isDigit() } },
                             modifier = Modifier.width(80.dp),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true, suffix = { Text("pt", fontSize = 11.sp) },
-                            enabled = !isLoading)
+                            singleLine = true,
+                            suffix = { Text("pt", fontSize = 11.sp) },
+                            enabled = !isLoading,
+                            shape = RoundedCornerShape(10.dp)
+                        )
                     }
                 }
             }
@@ -920,17 +1231,23 @@ fun ExpenseEditDialog(
                 },
                 enabled = name.isNotBlank() && amount.toDoubleOrNull() != null &&
                         (amount.toDoubleOrNull() ?: 0.0) > 0 &&
-                        sharesInput.values.any { (it.toIntOrNull() ?: 0) > 0 } && !isLoading
+                        sharesInput.values.any { (it.toIntOrNull() ?: 0) > 0 } && !isLoading,
+                shape = RoundedCornerShape(10.dp)
             ) {
                 if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary)
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
                     Spacer(Modifier.width(8.dp))
                 }
                 Text("Save Changes")
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") } }
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Cancel") }
+        }
     )
 }
 

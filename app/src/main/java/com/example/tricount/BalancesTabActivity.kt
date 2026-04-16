@@ -5,7 +5,6 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,7 +16,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -30,8 +28,17 @@ import com.example.tricount.data.entity.PaymentEntity
 import com.example.tricount.viewModel.Settlement
 import com.example.tricount.viewModel.TricountViewModel
 
-private val Green  = Color(0xFF2E7D32)
-private val Red    = Color(0xFFC62828)
+private val Green = Color(0xFF2E7D32)
+private val Red   = Color(0xFFC62828)
+
+// Light grey used for all containers / cards
+private val CardGrey = Color(0xFFF2F2F2)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+private fun formatInr(amount: Double): String = "₹${"%.2f".format(amount)}"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public entry point — called from TricountDetailActivity tab 1
@@ -55,40 +62,44 @@ fun BalancesContent(
     // Dialog state
     var settlementToPay    by remember { mutableStateOf<Settlement?>(null) }
     var reminderTarget     by remember { mutableStateOf<Settlement?>(null) }
-    var busyKey            by remember { mutableStateOf<String?>(null) }  // "fromId-toId"
+    var busyKey            by remember { mutableStateOf<String?>(null) }
     var showPaymentHistory by remember { mutableStateOf(false) }
 
     // ── Empty state ───────────────────────────────────────────────────────────
     if (expenses.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Filled.AccountBalance, null,
+                Icon(
+                    Icons.Filled.AccountBalance, null,
                     modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                    tint     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                )
                 Spacer(Modifier.height(16.dp))
-                Text("No expenses yet",
+                Text(
+                    "No expenses yet",
                     fontSize   = 20.sp,
                     fontWeight = FontWeight.Medium,
-                    color      = MaterialTheme.colorScheme.onSurfaceVariant)
+                    color      = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(Modifier.height(8.dp))
-                Text("Add expenses in the Expenses tab to see balances here",
+                Text(
+                    "Add expenses in the Expenses tab to see balances here",
                     fontSize  = 14.sp,
                     textAlign = TextAlign.Center,
                     color     = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier  = Modifier.padding(horizontal = 32.dp))
+                    modifier  = Modifier.padding(horizontal = 32.dp)
+                )
             }
         }
         return
     }
 
     // ── Balance computation ───────────────────────────────────────────────────
-    // Mirror exactly the ViewModel's recomputeSettlements logic so UI stays in sync.
-    // Key off size+sum so Compose recomputes whenever expenses or splits change.
     val expensesKey = expenses.size.toString() + expenses.sumOf { it.amount }.toString()
     val splitsKey   = expenseSplits.values.sumOf { it.size }.toString()
     val paymentsKey = payments.size.toString()
 
-    val netMap  = remember(expensesKey, splitsKey, paymentsKey) {
+    val netMap = remember(expensesKey, splitsKey, paymentsKey) {
         val net     = mutableMapOf<Int, Double>()
         val nameMap = mutableMapOf<Int, String>()
 
@@ -103,12 +114,10 @@ fun BalancesContent(
                     nameMap[split.userId] = split.userName
                 }
             } else {
-                // No splits — payer covered themselves, net = 0
                 net[expense.paidBy] = (net[expense.paidBy] ?: 0.0) - expense.amount
             }
         }
 
-        // Subtract already-paid settlements
         for (payment in payments) {
             net[payment.fromUserId]     = (net[payment.fromUserId] ?: 0.0) + payment.amount
             net[payment.toUserId]       = (net[payment.toUserId]   ?: 0.0) - payment.amount
@@ -125,71 +134,88 @@ fun BalancesContent(
             .sortedByDescending { it.third }
     }
 
-    // Plain derived values — recalculate on every recomposition
     val totalSpent   = expenses.sumOf { it.amount }
     val myTotalPaid  = expenses.filter { it.paidBy == currentUserId }.sumOf { it.amount }
     val myNetBalance = netMap.first[currentUserId] ?: 0.0
 
     // ── Main list ─────────────────────────────────────────────────────────────
     LazyColumn(
-        modifier        = modifier.fillMaxSize(),
-        contentPadding  = PaddingValues(16.dp),
+        modifier            = modifier.fillMaxSize(),
+        contentPadding      = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
 
-        // ── Overview ──────────────────────────────────────────────────────────
+        // ── Overview card ─────────────────────────────────────────────────────
         item {
             Card(
                 modifier  = Modifier.fillMaxWidth(),
-                colors    = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer),
-                elevation = CardDefaults.cardElevation(2.dp)
+                colors    = CardDefaults.cardColors(containerColor = CardGrey),
+                elevation = CardDefaults.cardElevation(0.dp),
+                shape     = RoundedCornerShape(14.dp)
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                    modifier            = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Text("Overview",
+                    Text(
+                        "Overview",
                         fontSize   = 15.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color      = MaterialTheme.colorScheme.primary)
+                        color      = MaterialTheme.colorScheme.primary
+                    )
 
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        StatChip("Total",    "$${String.format("%.2f", totalSpent)}")
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        StatChip("Total",    formatInr(totalSpent))
                         StatChip("Members",  "$memberCount")
                         StatChip("Expenses", "$expenseCount")
                         StatChip("Payments", "${payments.size}")
                     }
 
                     HorizontalDivider(
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f))
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                    )
 
-                    Row(Modifier.fillMaxWidth(),
+                    Row(
+                        Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment     = Alignment.CenterVertically) {
+                        verticalAlignment     = Alignment.CenterVertically
+                    ) {
                         Column {
-                            Text("I paid", fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                            Text("$${String.format("%.2f", myTotalPaid)}",
+                            Text(
+                                "I paid",
+                                fontSize = 12.sp,
+                                color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                            Text(
+                                formatInr(myTotalPaid),
                                 fontSize   = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                color      = MaterialTheme.colorScheme.primary)
+                                color      = MaterialTheme.colorScheme.primary
+                            )
                         }
                         Column(horizontalAlignment = Alignment.End) {
-                            Text("My balance", fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                            Text(
+                                "My balance",
+                                fontSize = 12.sp,
+                                color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
                             Text(
                                 when {
-                                    myNetBalance >  0.01 -> "+${"$"}${"%.2f".format(myNetBalance)}"
-                                    myNetBalance < -0.01 -> "-${"$"}${"%.2f".format(-myNetBalance)}"
-                                    else                 -> "$0.00 ✓"
+                                    myNetBalance >  0.01 -> "+${formatInr(myNetBalance)}"
+                                    myNetBalance < -0.01 -> "-${formatInr(-myNetBalance)}"
+                                    else                 -> "₹0.00 ✓"
                                 },
                                 fontSize   = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 color      = when {
                                     myNetBalance >  0.01 -> Green
                                     myNetBalance < -0.01 -> Red
-                                    else                 -> MaterialTheme.colorScheme.onPrimaryContainer
+                                    else                 -> MaterialTheme.colorScheme.onSurface
                                 }
                             )
                         }
@@ -198,29 +224,32 @@ fun BalancesContent(
             }
         }
 
-        // ── Individual balances ───────────────────────────────────────────────
+        // ── Individual Balances ───────────────────────────────────────────────
         item {
-            Text("Individual Balances",
+            Text(
+                "Individual Balances",
                 fontSize   = 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                color      = MaterialTheme.colorScheme.primary)
+                color      = MaterialTheme.colorScheme.primary
+            )
         }
 
         item {
             Card(
                 modifier  = Modifier.fillMaxWidth(),
-                colors    = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                elevation = CardDefaults.cardElevation(2.dp)
+                colors    = CardDefaults.cardColors(containerColor = CardGrey),
+                elevation = CardDefaults.cardElevation(0.dp),
+                shape     = RoundedCornerShape(14.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     balanceRows.forEachIndexed { idx, (userId, name, net) ->
                         val isMe = userId == currentUserId
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            modifier          = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Avatar
                             Surface(
                                 modifier = Modifier.size(40.dp),
                                 shape    = CircleShape,
@@ -228,17 +257,23 @@ fun BalancesContent(
                                 else MaterialTheme.colorScheme.secondaryContainer
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Text(name.first().uppercase(),
-                                        fontWeight = FontWeight.Bold, fontSize = 16.sp,
-                                        color = if (isMe) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSecondaryContainer)
+                                    Text(
+                                        name.first().uppercase(),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize   = 16.sp,
+                                        color      = if (isMe) MaterialTheme.colorScheme.onPrimary
+                                        else MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
                                 }
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(if (isMe) "You ($name)" else name,
+                                Text(
+                                    if (isMe) "You ($name)" else name,
                                     fontSize   = 14.sp,
-                                    fontWeight = if (isMe) FontWeight.Bold else FontWeight.Normal)
+                                    fontWeight = if (isMe) FontWeight.Bold else FontWeight.Normal,
+                                    color      = MaterialTheme.colorScheme.onSurface
+                                )
                                 Text(
                                     when {
                                         net >  0.01 -> "gets back"
@@ -251,9 +286,9 @@ fun BalancesContent(
                             }
                             Text(
                                 when {
-                                    net >  0.01 -> "+${"$"}${"%.2f".format(net)}"
-                                    net < -0.01 -> "-${"$"}${"%.2f".format(-net)}"
-                                    else        -> "$0.00"
+                                    net >  0.01 -> "+${formatInr(net)}"
+                                    net < -0.01 -> "-${formatInr(-net)}"
+                                    else        -> "₹0.00"
                                 },
                                 fontSize   = 16.sp,
                                 fontWeight = FontWeight.Bold,
@@ -266,7 +301,8 @@ fun BalancesContent(
                         }
                         if (idx < balanceRows.lastIndex)
                             HorizontalDivider(
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
+                            )
                     }
                 }
             }
@@ -274,13 +310,14 @@ fun BalancesContent(
 
         // ── Settle Up ─────────────────────────────────────────────────────────
         item {
-            Text("Settle Up",
+            Text(
+                "Settle Up",
                 fontSize   = 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                color      = MaterialTheme.colorScheme.primary)
+                color      = MaterialTheme.colorScheme.primary
+            )
         }
 
-        // One card per outstanding settlement (nothing shown when all settled)
         items(settlements, key = { "${it.fromUserId}-${it.toUserId}" }) { s ->
             val isDebtor   = s.fromUserId == currentUserId
             val isCreditor = s.toUserId   == currentUserId
@@ -288,12 +325,12 @@ fun BalancesContent(
             val isBusy     = busyKey == key
 
             SettlementCard(
-                settlement  = s,
-                isDebtor    = isDebtor,
-                isCreditor  = isCreditor,
-                isBusy      = isBusy,
-                onMarkPaid  = { settlementToPay = s },
-                onRemind    = { reminderTarget  = s }
+                settlement = s,
+                isDebtor   = isDebtor,
+                isCreditor = isCreditor,
+                isBusy     = isBusy,
+                onMarkPaid = { settlementToPay = s },
+                onRemind   = { reminderTarget  = s }
             )
         }
 
@@ -326,25 +363,31 @@ fun BalancesContent(
                 ) {
                     Card(
                         modifier  = Modifier.fillMaxWidth(),
-                        colors    = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        elevation = CardDefaults.cardElevation(1.dp)
+                        colors    = CardDefaults.cardColors(containerColor = CardGrey),
+                        elevation = CardDefaults.cardElevation(0.dp),
+                        shape     = RoundedCornerShape(14.dp)
                     ) {
-                        Column(modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Payment History",
+                        Column(
+                            modifier            = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                "Payment History",
                                 fontSize   = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color      = MaterialTheme.colorScheme.primary)
+                                color      = MaterialTheme.colorScheme.primary
+                            )
                             payments.forEach { p ->
                                 val isMyPayment = p.fromUserId == currentUserId
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier          = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Filled.CheckCircle, null,
+                                    Icon(
+                                        Icons.Filled.CheckCircle, null,
                                         tint     = Green,
-                                        modifier = Modifier.size(18.dp))
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                     Spacer(Modifier.width(10.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(
@@ -352,7 +395,8 @@ fun BalancesContent(
                                             else "${p.fromUserName} → ${p.toUserName}",
                                             fontSize   = 13.sp,
                                             fontWeight = if (isMyPayment) FontWeight.Bold
-                                            else FontWeight.Normal
+                                            else FontWeight.Normal,
+                                            color      = MaterialTheme.colorScheme.onSurface
                                         )
                                         Text(
                                             java.text.SimpleDateFormat(
@@ -363,13 +407,16 @@ fun BalancesContent(
                                             color    = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                    Text("${"$"}${"%.2f".format(p.amount)}",
+                                    Text(
+                                        formatInr(p.amount),
                                         fontSize   = 14.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color      = Green)
+                                        color      = Green
+                                    )
                                 }
                                 HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
+                                )
                             }
                         }
                     }
@@ -380,32 +427,36 @@ fun BalancesContent(
         item { Spacer(Modifier.height(80.dp)) }
     }
 
-    // ── Mark as Paid dialog (with editable note) ─────────────────────────────
+    // ── Mark as Paid dialog ───────────────────────────────────────────────────
     settlementToPay?.let { s ->
         val isDebtor = s.fromUserId == currentUserId
         var paidNote by remember(s) {
             mutableStateOf(
                 when {
-                    isDebtor -> "Paid ${s.toUserName} $${"%.2f".format(s.amount)} via TriCount."
-                    else     -> "Received $${"%.2f".format(s.amount)} from ${s.fromUserName} via TriCount."
+                    isDebtor -> "Paid ${s.toUserName} ${formatInr(s.amount)} via TriCount."
+                    else     -> "Received ${formatInr(s.amount)} from ${s.fromUserName} via TriCount."
                 }
             )
         }
         AlertDialog(
             onDismissRequest = { settlementToPay = null },
-            icon  = { Icon(Icons.Filled.CheckCircle, null,
-                tint = Green, modifier = Modifier.size(32.dp)) },
+            icon  = {
+                Icon(
+                    Icons.Filled.CheckCircle, null,
+                    tint     = Green,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
             title = { Text("Mark as Paid") },
             text  = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         when {
-                            isDebtor -> "Confirm that you paid ${s.toUserName} $${"%.2f".format(s.amount)}?"
-                            else     -> "Confirm that you received $${"%.2f".format(s.amount)} from ${s.fromUserName}?"
+                            isDebtor -> "Confirm that you paid ${s.toUserName} ${formatInr(s.amount)}?"
+                            else     -> "Confirm that you received ${formatInr(s.amount)} from ${s.fromUserName}?"
                         },
                         fontSize = 15.sp
                     )
-                    // Editable payment note
                     OutlinedTextField(
                         value         = paidNote,
                         onValueChange = { paidNote = it },
@@ -415,22 +466,31 @@ fun BalancesContent(
                         minLines      = 2,
                         maxLines      = 4,
                         shape         = RoundedCornerShape(10.dp),
-                        leadingIcon   = { Icon(Icons.Filled.Notes, null,
-                            modifier = Modifier.size(18.dp)) }
+                        leadingIcon   = {
+                            Icon(Icons.Filled.Notes, null, modifier = Modifier.size(18.dp))
+                        }
                     )
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        color = CardGrey,
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Row(Modifier.fillMaxWidth().padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.Info, null,
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Filled.Info, null,
                                 modifier = Modifier.size(16.dp),
-                                tint     = MaterialTheme.colorScheme.primary)
+                                tint     = MaterialTheme.colorScheme.primary
+                            )
                             Spacer(Modifier.width(8.dp))
-                            Text("The payment will be saved and balances will update immediately.",
+                            Text(
+                                "The payment will be saved and balances will update immediately.",
                                 fontSize = 12.sp,
-                                color    = MaterialTheme.colorScheme.onSurfaceVariant)
+                                color    = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -452,7 +512,7 @@ fun BalancesContent(
                             busyKey = null
                             Toast.makeText(
                                 context,
-                                "$${"%.2f".format(s.amount)} marked as paid ✓",
+                                "${formatInr(s.amount)} marked as paid ✓",
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
@@ -470,7 +530,7 @@ fun BalancesContent(
         )
     }
 
-    // ── Reminder dialog (editable message) ───────────────────────────────────
+    // ── Reminder dialog ───────────────────────────────────────────────────────
     reminderTarget?.let { s ->
         val isCreditor = s.toUserId == currentUserId
         var reminderMsg by remember(s) {
@@ -478,8 +538,9 @@ fun BalancesContent(
         }
         AlertDialog(
             onDismissRequest = { reminderTarget = null },
-            icon  = { Icon(Icons.Filled.Send, null,
-                tint = MaterialTheme.colorScheme.primary) },
+            icon  = {
+                Icon(Icons.Filled.Send, null, tint = MaterialTheme.colorScheme.primary)
+            },
             title = { Text("Remind ${s.fromUserName}") },
             text  = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -488,7 +549,6 @@ fun BalancesContent(
                         fontSize = 14.sp,
                         color    = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    // Fully editable reminder message
                     OutlinedTextField(
                         value         = reminderMsg,
                         onValueChange = { reminderMsg = it },
@@ -498,10 +558,11 @@ fun BalancesContent(
                         maxLines      = 8,
                         shape         = RoundedCornerShape(10.dp)
                     )
-                    // Reset to default
                     TextButton(
                         onClick  = { reminderMsg = buildReminderMessage(s, isCreditor) },
-                        modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.End)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentWidth(Alignment.End)
                     ) {
                         Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
@@ -525,7 +586,7 @@ fun BalancesContent(
                         }
                         context.startActivity(Intent.createChooser(intent, "Send reminder via…"))
                     },
-                    enabled  = reminderMsg.isNotBlank()
+                    enabled = reminderMsg.isNotBlank()
                 ) {
                     Icon(Icons.Filled.Send, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
@@ -545,22 +606,24 @@ fun BalancesContent(
 
 @Composable
 private fun SettlementCard(
-    settlement  : Settlement,
-    isDebtor    : Boolean,
-    isCreditor  : Boolean,
-    isBusy      : Boolean,
-    onMarkPaid  : () -> Unit,
-    onRemind    : () -> Unit
+    settlement : Settlement,
+    isDebtor   : Boolean,
+    isCreditor : Boolean,
+    isBusy     : Boolean,
+    onMarkPaid : () -> Unit,
+    onRemind   : () -> Unit
 ) {
     val s = settlement
     Card(
         modifier  = Modifier.fillMaxWidth(),
-        colors    = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-        elevation = CardDefaults.cardElevation(2.dp)
+        colors    = CardDefaults.cardColors(containerColor = CardGrey),
+        elevation = CardDefaults.cardElevation(0.dp),
+        shape     = RoundedCornerShape(14.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier            = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Who → Whom + amount
@@ -568,35 +631,36 @@ private fun SettlementCard(
                 modifier          = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Debtor chip
                 MemberChip(
                     name      = if (isDebtor) "You" else s.fromUserName,
                     isHighlit = isDebtor,
-                    chipColor = if (isDebtor) MaterialTheme.colorScheme.errorContainer
+                    chipColor = if (isDebtor) Color(0xFFFFEBEE)
                     else MaterialTheme.colorScheme.secondaryContainer,
-                    textColor = if (isDebtor) MaterialTheme.colorScheme.onErrorContainer
+                    textColor = if (isDebtor) Red
                     else MaterialTheme.colorScheme.onSecondaryContainer
                 )
 
-                // Arrow + amount
                 Column(
-                    modifier              = Modifier.weight(1f),
-                    horizontalAlignment   = Alignment.CenterHorizontally
+                    modifier            = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(Icons.Filled.ArrowForward, null,
-                        tint     = MaterialTheme.colorScheme.tertiary,
-                        modifier = Modifier.size(20.dp))
-                    Text("${"$"}${"%.2f".format(s.amount)}",
+                    Icon(
+                        Icons.Filled.ArrowForward, null,
+                        tint     = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        formatInr(s.amount),
                         fontSize   = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color      = MaterialTheme.colorScheme.tertiary)
+                        color      = MaterialTheme.colorScheme.onSurface
+                    )
                 }
 
-                // Creditor chip
                 MemberChip(
                     name      = if (isCreditor) "You" else s.toUserName,
                     isHighlit = isCreditor,
-                    chipColor = if (isCreditor) Green.copy(alpha = 0.15f)
+                    chipColor = if (isCreditor) Color(0xFFE8F5E9)
                     else MaterialTheme.colorScheme.secondaryContainer,
                     textColor = if (isCreditor) Green
                     else MaterialTheme.colorScheme.onSecondaryContainer
@@ -606,59 +670,62 @@ private fun SettlementCard(
             // Context hint
             Text(
                 when {
-                    isDebtor   -> "You owe ${s.toUserName} ${"$"}${"%.2f".format(s.amount)}"
-                    isCreditor -> "${s.fromUserName} owes you ${"$"}${"%.2f".format(s.amount)}"
-                    else       -> "${s.fromUserName} owes ${s.toUserName} ${"$"}${"%.2f".format(s.amount)}"
+                    isDebtor   -> "You owe ${s.toUserName} ${formatInr(s.amount)}"
+                    isCreditor -> "${s.fromUserName} owes you ${formatInr(s.amount)}"
+                    else       -> "${s.fromUserName} owes ${s.toUserName} ${formatInr(s.amount)}"
                 },
                 fontSize  = 13.sp,
-                color     = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.75f),
+                color     = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier  = Modifier.fillMaxWidth()
             )
 
             // Action buttons
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier              = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Mark as Paid — available to both debtor (I paid) and creditor (I received it)
                 Button(
                     onClick  = onMarkPaid,
                     modifier = Modifier.weight(1f),
                     enabled  = !isBusy,
                     colors   = ButtonDefaults.buttonColors(
                         containerColor = Green,
-                        contentColor   = Color.White)
+                        contentColor   = Color.White
+                    )
                 ) {
                     if (isBusy) {
                         CircularProgressIndicator(
                             modifier    = Modifier.size(16.dp),
                             strokeWidth = 2.dp,
-                            color       = Color.White)
+                            color       = Color.White
+                        )
                     } else {
                         Icon(Icons.Filled.CheckCircle, null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
                         Text(
                             if (isDebtor) "I Paid" else "Mark Paid",
                             fontSize   = 13.sp,
-                            fontWeight = FontWeight.SemiBold)
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
 
-                // Remind — useful for creditor to nudge debtor, or debtor to ping creditor
                 OutlinedButton(
                     onClick  = onRemind,
                     modifier = Modifier.weight(1f),
                     enabled  = !isBusy,
                     colors   = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.primary)
+                        contentColor = MaterialTheme.colorScheme.primary
+                    )
                 ) {
-                    Icon(Icons.Filled.NotificationsActive, null,
-                        modifier = Modifier.size(16.dp))
+                    Icon(Icons.Filled.NotificationsActive, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Remind",
+                    Text(
+                        "Remind",
                         fontSize   = 13.sp,
-                        fontWeight = FontWeight.SemiBold)
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }
@@ -683,38 +750,46 @@ private fun MemberChip(
             color    = chipColor
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Text(name.first().uppercase(),
+                Text(
+                    name.first().uppercase(),
                     fontSize   = 16.sp,
                     fontWeight = FontWeight.Bold,
-                    color      = textColor)
+                    color      = textColor
+                )
             }
         }
         Spacer(Modifier.height(4.dp))
-        Text(name,
+        Text(
+            name,
             fontSize   = 12.sp,
             fontWeight = if (isHighlit) FontWeight.Bold else FontWeight.Normal,
             color      = textColor,
-            maxLines   = 1)
+            maxLines   = 1
+        )
     }
 }
 
 @Composable
 private fun StatChip(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value,
+        Text(
+            value,
             fontSize   = 18.sp,
             fontWeight = FontWeight.Bold,
-            color      = MaterialTheme.colorScheme.onPrimaryContainer)
-        Text(label,
+            color      = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            label,
             fontSize = 11.sp,
-            color    = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+            color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+        )
     }
 }
 
 private fun buildReminderMessage(s: Settlement, senderIsCreditor: Boolean): String {
-    val amount = "${"$"}${"%.2f".format(s.amount)}"
+    val amount = formatInr(s.amount)
     return if (senderIsCreditor) {
-        "Hey ${s.fromUserName}!  Just a friendly reminder — you owe me $amount on TriCount. Please settle up when you get a chance "
+        "Hey ${s.fromUserName}!  Just a friendly reminder — you owe me $amount on TriCount. Please settle up when you get a chance 🙏"
     } else {
         "Hey ${s.toUserName}!  It's ${s.fromUserName} — wanted to check if you received my payment of $amount on TriCount. Please let me know!"
     }
