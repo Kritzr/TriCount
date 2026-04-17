@@ -31,6 +31,8 @@ import com.example.tricount.data.SessionManager
 import com.example.tricount.data.entity.ExpenseSplitWithUser
 import com.example.tricount.data.entity.ExpenseWithDetails
 import com.example.tricount.data.entity.MemberWithDetails
+import com.example.tricount.ui.components.DestructiveMenuItem
+import com.example.tricount.ui.components.NormalMenuItem
 import com.example.tricount.ui.theme.AppTheme
 import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.TricountViewModel
@@ -194,35 +196,30 @@ fun ExpenseDetailScreen(
                             expanded         = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
-                            DropdownMenuItem(
-                                leadingIcon = {
-                                    Icon(Icons.Filled.Edit, null,
-                                        modifier = Modifier.size(20.dp))
-                                },
-                                text    = { Text("Edit", fontSize = 15.sp) },
+                            // ── Edit ─────────────────────────────────────────
+                            NormalMenuItem(
+                                label = "Edit",
+                                icon  = Icons.Filled.Edit,
                                 onClick = {
                                     showMenu = false
                                     expense?.let { exp ->
                                         val editIntent = Intent(context, EditExpenseActivity::class.java).apply {
-                                            putExtra(EditExpenseActivity.EXTRA_EXPENSE_ID,    expenseId)   // the current expense's ID
+                                            putExtra(EditExpenseActivity.EXTRA_EXPENSE_ID,    exp.id)  // ← fix: was expenseId
                                             putExtra(EditExpenseActivity.EXTRA_TRICOUNT_ID,   tricountId)
                                             putExtra(EditExpenseActivity.EXTRA_TRICOUNT_NAME, tricountName)
                                         }
                                         context.startActivity(editIntent)
-                                        (context as? Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+                                        (context as? Activity)?.overridePendingTransition(
+                                            R.anim.slide_in_right, R.anim.slide_out_left
+                                        )
                                     }
                                 }
                             )
-                            DropdownMenuItem(
-                                leadingIcon = {
-                                    Icon(Icons.Filled.Delete, null,
-                                        tint     = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(20.dp))
-                                },
-                                text    = {
-                                    Text("Delete", fontSize = 15.sp,
-                                        color = MaterialTheme.colorScheme.error)
-                                },
+                            HorizontalDivider()
+                            // ── Delete ───────────────────────────────────────
+                            DestructiveMenuItem(
+                                label   = "Delete",
+                                icon    = Icons.Filled.Delete,
                                 onClick = { showMenu = false; showDeleteDialog = true }
                             )
                         }

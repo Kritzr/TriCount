@@ -12,11 +12,6 @@ import com.example.tricount.R
 // Lato — bundled in res/font/
 //   lato_regular.ttf  →  FontWeight.Normal  (400)
 //   lato_bold.ttf     →  FontWeight.Bold    (700)
-//
-// Place both .ttf files in app/src/main/res/font/ and add matching
-// entries to R (Android Studio does this automatically on sync):
-//   R.font.lato_regular
-//   R.font.lato_bold
 // ─────────────────────────────────────────────────────────────────────────────
 
 val Lato = FontFamily(
@@ -26,78 +21,90 @@ val Lato = FontFamily(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Typography scale
-// Weights are clamped to Normal / Bold because only those two cuts are
-// bundled. Styles that previously used SemiBold, Medium, or ExtraBold
-// fall back to the nearest available cut automatically (Bold for ≥ 600,
-// Normal for everything below). If you later add lato_light.ttf etc.,
-// just register the extra Font() entries above and restore the weights.
+//
+// NO colors are set here — colors always come from MaterialTheme.colorScheme
+// at the call site so they adapt automatically to light/dark mode.
+//
+// Heading weights: Bold (≥ headline level)
+// Body / label weights: Normal, except labelLarge which is Bold
 // ─────────────────────────────────────────────────────────────────────────────
 
 val Typography = Typography(
 
-    displayLarge = TextStyle(
+    // ── Display / H1–H3 ──────────────────────────────────────────────────────
+
+    displayLarge = TextStyle(          // H1 — hero titles
         fontFamily    = Lato,
-        fontWeight    = FontWeight.Normal,
+        fontWeight    = FontWeight.Bold,
         fontSize      = 57.sp,
         lineHeight    = 64.sp,
         letterSpacing = (-0.25).sp
     ),
-    displayMedium = TextStyle(
+    displayMedium = TextStyle(         // H2 — large section openers
         fontFamily    = Lato,
-        fontWeight    = FontWeight.Normal,
+        fontWeight    = FontWeight.Bold,
         fontSize      = 45.sp,
         lineHeight    = 52.sp,
         letterSpacing = 0.sp
     ),
-    displaySmall = TextStyle(
+    displaySmall = TextStyle(          // H3 — page/card primary titles
         fontFamily    = Lato,
-        fontWeight    = FontWeight.Normal,
+        fontWeight    = FontWeight.Bold,
         fontSize      = 36.sp,
         lineHeight    = 44.sp,
         letterSpacing = 0.sp
     ),
-    headlineLarge = TextStyle(
+
+    // ── Headline / H4–H5 ─────────────────────────────────────────────────────
+
+    headlineLarge = TextStyle(         // H4 — section headers inside a screen
         fontFamily    = Lato,
         fontWeight    = FontWeight.Bold,
         fontSize      = 32.sp,
         lineHeight    = 40.sp,
         letterSpacing = 0.sp
     ),
-    headlineMedium = TextStyle(
+    headlineMedium = TextStyle(        // H4b
         fontFamily    = Lato,
         fontWeight    = FontWeight.Bold,
         fontSize      = 28.sp,
         lineHeight    = 36.sp,
         letterSpacing = 0.sp
     ),
-    headlineSmall = TextStyle(
+    headlineSmall = TextStyle(         // H5 — card/sheet headers
         fontFamily    = Lato,
         fontWeight    = FontWeight.Bold,
         fontSize      = 24.sp,
         lineHeight    = 32.sp,
         letterSpacing = 0.sp
     ),
-    titleLarge = TextStyle(
+
+    // ── Title / H6 + prominent labels ────────────────────────────────────────
+
+    titleLarge = TextStyle(            // H6 — top-app-bar title, dialog title
         fontFamily    = Lato,
         fontWeight    = FontWeight.Bold,
         fontSize      = 22.sp,
         lineHeight    = 28.sp,
         letterSpacing = 0.sp
     ),
-    titleMedium = TextStyle(
+    titleMedium = TextStyle(           // menu item titles, list-row primary text
         fontFamily    = Lato,
         fontWeight    = FontWeight.Bold,
         fontSize      = 16.sp,
         lineHeight    = 24.sp,
         letterSpacing = 0.15.sp
     ),
-    titleSmall = TextStyle(
+    titleSmall = TextStyle(            // secondary list text, sub-labels
         fontFamily    = Lato,
         fontWeight    = FontWeight.Normal,
         fontSize      = 14.sp,
         lineHeight    = 20.sp,
         letterSpacing = 0.1.sp
     ),
+
+    // ── Body ─────────────────────────────────────────────────────────────────
+
     bodyLarge = TextStyle(
         fontFamily    = Lato,
         fontWeight    = FontWeight.Normal,
@@ -119,6 +126,9 @@ val Typography = Typography(
         lineHeight    = 16.sp,
         letterSpacing = 0.4.sp
     ),
+
+    // ── Label / chips / badges ────────────────────────────────────────────────
+
     labelLarge = TextStyle(
         fontFamily    = Lato,
         fontWeight    = FontWeight.Bold,

@@ -68,18 +68,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.data.SessionManager
+import com.example.tricount.data.entity.ExpenseSplitWithUser
 import com.example.tricount.data.entity.ExpenseWithDetails
 import com.example.tricount.data.entity.MemberWithDetails
 import com.example.tricount.ui.theme.AppTheme
 import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.AddExpenseResult
 import com.example.tricount.viewModel.TricountViewModel
-import kotlin.collections.forEach
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Activity
 // ─────────────────────────────────────────────────────────────────────────────
-
 
 class EditExpenseActivity : ComponentActivity() {
 
@@ -99,7 +98,6 @@ class EditExpenseActivity : ComponentActivity() {
 
         setContent {
             TriCountTheme {
-                // Load the tricount so we get members + the expense list
                 LaunchedEffect(tricountId) {
                     viewModel.loadTricountDetails(tricountId)
                     viewModel.loadExpenses(tricountId)
@@ -107,16 +105,22 @@ class EditExpenseActivity : ComponentActivity() {
 
                 val expenses      by viewModel.expenses.collectAsStateWithLifecycle()
                 val members       by viewModel.tricountMembers.collectAsStateWithLifecycle()
+                val expenseSplits by viewModel.expenseSplits.collectAsStateWithLifecycle()
                 val currentUserId = sessionManager.getUserId() ?: -1
 
-                // Find the specific expense we are editing
                 val expense = remember(expenses, expenseId) {
                     expenses.find { it.id == expenseId }
+                }
+
+                // splits for this specific expense (list of ExpenseSplitWithUser)
+                val splits = remember(expenseSplits, expenseId) {
+                    expenseSplits[expenseId] ?: emptyList()
                 }
 
                 if (expense != null && members.isNotEmpty()) {
                     EditExpenseScreen(
                         expense       = expense,
+                        splits        = splits,
                         tricountId    = tricountId,
                         tricountName  = tricountName,
                         members       = members,
@@ -129,7 +133,6 @@ class EditExpenseActivity : ComponentActivity() {
                         }
                     )
                 } else {
-                    // Show spinner while data is loading
                     Box(
                         modifier         = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -154,21 +157,24 @@ class EditExpenseActivity : ComponentActivity() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Detect original split mode from stored share values.
+// Detect the original split mode from the saved split amounts.
 //
-// AddExpenseActivity saves shares as:
-//   EQUALLY    → all shares == 1
-//   PERCENTAGE → share = (pct * 100).toInt()  e.g. 33.3% stored as 3330
-//   PARTS      → share = the raw integer part  e.g. 2
+// ExpenseSplitWithUser.amount = the actual INR amount each member owes.
+// We can detect the original mode by checking if all amounts are equal
+// (EQUALLY), or if they differ (PERCENTAGE — we'll express the current
+// split as percentages so the user can see and adjust them).
 //
-// So: all-ones → EQUALLY | any value > 100 → PERCENTAGE | else → PARTS
+// PARTS is indistinguishable from PERCENTAGE at display-time using only
+// amounts, so we always restore as PERCENTAGE (most informative).
+// The user can freely switch to PARTS if they want.
 // ─────────────────────────────────────────────────────────────────────────────
 
-private fun detectSplitMode(shares: List<Int>): SplitMode {
-    if (shares.isEmpty()) return SplitMode.EQUALLY
-    if (shares.all { it == 1 }) return SplitMode.EQUALLY
-    if (shares.any { it > 100 }) return SplitMode.PERCENTAGE
-    return SplitMode.PARTS
+private fun detectSplitModeFromAmounts(splits: List<ExpenseSplitWithUser>): SplitMode {
+    if (splits.isEmpty()) return SplitMode.EQUALLY
+    val amounts = splits.map { it.amount }
+    val first   = amounts.first()
+    return if (amounts.all { kotlin.math.abs(it - first) < 0.01 }) SplitMode.EQUALLY
+    else SplitMode.PERCENTAGE
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -179,6 +185,7 @@ private fun detectSplitMode(shares: List<Int>): SplitMode {
 @Composable
 fun EditExpenseScreen(
     expense       : ExpenseWithDetails,
+    splits        : List<ExpenseSplitWithUser>,
     tricountId    : Int,
     tricountName  : String,
     members       : List<MemberWithDetails>,
@@ -189,45 +196,47 @@ fun EditExpenseScreen(
 ) {
     val context = LocalContext.current
 
-    // Map userId → stored share value from the existing expense splits
-    val storedShares =   remember(key1 = expense) {
-        expense.splits.associate { it.userId to it.share }
+    // Map userId → split amount for easy lookup
+    val splitAmountMap = remember(splits) {
+        splits.associate { it.userId to it.amount }
     }
 
-    // Detect which split mode this expense was originally saved in
-    val detectedMode = remember(storedShares) {
-        detectSplitMode(storedShares.values.toList())
+    val detectedMode = remember(splits) {
+        detectSplitModeFromAmounts(splits)
     }
 
-    // ── Form state initialised from existing expense ───────────────────────────
+    // ── Form state ────────────────────────────────────────────────────────────
     var expenseName      by remember { mutableStateOf(expense.name) }
     var amountText       by remember { mutableStateOf("%.2f".format(expense.amount)) }
     var description      by remember { mutableStateOf(expense.description) }
-    // Amounts are always stored in INR; lock currency to INR for edits
     val selectedCurrency = CURRENCIES.first { it.code == "INR" }
     var selectedPayerId  by remember { mutableStateOf(expense.paidBy) }
     var splitMode        by remember { mutableStateOf(detectedMode) }
     var isLoading        by remember { mutableStateOf(false) }
     var payerExpanded    by remember { mutableStateOf(false) }
 
-    // ── Split inputs pre-populated from the stored shares ─────────────────────
-    val splitInputs = remember(members, detectedMode, storedShares) {
+    // ── Split inputs pre-populated from existing split amounts ─────────────────
+    // For EQUALLY: just "1" for everyone.
+    // For PERCENTAGE: compute each member's percentage of the total.
+    val splitInputs = remember(members, detectedMode, splitAmountMap, expense.amount) {
         mutableStateMapOf<Int, String>().also { map ->
             members.forEach { member ->
-                val stored = storedShares[member.userId]
+                val memberAmount = splitAmountMap[member.userId]
                 map[member.userId] = when (detectedMode) {
-                    SplitMode.EQUALLY    -> "1"
-                    // stored = (pct * 100).toInt() → reverse to get the pct string
-                    SplitMode.PERCENTAGE ->
-                        if (stored != null) "%.1f".format(stored / 100.0) else ""
-                    SplitMode.PARTS      ->
-                        (stored ?: 1).toString()
+                    SplitMode.EQUALLY -> "1"
+                    SplitMode.PERCENTAGE -> {
+                        if (memberAmount != null && expense.amount > 0) {
+                            val pct = (memberAmount / expense.amount) * 100.0
+                            "%.1f".format(pct)
+                        } else ""
+                    }
+                    SplitMode.PARTS -> "1"
                 }
             }
         }
     }
 
-    // When the user manually switches split mode, reset inputs to defaults
+    // When user manually switches split mode, reset inputs to defaults
     LaunchedEffect(splitMode) {
         members.forEach { member ->
             splitInputs[member.userId] = when (splitMode) {
@@ -271,7 +280,6 @@ fun EditExpenseScreen(
         }
 
         isLoading = true
-        // Delete old record, then insert the updated one
         viewModel.deleteExpense(expense.id, tricountId)
         viewModel.addExpense(
             tricountId  = tricountId,
@@ -543,71 +551,66 @@ fun EditExpenseScreen(
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
 
-                    if (members.isEmpty()) {
-                        Text("No members loaded yet.", fontSize = 13.sp,
-                            color = colorScheme.onSurfaceVariant)
-                    } else {
-                        members.forEach { member ->
-                            val isCurrentUser = member.userId == currentUserId
-                            val amount        = amountText.toDoubleOrNull() ?: 0.0
-                            val preview: Double? = when (splitMode) {
-                                SplitMode.EQUALLY    ->
-                                    if (amount > 0) amount / members.size else null
-                                SplitMode.PERCENTAGE -> {
-                                    val pct = splitInputs[member.userId]?.toDoubleOrNull()
-                                    if (pct != null && amount > 0) amount * pct / 100.0 else null
-                                }
-                                SplitMode.PARTS      -> {
-                                    val parts      = splitInputs[member.userId]?.toIntOrNull() ?: 0
-                                    val totalParts = members
-                                        .sumOf { splitInputs[it.userId]?.toIntOrNull() ?: 0 }
-                                        .coerceAtLeast(1)
-                                    if (amount > 0 && parts > 0)
-                                        amount * parts.toDouble() / totalParts else null
-                                }
+                    members.forEach { member ->
+                        val isCurrentUser = member.userId == currentUserId
+                        val amount        = amountText.toDoubleOrNull() ?: 0.0
+                        val preview: Double? = when (splitMode) {
+                            SplitMode.EQUALLY    ->
+                                if (amount > 0) amount / members.size else null
+                            SplitMode.PERCENTAGE -> {
+                                val pct = splitInputs[member.userId]?.toDoubleOrNull()
+                                if (pct != null && amount > 0) amount * pct / 100.0 else null
                             }
-                            EditSplitMemberRow(
-                                member         = member,
-                                isCurrentUser  = isCurrentUser,
-                                splitMode      = splitMode,
-                                inputValue     = splitInputs[member.userId] ?: "",
-                                previewAmount  = preview,
-                                currencySymbol = selectedCurrency.symbol,
-                                isLoading      = isLoading,
-                                onInputChange  = { v -> splitInputs[member.userId] = v }
-                            )
-                            Spacer(Modifier.height(8.dp))
+                            SplitMode.PARTS      -> {
+                                val parts      = splitInputs[member.userId]?.toIntOrNull() ?: 0
+                                val totalParts = members
+                                    .sumOf { splitInputs[it.userId]?.toIntOrNull() ?: 0 }
+                                    .coerceAtLeast(1)
+                                if (amount > 0 && parts > 0)
+                                    amount * parts.toDouble() / totalParts else null
+                            }
                         }
+                        EditSplitMemberRow(
+                            member         = member,
+                            isCurrentUser  = isCurrentUser,
+                            splitMode      = splitMode,
+                            inputValue     = splitInputs[member.userId] ?: "",
+                            previewAmount  = preview,
+                            currencySymbol = selectedCurrency.symbol,
+                            isLoading      = isLoading,
+                            onInputChange  = { v -> splitInputs[member.userId] = v }
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
 
-                        // Percentage validation banner
-                        if (splitMode == SplitMode.PERCENTAGE && percentageTotal > 0.0) {
-                            val color = if (isPercentageValid) Color(0xFF2E7D32)
-                            else Color(0xFFC62828)
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape    = RoundedCornerShape(8.dp),
-                                color    = color.copy(alpha = 0.1f)
+                    // Percentage validation banner
+                    if (splitMode == SplitMode.PERCENTAGE && percentageTotal > 0.0) {
+                        val color = if (isPercentageValid) Color(0xFF2E7D32)
+                        else Color(0xFFC62828)
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape    = RoundedCornerShape(8.dp),
+                            color    = color.copy(alpha = 0.1f)
+                        ) {
+                            Row(
+                                modifier          = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier          = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        if (isPercentageValid) Icons.Filled.CheckCircle
-                                        else Icons.Filled.Warning,
-                                        null,
-                                        tint     = color,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        if (isPercentageValid) "Total: 100% ✓"
-                                        else "Total: ${"%.1f".format(percentageTotal)}% — must equal 100%",
-                                        fontSize   = 13.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color      = color
-                                    )
-                                }
+                                Icon(
+                                    if (isPercentageValid) Icons.Filled.CheckCircle
+                                    else Icons.Filled.Warning,
+                                    null,
+                                    tint     = color,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    if (isPercentageValid) "Total: 100% ✓"
+                                    else "Total: ${"%.1f".format(percentageTotal)}% — must equal 100%",
+                                    fontSize   = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color      = color
+                                )
                             }
                         }
                     }
@@ -740,7 +743,7 @@ private fun EditSplitMemberRow(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Section card helper
+// Section card
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable

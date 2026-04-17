@@ -129,7 +129,6 @@ fun TricountDetailScreen(
 ) {
     val context = LocalContext.current
     var selectedTab       by remember { mutableStateOf(0) }
-    var expenseToEdit     by remember { mutableStateOf<ExpenseWithDetails?>(null) }
     var showMenu          by remember { mutableStateOf(false) }
     var showDeleteDialog  by remember { mutableStateOf(false) }
     var showArchiveDialog by remember { mutableStateOf(false) }
@@ -154,44 +153,158 @@ fun TricountDetailScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Column {
-                if (searchActive && selectedTab == 0) {
-                    // ── Search action bar (Expenses tab only) ─────────────────
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 4.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = {
-                            searchActive = false
-                            searchQuery  = ""
-                        }) {
-                            Icon(Icons.Filled.ArrowBack, "Close search",
-                                tint = MaterialTheme.colorScheme.onBackground)
+                // ── Top icon bar ──────────────────────────────────────────────
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment     = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    IconButton(onClick = onBackClick) {
+                        Icon(Icons.Filled.ArrowBack, "Back",
+                            tint = MaterialTheme.colorScheme.onBackground)
+                    }
+                    Row {
+                        // Search toggle — only visible on Expenses tab
+                        if (selectedTab == 0) {
+                            IconButton(onClick = {
+                                searchActive = !searchActive
+                                if (!searchActive) searchQuery = ""
+                            }) {
+                                Icon(
+                                    if (searchActive) Icons.Filled.SearchOff else Icons.Filled.Search,
+                                    "Search",
+                                    tint = if (searchActive) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onBackground
+                                )
+                            }
                         }
-                        OutlinedTextField(
-                            value         = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder   = { Text("Search expenses…") },
-                            singleLine    = true,
-                            modifier      = Modifier
-                                .weight(1f)
-                                .padding(end = 8.dp),
-                            shape         = RoundedCornerShape(50),
-                            colors        = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor   = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                            ),
-                            trailingIcon  = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
-                                        Icon(Icons.Filled.Clear, "Clear")
+                        // Three-dot menu
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(Icons.Filled.MoreVert, "Options",
+                                    tint = MaterialTheme.colorScheme.onBackground)
+                            }
+                            DropdownMenu(
+                                expanded         = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                // Share
+                                DropdownMenuItem(
+                                    leadingIcon = { Icon(Icons.Filled.Share, null) },
+                                    text    = { Text("Share") },
+                                    onClick = {
+                                        showMenu = false
+                                        tricountDetails?.let {
+                                            shareTricount(context, it.name, it.joinCode)
+                                        }
                                     }
+                                )
+                                // Edit → EditTripActivity
+                                DropdownMenuItem(
+                                    leadingIcon = { Icon(Icons.Filled.Edit, null) },
+                                    text    = { Text("Edit") },
+                                    onClick = {
+                                        showMenu = false
+                                        val editIntent = Intent(context, EditTripActivity::class.java).apply {
+                                            putExtra(EditTripActivity.EXTRA_TRICOUNT_ID, tricountId)
+                                        }
+                                        context.startActivity(editIntent)
+                                        (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+                                    }
+                                )
+                                // Insights
+                                DropdownMenuItem(
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.PieChart, null,
+                                            tint = MaterialTheme.colorScheme.primary)
+                                    },
+                                    text    = {
+                                        Text("Insights",
+                                            color = MaterialTheme.colorScheme.primary)
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        val insightsIntent = Intent(context, InsightsActivity::class.java).apply {
+                                            putExtra(InsightsActivity.EXTRA_TRICOUNT_ID,   tricountId)
+                                            putExtra(InsightsActivity.EXTRA_TRICOUNT_NAME, tricountName)
+                                        }
+                                        context.startActivity(insightsIntent)
+                                        (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+                                    }
+                                )
+                                // Archived Expenses
+                                DropdownMenuItem(
+                                    leadingIcon = { Icon(Icons.Filled.Inventory, null) },
+                                    text    = { Text("Archived Expenses") },
+                                    onClick = {
+                                        showMenu = false
+                                        val archivedIntent = Intent(context, ArchivedExpensesActivity::class.java).apply {
+                                            putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_ID,   tricountId)
+                                            putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_NAME, tricountName)
+                                        }
+                                        context.startActivity(archivedIntent)
+                                        (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+                                    }
+                                )
+                                // Archive tricount — only shown when not already archived
+                                if (!isArchived) {
+                                    DropdownMenuItem(
+                                        leadingIcon = {
+                                            Icon(Icons.Filled.Archive, null,
+                                                tint = MaterialTheme.colorScheme.secondary)
+                                        },
+                                        text    = {
+                                            Text("Archive Tricount",
+                                                color = MaterialTheme.colorScheme.secondary)
+                                        },
+                                        onClick = { showMenu = false; showArchiveDialog = true }
+                                    )
+                                }
+                                // Delete tricount
+                                DropdownMenuItem(
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Delete, null,
+                                            tint = MaterialTheme.colorScheme.error)
+                                    },
+                                    text    = {
+                                        Text("Delete Tricount",
+                                            color = MaterialTheme.colorScheme.error)
+                                    },
+                                    onClick = { showMenu = false; showDeleteDialog = true }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── Search bar ────────────────────────────────────────────────
+                if (searchActive) {
+                    OutlinedTextField(
+                        value         = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder   = { Text("Search expenses…") },
+                        leadingIcon   = { Icon(Icons.Filled.Search, null) },
+                        trailingIcon  = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Filled.Clear, "Clear")
                                 }
                             }
+                        },
+                        singleLine  = true,
+                        modifier    = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape       = RoundedCornerShape(50),
+                        colors      = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor   = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
                         )
-                    }
+                    )
+                    Spacer(Modifier.height(4.dp))
                     if (searchQuery.isNotBlank()) {
                         Text(
                             "${displayedExpenses.size} result${if (displayedExpenses.size == 1) "" else "s"}",
@@ -200,127 +313,7 @@ fun TricountDetailScreen(
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
                         )
                     }
-                } else {
-                    // ── Normal top icon bar ───────────────────────────────────────
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 4.dp, vertical = 4.dp),
-                        verticalAlignment     = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        IconButton(onClick = onBackClick) {
-                            Icon(Icons.Filled.ArrowBack, "Back",
-                                tint = MaterialTheme.colorScheme.onBackground)
-                        }
-                        Row {
-                            // Search icon — only visible on Expenses tab, activates action-bar search
-                            if (selectedTab == 0) {
-                                IconButton(onClick = { searchActive = true }) {
-                                    Icon(Icons.Filled.Search, "Search",
-                                        tint = MaterialTheme.colorScheme.onBackground)
-                                }
-                            }
-                            // Three-dot menu
-                            Box {
-                                IconButton(onClick = { showMenu = true }) {
-                                    Icon(Icons.Filled.MoreVert, "Options",
-                                        tint = MaterialTheme.colorScheme.onBackground)
-                                }
-                                DropdownMenu(
-                                    expanded         = showMenu,
-                                    onDismissRequest = { showMenu = false }
-                                ) {
-                                    // Share
-                                    DropdownMenuItem(
-                                        leadingIcon = { Icon(Icons.Filled.Share, null) },
-                                        text    = { Text("Share") },
-                                        onClick = {
-                                            showMenu = false
-                                            tricountDetails?.let {
-                                                shareTricount(context, it.name, it.joinCode)
-                                            }
-                                        }
-                                    )
-                                    // Edit → EditTripActivity
-                                    DropdownMenuItem(
-                                        leadingIcon = { Icon(Icons.Filled.Edit, null) },
-                                        text    = { Text("Edit") },
-                                        onClick = {
-                                            showMenu = false
-                                            val editIntent = Intent(context, EditTripActivity::class.java).apply {
-                                                putExtra(EditTripActivity.EXTRA_TRICOUNT_ID, tricountId)
-                                            }
-                                            context.startActivity(editIntent)
-                                            (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
-                                        }
-                                    )
-                                    // Insights
-                                    DropdownMenuItem(
-                                        leadingIcon = {
-                                            Icon(Icons.Filled.PieChart, null,
-                                                tint = MaterialTheme.colorScheme.primary)
-                                        },
-                                        text    = {
-                                            Text("Insights",
-                                                color = MaterialTheme.colorScheme.primary)
-                                        },
-                                        onClick = {
-                                            showMenu = false
-                                            val insightsIntent = Intent(context, InsightsActivity::class.java).apply {
-                                                putExtra(InsightsActivity.EXTRA_TRICOUNT_ID,   tricountId)
-                                                putExtra(InsightsActivity.EXTRA_TRICOUNT_NAME, tricountName)
-                                            }
-                                            context.startActivity(insightsIntent)
-                                            (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
-                                        }
-                                    )
-                                    // Archived Expenses
-                                    DropdownMenuItem(
-                                        leadingIcon = { Icon(Icons.Filled.Inventory, null) },
-                                        text    = { Text("Archived Expenses") },
-                                        onClick = {
-                                            showMenu = false
-                                            val archivedIntent = Intent(context, ArchivedExpensesActivity::class.java).apply {
-                                                putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_ID,   tricountId)
-                                                putExtra(ArchivedExpensesActivity.EXTRA_TRICOUNT_NAME, tricountName)
-                                            }
-                                            context.startActivity(archivedIntent)
-                                            (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
-                                        }
-                                    )
-                                    // Archive tricount — only shown when not already archived
-                                    if (!isArchived) {
-                                        DropdownMenuItem(
-                                            leadingIcon = {
-                                                Icon(Icons.Filled.Archive, null,
-                                                    tint = MaterialTheme.colorScheme.secondary)
-                                            },
-                                            text    = {
-                                                Text("Archive Tricount",
-                                                    color = MaterialTheme.colorScheme.secondary)
-                                            },
-                                            onClick = { showMenu = false; showArchiveDialog = true }
-                                        )
-                                    }
-                                    // Delete tricount
-                                    DropdownMenuItem(
-                                        leadingIcon = {
-                                            Icon(Icons.Filled.Delete, null,
-                                                tint = MaterialTheme.colorScheme.error)
-                                        },
-                                        text    = {
-                                            Text("Delete Tricount",
-                                                color = MaterialTheme.colorScheme.error)
-                                        },
-                                        onClick = { showMenu = false; showDeleteDialog = true }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } // end else: normal icon bar
+                }
             }
         },
         floatingActionButton = {
@@ -415,10 +408,7 @@ fun TricountDetailScreen(
                                 .weight(1f)
                                 .clickable {
                                     selectedTab = index
-                                    if (index != 0) {
-                                        searchActive = false
-                                        searchQuery  = ""
-                                    }
+                                    if (index != 0) { searchActive = false; searchQuery = "" }
                                 },
                             shape = RoundedCornerShape(50),
                             color = if (selected) MaterialTheme.colorScheme.surface
@@ -451,7 +441,17 @@ fun TricountDetailScreen(
                     onArchiveExpense        = { id -> viewModel.archiveExpense(id, tricountId) },
                     onUnarchiveExpense      = { id -> viewModel.unarchiveExpense(id, tricountId) },
                     onDeleteArchivedExpense = { id -> viewModel.deleteExpense(id, tricountId) },
-                    onEditExpense           = { expense -> expenseToEdit = expense },
+                    onEditExpense           = { expense ->
+                        val editIntent = Intent(context, EditExpenseActivity::class.java).apply {
+                            putExtra(EditExpenseActivity.EXTRA_EXPENSE_ID,    expense.id)
+                            putExtra(EditExpenseActivity.EXTRA_TRICOUNT_ID,   tricountId)
+                            putExtra(EditExpenseActivity.EXTRA_TRICOUNT_NAME, tricountName)
+                        }
+                        context.startActivity(editIntent)
+                        (context as? android.app.Activity)?.overridePendingTransition(
+                            R.anim.slide_in_right, R.anim.slide_out_left
+                        )
+                    },
                     showArchived            = false,
                     onToggleArchived        = {}
                 )
@@ -477,18 +477,6 @@ fun TricountDetailScreen(
                 )
             }
         }
-    }
-
-    // Edit expense dialog
-    expenseToEdit?.let { expense ->
-        ExpenseEditDialog(
-            expense       = expense,
-            tricountId    = tricountId,
-            currentUserId = currentUserId,
-            members       = members,
-            viewModel     = viewModel,
-            onDismiss     = { expenseToEdit = null }
-        )
     }
 
     // Archive tricount confirmation
