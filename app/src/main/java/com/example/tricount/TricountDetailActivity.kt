@@ -132,20 +132,6 @@ fun TricountDetailScreen(
     var showMenu          by remember { mutableStateOf(false) }
     var showDeleteDialog  by remember { mutableStateOf(false) }
     var showArchiveDialog by remember { mutableStateOf(false) }
-    var searchActive      by remember { mutableStateOf(false) }
-    var searchQuery       by remember { mutableStateOf("") }
-
-    // Filter expenses by search query when search is active
-    val displayedExpenses = remember(expenses, searchQuery, searchActive) {
-        if (searchActive && searchQuery.isNotBlank())
-            expenses.filter {
-                it.name.contains(searchQuery, ignoreCase = true) ||
-                        it.description.contains(searchQuery, ignoreCase = true) ||
-                        it.paidByName.contains(searchQuery, ignoreCase = true) ||
-                        it.category.contains(searchQuery, ignoreCase = true)
-            }
-        else expenses
-    }
 
     val tabs = listOf("Expenses", "Balances", "Details")
 
@@ -167,17 +153,23 @@ fun TricountDetailScreen(
                             tint = MaterialTheme.colorScheme.onBackground)
                     }
                     Row {
-                        // Search toggle — only visible on Expenses tab
+                        // Search icon — only visible on Expenses tab;
+                        // navigates to dedicated SearchExpensesActivity
                         if (selectedTab == 0) {
                             IconButton(onClick = {
-                                searchActive = !searchActive
-                                if (!searchActive) searchQuery = ""
+                                val searchIntent = Intent(context, SearchExpensesActivity::class.java).apply {
+                                    putExtra(SearchExpensesActivity.EXTRA_TRICOUNT_ID,   tricountId)
+                                    putExtra(SearchExpensesActivity.EXTRA_TRICOUNT_NAME, tricountName)
+                                }
+                                context.startActivity(searchIntent)
+                                (context as? android.app.Activity)?.overridePendingTransition(
+                                    R.anim.slide_in_right, R.anim.slide_out_left
+                                )
                             }) {
                                 Icon(
-                                    if (searchActive) Icons.Filled.SearchOff else Icons.Filled.Search,
-                                    "Search",
-                                    tint = if (searchActive) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onBackground
+                                    Icons.Filled.Search,
+                                    contentDescription = "Search expenses",
+                                    tint = MaterialTheme.colorScheme.onBackground
                                 )
                             }
                         }
@@ -279,41 +271,7 @@ fun TricountDetailScreen(
                         }
                     }
                 }
-
-                // ── Search bar ────────────────────────────────────────────────
-                if (searchActive) {
-                    OutlinedTextField(
-                        value         = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder   = { Text("Search expenses…") },
-                        leadingIcon   = { Icon(Icons.Filled.Search, null) },
-                        trailingIcon  = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { searchQuery = "" }) {
-                                    Icon(Icons.Filled.Clear, "Clear")
-                                }
-                            }
-                        },
-                        singleLine  = true,
-                        modifier    = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        shape       = RoundedCornerShape(50),
-                        colors      = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor   = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                        )
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    if (searchQuery.isNotBlank()) {
-                        Text(
-                            "${displayedExpenses.size} result${if (displayedExpenses.size == 1) "" else "s"}",
-                            fontSize = 12.sp,
-                            color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
-                        )
-                    }
-                }
+                // ── No inline search bar here anymore ─────────────────────────
             }
         },
         floatingActionButton = {
@@ -347,47 +305,44 @@ fun TricountDetailScreen(
             .fillMaxSize()) {
 
             // ── Tricount header ───────────────────────────────────────────────
-            if (!searchActive) {
-                Column(
-                    modifier            = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp, bottom = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+            Column(
+                modifier            = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp, bottom = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    tricountDetails?.emoji?.ifBlank { "⛺" } ?: "⛺",
+                    fontSize = 48.sp
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    verticalAlignment     = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    //
                     Text(
-                        tricountDetails?.emoji?.ifBlank { "⛺" } ?: "⛺",
-                        fontSize = 48.sp
+                        tricountName,
+                        fontSize   = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color      = MaterialTheme.colorScheme.onBackground
                     )
-                    Spacer(Modifier.height(4.dp))
-                    Row(
-                        verticalAlignment     = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                    Spacer(Modifier.width(6.dp))
+                    IconButton(
+                        onClick  = {
+                            val editTripIntent = Intent(context, EditTripActivity::class.java).apply {
+                                putExtra(EditTripActivity.EXTRA_TRICOUNT_ID, tricountId)
+                            }
+                            context.startActivity(editTripIntent)
+                            (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+                        },
+                        modifier = Modifier.size(28.dp)
                     ) {
-                        Text(
-                            tricountName,
-                            fontSize   = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            color      = MaterialTheme.colorScheme.onBackground
+                        Icon(
+                            Icons.Filled.Edit,
+                            contentDescription = "Edit trip",
+                            tint     = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                            modifier = Modifier.size(16.dp)
                         )
-                        Spacer(Modifier.width(6.dp))
-                        IconButton(
-                            onClick  = {
-                                val editTripIntent = Intent(context, EditTripActivity::class.java).apply {
-                                    putExtra(EditTripActivity.EXTRA_TRICOUNT_ID, tricountId)
-                                }
-                                context.startActivity(editTripIntent)
-                                (context as? android.app.Activity)?.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                Icons.Filled.Edit,
-                                contentDescription = "Edit trip",
-                                tint     = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
                     }
                 }
             }
@@ -406,10 +361,7 @@ fun TricountDetailScreen(
                         Surface(
                             modifier = Modifier
                                 .weight(1f)
-                                .clickable {
-                                    selectedTab = index
-                                    if (index != 0) { searchActive = false; searchQuery = "" }
-                                },
+                                .clickable { selectedTab = index },
                             shape = RoundedCornerShape(50),
                             color = if (selected) MaterialTheme.colorScheme.surface
                             else androidx.compose.ui.graphics.Color.Transparent
@@ -434,7 +386,7 @@ fun TricountDetailScreen(
             when (selectedTab) {
                 0 -> ExpensesContent(
                     modifier                = Modifier.weight(1f),
-                    expenses                = displayedExpenses,
+                    expenses                = expenses,
                     archivedExpenses        = archivedExpenses,
                     currentUserId           = currentUserId,
                     onDeleteExpense         = { id -> viewModel.deleteExpense(id, tricountId) },
