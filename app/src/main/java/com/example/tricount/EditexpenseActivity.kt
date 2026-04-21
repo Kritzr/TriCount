@@ -306,8 +306,8 @@ fun EditExpenseScreen(
     fun save() {
         if (!canSave) return
         val rawAmount   = amountValue!!
-        val amountInInr = if (selectedCurrency.code == "INR") rawAmount
-        else convertToInr(rawAmount, selectedCurrency.code)
+        // Edit screen always locks currency to INR, so no conversion needed.
+        val amountInInr = rawAmount
 
         val sharesMap: Map<Int, Int> = when (splitMode) {
             SplitMode.EQUALLY    -> members.associate { it.userId to 1 }

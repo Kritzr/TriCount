@@ -55,7 +55,7 @@ private fun catMeta(name: String): CategoryMeta = when (name) {
     "Utilities"      -> CategoryMeta(Icons.Filled.Bolt,          Color(0xFFFFD166))
     "Travel"         -> CategoryMeta(Icons.Filled.Flight,        Color(0xFFE07B39))
     "Education"      -> CategoryMeta(Icons.Filled.School,        Color(0xFFCC5200))
-    "General"        -> CategoryMeta(Icons.Filled.PushPin,       Color(0xFFFF7043))
+    "General"        -> CategoryMeta(Icons.Filled.PushPin,       Color(0xFFFFC107))
     "No Category"    -> CategoryMeta(Icons.Filled.HelpOutline,   Color(0xFFBF7040))
     else             -> CategoryMeta(Icons.Filled.Category,      Color(0xFFBF7040))
 }

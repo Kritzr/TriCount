@@ -4,7 +4,6 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
-import androidx.room.PrimaryKey
 
 // Cross-reference table for many-to-many relationship between Users and Tricounts
 @Entity(
@@ -33,15 +32,16 @@ data class TricountMemberCrossRef(
 
 // Data class to represent a member with their details
 data class MemberWithDetails(
-    @androidx.room.ColumnInfo(name = "userId")
+    @ColumnInfo(name = "userId")
     val userId: Int,
 
-    @androidx.room.ColumnInfo(name = "name")
+    @ColumnInfo(name = "name")
     val name: String,
 
-    @androidx.room.ColumnInfo(name = "email")
+    @ColumnInfo(name = "email")
     val email: String,
 
-    @androidx.room.ColumnInfo(name = "isCreator")
-    val isCreator: Boolean
+    @ColumnInfo(name = "isCreator")
+    val isCreator: Boolean,
+    val photoUri: String
 )

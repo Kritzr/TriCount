@@ -27,11 +27,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Balance
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Flight
+import androidx.compose.material.icons.filled.Hotel
+import androidx.compose.material.icons.filled.LocalHospital
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material.icons.filled.Percent
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -80,6 +90,7 @@ import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.AddExpenseResult
 import com.example.tricount.viewModel.TricountViewModel
 
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Supported currencies
 // ─────────────────────────────────────────────────────────────────────────────
@@ -100,32 +111,34 @@ val CURRENCIES = listOf(
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Exchange rates → INR (approximate fixed rates; replace with live API if needed)
-// ─────────────────────────────────────────────────────────────────────────────
-
-val EXCHANGE_RATES_TO_INR = mapOf(
-    "USD" to 83.50,
-    "EUR" to 90.20,
-    "GBP" to 105.60,
-    "INR" to 1.0,
-    "JPY" to 0.56,
-    "CAD" to 61.80,
-    "AUD" to 54.30,
-    "CHF" to 94.10,
-    "SGD" to 62.50,
-    "AED" to 22.73,
-)
-
-fun convertToInr(amount: Double, fromCurrency: String): Double {
-    val rate = EXCHANGE_RATES_TO_INR[fromCurrency] ?: 1.0
-    return amount * rate
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Split mode
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum class SplitMode { EQUALLY, PERCENTAGE, PARTS }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Expense categories  (mirrors InsightsContentActivity so they align perfectly)
+// ─────────────────────────────────────────────────────────────────────────────
+
+data class ExpenseCategory(
+    val name   : String,
+    val icon   : androidx.compose.ui.graphics.vector.ImageVector,
+    val color  : Color
+)
+
+val EXPENSE_CATEGORIES = listOf(
+    ExpenseCategory("Food & Drinks",  Icons.Filled.Restaurant,    Color(0xFFFF6B35)),
+    ExpenseCategory("Transport",      Icons.Filled.DirectionsCar, Color(0xFFE85D04)),
+    ExpenseCategory("Accommodation",  Icons.Filled.Hotel,         Color(0xFFFF9A3C)),
+    ExpenseCategory("Entertainment",  Icons.Filled.Movie,         Color(0xFFFFB347)),
+    ExpenseCategory("Shopping",       Icons.Filled.ShoppingBag,   Color(0xFFD4500A)),
+    ExpenseCategory("Health",         Icons.Filled.LocalHospital, Color(0xFFFF8C42)),
+    ExpenseCategory("Groceries",      Icons.Filled.ShoppingCart,  Color(0xFFFFC067)),
+    ExpenseCategory("Utilities",      Icons.Filled.Bolt,          Color(0xFFFFD166)),
+    ExpenseCategory("Travel",         Icons.Filled.Flight,        Color(0xFFE07B39)),
+    ExpenseCategory("Education",      Icons.Filled.School,        Color(0xFFCC5200)),
+    ExpenseCategory("General",        Icons.Filled.PushPin,       Color(0xFFFFC107)),
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Activity
@@ -147,7 +160,11 @@ class AddExpenseActivity : ComponentActivity() {
         AppTheme.isDark.value = sessionManager.getDarkMode()
         setContent {
             TriCountTheme {
-                LaunchedEffect(tricountId) { viewModel.loadTricountDetails(tricountId) }
+                LaunchedEffect(tricountId) {
+                    viewModel.loadTricountDetails(tricountId)
+                    // Pre-warm Fixer.io cache so the first conversion is instant
+                    viewModel.prefetchExchangeRates()
+                }
 
                 val members       by viewModel.tricountMembers.collectAsStateWithLifecycle()
                 val currentUserId = sessionManager.getUserId() ?: -1
@@ -179,7 +196,7 @@ class AddExpenseActivity : ComponentActivity() {
     companion object {
         const val EXTRA_TRICOUNT_ID    = "extra_tricount_id"
         const val EXTRA_TRICOUNT_NAME  = "extra_tricount_name"
-        const val EXTRA_NEW_EXPENSE_ID = "extra_new_expense_added_at"  // Long: System.currentTimeMillis() when expense was saved
+        const val EXTRA_NEW_EXPENSE_ID = "extra_new_expense_added_at"
     }
 }
 
@@ -200,12 +217,20 @@ fun AddExpenseScreen(
 ) {
     val context = LocalContext.current
 
+    // ── Live rate state from ViewModel ────────────────────────────────────────
+    val convertedAmount  by viewModel.convertedAmount.collectAsStateWithLifecycle()
+    val rateLoading      by viewModel.rateLoading.collectAsStateWithLifecycle()
+    val rateError        by viewModel.rateError.collectAsStateWithLifecycle()
+    val rateDate         by viewModel.rateDate.collectAsStateWithLifecycle()
+    val rateIsFallback   by viewModel.rateIsFallback.collectAsStateWithLifecycle()
+
     // ── Form state ────────────────────────────────────────────────────────────
     var expenseName      by remember { mutableStateOf("") }
     var amountText       by remember { mutableStateOf("") }
     var description      by remember { mutableStateOf("") }
     var selectedCurrency by remember { mutableStateOf(CURRENCIES.first { it.code == "INR" }) }
     var selectedPayerId  by remember { mutableStateOf(currentUserId) }
+    var selectedCategory by remember { mutableStateOf(EXPENSE_CATEGORIES.first { it.name == "General" }) }
     var splitMode        by remember { mutableStateOf(SplitMode.EQUALLY) }
     var isLoading        by remember { mutableStateOf(false) }
     var currencyExpanded by remember { mutableStateOf(false) }
@@ -222,15 +247,18 @@ fun AddExpenseScreen(
         }
     }
 
-    // ── Autofill: tracks which members the user has manually edited ──────────
-    // Members NOT in this set are "auto" slots whose value is recalculated
-    // every time any manual member's percentage/parts value changes.
     val manuallyEditedIds = remember { mutableStateMapOf<Int, Boolean>() }
-    // Clear manual tracking whenever the split mode changes
     LaunchedEffect(splitMode) { manuallyEditedIds.clear() }
 
+    // ── Trigger live conversion whenever amount or currency changes ───────────
+    val amountValue = amountText.toDoubleOrNull()
+    LaunchedEffect(amountValue, selectedCurrency.code) {
+        if (amountValue != null && amountValue > 0 && selectedCurrency.code != "INR") {
+            viewModel.convertCurrency(amountValue, selectedCurrency.code, "INR")
+        }
+    }
+
     // ── Validation ────────────────────────────────────────────────────────────
-    val amountValue       = amountText.toDoubleOrNull()
     val isAmountValid     = amountValue != null && amountValue > 0
     val isNameValid       = expenseName.isNotBlank()
     val percentageTotal   = if (splitMode == SplitMode.PERCENTAGE)
@@ -243,9 +271,17 @@ fun AddExpenseScreen(
     fun save() {
         if (!canSave) return
         val rawAmount = amountValue!!
-        // Convert to INR if a different currency is selected
-        val amountInInr = if (selectedCurrency.code == "INR") rawAmount
-        else convertToInr(rawAmount, selectedCurrency.code)
+
+        // Use the live-converted amount if available; fall back to raw amount for INR
+        val amountInInr: Double = when {
+            selectedCurrency.code == "INR" -> rawAmount
+            convertedAmount != null        -> convertedAmount!!
+            else -> {
+                Toast.makeText(context, "Exchange rate not loaded yet. Please wait.", Toast.LENGTH_SHORT).show()
+                return
+            }
+        }
+
         val sharesMap: Map<Int, Int> = when (splitMode) {
             SplitMode.EQUALLY    -> members.associate { it.userId to 1 }
             SplitMode.PERCENTAGE -> members.associate { m ->
@@ -266,6 +302,7 @@ fun AddExpenseScreen(
             description = description.trim(),
             amount      = amountInInr,
             paidBy      = selectedPayerId,
+            category    = selectedCategory.name,
             sharesMap   = sharesMap
         ) { result ->
             isLoading = false
@@ -338,8 +375,6 @@ fun AddExpenseScreen(
                     Spacer(Modifier.height(12.dp))
 
                     // ── [Currency button]  [Amount field] ────────────────────
-                    // Box + plain DropdownMenu so the menu is NOT constrained
-                    // to the 108 dp button width — it renders at its own 260 dp.
                     Row(
                         modifier              = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -359,8 +394,6 @@ fun AddExpenseScreen(
                                         modifier           = Modifier.size(20.dp)
                                     )
                                 },
-                                // disabled so it never steals keyboard focus;
-                                // taps are handled by the Box's clickable modifier
                                 enabled       = false,
                                 modifier      = Modifier
                                     .width(108.dp)
@@ -375,7 +408,6 @@ fun AddExpenseScreen(
                                 )
                             )
 
-                            // Plain DropdownMenu — width is independent of the anchor
                             DropdownMenu(
                                 expanded         = currencyExpanded,
                                 onDismissRequest = { currencyExpanded = false },
@@ -426,7 +458,7 @@ fun AddExpenseScreen(
                             }
                         }
 
-                        // Amount field — fills remaining space
+                        // Amount field
                         OutlinedTextField(
                             value           = amountText,
                             onValueChange   = {
@@ -455,9 +487,8 @@ fun AddExpenseScreen(
                         )
                     }
 
-                    // ── INR conversion info banner ────────────────────────────
+                    // ── INR conversion banner (live rates) ───────────────────
                     if (selectedCurrency.code != "INR" && amountValue != null && amountValue > 0) {
-                        val converted = convertToInr(amountValue, selectedCurrency.code)
                         Spacer(Modifier.height(8.dp))
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
@@ -468,15 +499,59 @@ fun AddExpenseScreen(
                                 modifier          = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("🔄", fontSize = 14.sp)
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    "${selectedCurrency.symbol}${"%.2f".format(amountValue)} " +
-                                            "≈ ₹${"%.2f".format(converted)} (saved in INR)",
-                                    fontSize   = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color      = colorScheme.onTertiaryContainer
-                                )
+                                when {
+                                    // Fetching rate
+                                    rateLoading -> {
+                                        CircularProgressIndicator(
+                                            modifier    = Modifier.size(14.dp),
+                                            strokeWidth = 2.dp,
+                                            color       = colorScheme.onTertiaryContainer
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "Fetching live rate…",
+                                            fontSize = 12.sp,
+                                            color    = colorScheme.onTertiaryContainer
+                                        )
+                                    }
+                                    // Rate fetch error — warn user but still let them proceed
+                                    rateError != null -> {
+                                        Text("⚠️", fontSize = 14.sp)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "Could not fetch live rate. Please try again.",
+                                            fontSize   = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color      = colorScheme.error
+                                        )
+                                    }
+                                    // Rate available — show converted amount + rate date
+                                    convertedAmount != null -> {
+                                        Column {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(if (rateIsFallback) "⚠️" else "🔄", fontSize = 14.sp)
+                                                Spacer(Modifier.width(8.dp))
+                                                Text(
+                                                    "${selectedCurrency.symbol}${"%.2f".format(amountValue)}" +
+                                                            " ≈ ₹${"%.2f".format(convertedAmount)} (saved in INR)",
+                                                    fontSize   = 12.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color      = if (rateIsFallback)
+                                                        colorScheme.onTertiaryContainer.copy(alpha = 0.75f)
+                                                    else colorScheme.onTertiaryContainer
+                                                )
+                                            }
+                                            Text(
+                                                if (rateIsFallback)
+                                                    "Using approximate offline rates — live rate unavailable"
+                                                else "Live rate · $rateDate",
+                                                fontSize = 10.sp,
+                                                color    = colorScheme.onTertiaryContainer.copy(alpha = 0.65f),
+                                                modifier = Modifier.padding(start = 22.dp, top = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -496,6 +571,15 @@ fun AddExpenseScreen(
                         enabled       = !isLoading
                     )
                 }
+            }
+
+            // ── Category ────────────────────────────────────────────────────
+            item {
+                CategoryPickerCard(
+                    selected  = selectedCategory,
+                    onSelect  = { selectedCategory = it },
+                    isLoading = isLoading
+                )
             }
 
             // ── Paid By ──────────────────────────────────────────────────────
@@ -648,9 +732,9 @@ fun AddExpenseScreen(
                                     iconColor                      = colorScheme.onSurfaceVariant
                                 ),
                                 border      = FilterChipDefaults.filterChipBorder(
-                                    enabled           = true,
-                                    selected          = isSelected,
-                                    borderColor       = colorScheme.outline.copy(alpha = 0.4f),
+                                    enabled             = true,
+                                    selected            = isSelected,
+                                    borderColor         = colorScheme.outline.copy(alpha = 0.4f),
                                     selectedBorderColor = colorScheme.primary
                                 )
                             )
@@ -706,9 +790,7 @@ fun AddExpenseScreen(
                                 onInputChange  = { v ->
                                     splitInputs[member.userId] = v
                                     if (splitMode == SplitMode.PERCENTAGE) {
-                                        // Mark this member as manually edited
                                         manuallyEditedIds[member.userId] = true
-                                        // Redistribute remaining % equally among non-manual members
                                         val manualTotal = members
                                             .filter { manuallyEditedIds[it.userId] == true }
                                             .sumOf { splitInputs[it.userId]?.toDoubleOrNull() ?: 0.0 }
@@ -722,7 +804,6 @@ fun AddExpenseScreen(
                                             }
                                         }
                                     } else if (splitMode == SplitMode.PARTS) {
-                                        // For parts: mirror same value to all untouched members
                                         manuallyEditedIds[member.userId] = true
                                         val parts = v.toIntOrNull()
                                         if (parts != null && parts > 0) {
@@ -795,6 +876,122 @@ fun AddExpenseScreen(
                     }
                 }
                 Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Category picker card
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun CategoryPickerCard(
+    selected  : ExpenseCategory,
+    onSelect  : (ExpenseCategory) -> Unit,
+    isLoading : Boolean
+) {
+    Card(
+        modifier  = Modifier.fillMaxWidth(),
+        colors    = CardDefaults.cardColors(containerColor = colorScheme.surface),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                "Category",
+                fontSize   = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color      = colorScheme.primary,
+                modifier   = Modifier.padding(bottom = 12.dp)
+            )
+
+            // Selected category preview pill
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                shape  = RoundedCornerShape(12.dp),
+                color  = selected.color.copy(alpha = 0.12f)
+            ) {
+                Row(
+                    modifier          = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        modifier = Modifier.size(34.dp),
+                        shape    = CircleShape,
+                        color    = selected.color.copy(alpha = 0.2f)
+                    ) {
+                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            Icon(
+                                selected.icon, null,
+                                tint     = selected.color,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        selected.name,
+                        fontSize   = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color      = selected.color
+                    )
+                }
+            }
+
+            // Grid of all categories  (2 columns)
+            val rows = EXPENSE_CATEGORIES.chunked(2)
+            rows.forEach { rowItems ->
+                Row(
+                    modifier              = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    rowItems.forEach { cat ->
+                        val isSelected = cat.name == selected.name
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(enabled = !isLoading) { onSelect(cat) },
+                            shape  = RoundedCornerShape(10.dp),
+                            color  = if (isSelected) cat.color.copy(alpha = 0.18f)
+                            else colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = if (isSelected)
+                                androidx.compose.foundation.BorderStroke(1.5.dp, cat.color)
+                            else null
+                        ) {
+                            Row(
+                                modifier          = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    cat.icon, null,
+                                    tint     = if (isSelected) cat.color
+                                    else colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    cat.name,
+                                    fontSize   = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color      = if (isSelected) cat.color
+                                    else colorScheme.onSurfaceVariant,
+                                    maxLines   = 1,
+                                    overflow   = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                    // If odd number in the last row, fill the second slot
+                    if (rowItems.size == 1) Spacer(Modifier.weight(1f))
+                }
             }
         }
     }

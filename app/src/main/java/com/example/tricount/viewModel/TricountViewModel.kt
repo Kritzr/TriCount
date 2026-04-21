@@ -12,6 +12,209 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.GET
+import java.text.SimpleDateFormat
+import java.util.*
+import java.util.concurrent.TimeUnit
+
+// =============================================================================
+// Currency API layer — no API key required, fully free, HTTPS
+//
+// Primary  : https://open.er-api.com/v6/latest/USD   (USD-based rates)
+// Secondary: https://api.frankfurter.dev/v1/latest   (EUR-based rates, fallback)
+// Offline  : hardcoded approximate rates             (last resort)
+// =============================================================================
+
+// ── open.er-api.com response ─────────────────────────────────────────────────
+
+data class ErApiResponse(
+    val result          : String?,              // "success" or "error"
+    val base_code       : String?,
+    val time_last_update_utc : String?,
+    val rates           : Map<String, Double>?
+)
+
+interface ErApi {
+    // Returns all rates with USD as base — free, no key, HTTPS ✓
+    @GET("latest/USD")
+    suspend fun getLatestRates(): ErApiResponse
+}
+
+// ── frankfurter.dev response ─────────────────────────────────────────────────
+
+data class FrankfurterResponse(
+    val base  : String?,
+    val date  : String?,
+    val rates : Map<String, Double>?
+)
+
+interface FrankfurterApi {
+    // Returns rates with EUR as base — free, no key, HTTPS ✓
+    @GET("latest")
+    suspend fun getLatestRates(): FrankfurterResponse
+}
+
+// ── Hardcoded fallback (USD-based, approximate) ───────────────────────────────
+
+private val FALLBACK_RATES_USD_BASED: Map<String, Double> = mapOf(
+    "USD" to 1.0,
+    "EUR" to 0.922,
+    "GBP" to 0.789,
+    "INR" to 83.50,
+    "JPY" to 149.50,
+    "CAD" to 1.360,
+    "AUD" to 1.528,
+    "CHF" to 0.888,
+    "SGD" to 1.344,
+    "AED" to 3.673
+)
+
+// ── Shared OkHttp client ──────────────────────────────────────────────────────
+
+private val sharedOkHttp by lazy {
+    OkHttpClient.Builder()
+        .addInterceptor(HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BASIC
+        })
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
+}
+
+private fun makeRetrofit(baseUrl: String): Retrofit =
+    Retrofit.Builder()
+        .baseUrl(baseUrl)
+        .client(sharedOkHttp)
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+
+object ErApiClient {
+    val api: ErApi by lazy {
+        makeRetrofit("https://open.er-api.com/v6/").create(ErApi::class.java)
+    }
+}
+
+object FrankfurterClient {
+    val api: FrankfurterApi by lazy {
+        makeRetrofit("https://api.frankfurter.dev/v1/").create(FrankfurterApi::class.java)
+    }
+}
+
+// ── CurrencyRepository ────────────────────────────────────────────────────────
+
+/**
+ * Fetches USD-based rates.
+ * Priority chain (each is tried only if the previous fails):
+ *   1. Today's in-memory cache
+ *   2. open.er-api.com  (primary,   USD base)
+ *   3. frankfurter.dev  (secondary, EUR base → normalised to USD base)
+ *   4. Hardcoded fallback rates
+ *
+ * All conversions use USD as the pivot:
+ *   result = amount * rates[to] / rates[from]
+ */
+class CurrencyRepository {
+
+    // USD-based rates cache
+    private var cachedRates   : Map<String, Double>? = null
+    private var cacheDate     : String = ""
+    private var cacheRateDate : String = ""
+    private var usingFallback : Boolean = false
+
+    private val todayStr: String
+        get() = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+
+    /** Returns a USD-based rates map. Never throws — always returns something usable. */
+    suspend fun getRates(): Map<String, Double> {
+        val today = todayStr
+        cachedRates?.takeIf { cacheDate == today }?.let { return it }
+
+        // 1. Try open.er-api.com
+        try {
+            val resp = ErApiClient.api.getLatestRates()
+            if (resp.result == "success" && resp.rates != null) {
+                val rates = resp.rates.toMutableMap().apply { put("USD", 1.0) }
+                cachedRates   = rates
+                cacheDate     = today
+                cacheRateDate = resp.time_last_update_utc
+                    ?.take(16) ?: today          // trim to "Fri, 21 Apr 2025"
+                usingFallback = false
+                Log.d("CurrencyRepo", "Rates from open.er-api.com: ${resp.time_last_update_utc}")
+                return rates
+            }
+        } catch (e: Exception) {
+            Log.w("CurrencyRepo", "open.er-api.com failed: ${e.message}")
+        }
+
+        // 2. Try frankfurter.dev (EUR-based → convert to USD-based)
+        try {
+            val resp = FrankfurterClient.api.getLatestRates()
+            if (resp.rates != null) {
+                // resp.rates is EUR-based. Add EUR itself, then normalise to USD base.
+                val eurBased = resp.rates.toMutableMap().apply { put("EUR", 1.0) }
+                val eurToUsd = eurBased["USD"] ?: 1.085   // EUR→USD rate
+                // Convert every rate: rate_usd = rate_eur / eurToUsd
+                val usdBased = eurBased.mapValues { (_, rateVsEur) ->
+                    rateVsEur / eurToUsd
+                }.toMutableMap().apply { put("USD", 1.0) }
+                cachedRates   = usdBased
+                cacheDate     = today
+                cacheRateDate = resp.date ?: today
+                usingFallback = false
+                Log.d("CurrencyRepo", "Rates from frankfurter.dev date=${resp.date}")
+                return usdBased
+            }
+        } catch (e: Exception) {
+            Log.w("CurrencyRepo", "frankfurter.dev failed: ${e.message}")
+        }
+
+        // 3. Stale cache is better than hardcoded fallback
+        cachedRates?.let {
+            Log.w("CurrencyRepo", "Both APIs failed — using stale cache")
+            return it
+        }
+
+        // 4. Last resort: hardcoded fallback
+        Log.w("CurrencyRepo", "Using hardcoded fallback rates")
+        return useFallback()
+    }
+
+    private fun useFallback(): Map<String, Double> {
+        usingFallback = true
+        cacheRateDate = "approx."
+        return FALLBACK_RATES_USD_BASED
+    }
+
+    /** Label shown in UI: the update timestamp or "approx. (offline)". */
+    fun getRateDate(): String = when {
+        usingFallback           -> "approx. (offline)"
+        cacheRateDate.isBlank() -> todayStr
+        else                    -> cacheRateDate
+    }
+
+    /**
+     * Convert [amount] from [from] to [to] using USD as the pivot currency.
+     *   result = amount * rates[to] / rates[from]
+     * Returns null only if either currency code is missing from the rates map.
+     */
+    suspend fun convert(amount: Double, from: String, to: String): Double? {
+        if (from == to) return amount
+        val rates    = getRates()
+        val fromRate = rates[from] ?: return null
+        val toRate   = rates[to]   ?: return null
+        return amount * toRate / fromRate
+    }
+
+    fun isUsingFallback(): Boolean = usingFallback
+}
+
+// =============================================================================
+// ViewModel
+// =============================================================================
 
 class TricountViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -21,6 +224,9 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     private val paymentDao     = db.paymentDao()
     private val sessionManager = SessionManager(application)
     private val syncRepo       = FirebaseSyncRepository(db, sessionManager)
+
+    // Currency repository — one instance, shared cache across all screens
+    val currencyRepository = CurrencyRepository()
 
     // NOTE: pullFromFirebase is NOT called here.
     // It is called once in AuthViewModel.handleGoogleSignIn after login.
@@ -61,6 +267,76 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     private val _payments          = MutableStateFlow<List<PaymentEntity>>(emptyList())
     val payments: StateFlow<List<PaymentEntity>> = _payments
 
+    // ── Currency conversion StateFlows ────────────────────────────────────────
+
+    /** Live conversion result: amount in the target currency (INR by default). */
+    private val _convertedAmount = MutableStateFlow<Double?>(null)
+    val convertedAmount: StateFlow<Double?> = _convertedAmount
+
+    /** True while a live rate network call is in flight. */
+    private val _rateLoading = MutableStateFlow(false)
+    val rateLoading: StateFlow<Boolean> = _rateLoading
+
+    /** Non-null when the last rate fetch failed. */
+    private val _rateError = MutableStateFlow<String?>(null)
+    val rateError: StateFlow<String?> = _rateError
+
+    /** The date of the rates currently in cache, shown in the UI. */
+    private val _rateDate = MutableStateFlow<String?>(null)
+    val rateDate: StateFlow<String?> = _rateDate
+
+    /** True when the conversion is using hardcoded fallback rates (APIs unavailable). */
+    private val _rateIsFallback = MutableStateFlow(false)
+    val rateIsFallback: StateFlow<Boolean> = _rateIsFallback
+
+    /**
+     * Convert [amount] from [from] → [to] (defaults to INR) using live rates.
+     * Updates [convertedAmount], [rateLoading], [rateError], and [rateDate].
+     */
+    fun convertCurrency(amount: Double, from: String, to: String = "INR") {
+        if (from == to) {
+            _convertedAmount.value = amount
+            _rateDate.value        = currencyRepository.getRateDate()
+            _rateIsFallback.value  = false
+            return
+        }
+        viewModelScope.launch {
+            _rateLoading.value = true
+            _rateError.value   = null
+            try {
+                val result = currencyRepository.convert(amount, from, to)
+                _convertedAmount.value = result
+                _rateDate.value        = currencyRepository.getRateDate()
+                _rateIsFallback.value  = currencyRepository.isUsingFallback()
+                if (result == null) _rateError.value = "Rate for $from or $to not available"
+            } catch (e: Exception) {
+                Log.e("TricountVM", "convertCurrency error", e)
+                // Even on exception, try to return a fallback-based result
+                val fallback = currencyRepository.convert(amount, from, to)
+                _convertedAmount.value = fallback
+                _rateIsFallback.value  = true
+                _rateDate.value        = currencyRepository.getRateDate()
+                if (fallback == null) _rateError.value = "Rate unavailable for $from"
+            } finally {
+                _rateLoading.value = false
+            }
+        }
+    }
+
+    /** Call once when AddExpenseActivity opens to pre-warm the cache. */
+    fun prefetchExchangeRates() {
+        viewModelScope.launch {
+            try {
+                currencyRepository.getRates()   // getRates() never throws — uses fallback internally
+                _rateDate.value       = currencyRepository.getRateDate()
+                _rateIsFallback.value = currencyRepository.isUsingFallback()
+                Log.d("CurrencyRepo", "prefetchExchangeRates done, rateDate=${currencyRepository.getRateDate()}")
+            } catch (e: Exception) {
+                Log.w("TricountVM", "prefetchExchangeRates unexpected error: ${e.message}")
+            }
+        }
+    }
+
     // ── Tricount CRUD ─────────────────────────────────────────────────────────
 
     fun loadTricounts() {
@@ -92,7 +368,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 val tricountId = tricountDao.insertTricount(tricount).toInt()
                 tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = tricountId))
 
-                // Add pre-invited members — create placeholder if not in Room yet
                 for (email in memberEmails) {
                     try {
                         val trimmed = email.trim().lowercase()
@@ -215,11 +490,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 if (trimmed.isEmpty()) {
                     onResult(AddMemberResult.Error("Please enter an email address")); return@launch
                 }
-                // Find existing Room user OR create a placeholder so they show in splits immediately.
-                // When they actually sign in, AuthViewModel.findOrCreateRoomUser matches by email
-                // and reuses this same row — their real name/photo will sync then.
                 val user = userDao.getUserByEmail(trimmed) ?: createPlaceholderUser(trimmed)
-
                 if (tricountDao.isMember(tricountId, user.id) > 0) {
                     onResult(AddMemberResult.Error("${user.name} is already a member")); return@launch
                 }
@@ -301,8 +572,8 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     ) {
         viewModelScope.launch {
             try {
-                if (name.isBlank())               { onResult(AddExpenseResult.Error("Expense name is required")); return@launch }
-                if (amount <= 0)                  { onResult(AddExpenseResult.Error("Amount must be greater than 0")); return@launch }
+                if (name.isBlank())                   { onResult(AddExpenseResult.Error("Expense name is required")); return@launch }
+                if (amount <= 0)                      { onResult(AddExpenseResult.Error("Amount must be greater than 0")); return@launch }
                 if (sharesMap.values.all { it == 0 }) { onResult(AddExpenseResult.Error("At least one member must have shares > 0")); return@launch }
 
                 val expense   = ExpenseEntity(tricountId = tricountId, name = name, description = description, amount = amount, paidBy = paidBy, category = category)
@@ -419,15 +690,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
 
     // ── Profile ───────────────────────────────────────────────────────────────
 
-    /**
-     * Uploads the photo to Firebase Storage → gets an https:// URL that never expires
-     * → saves it to Room (permanent per-user), SessionManager (session cache),
-     * and Firestore (syncs across devices/logins).
-     *
-     * Using Firebase Storage means the URL works after logout/login on any device.
-     * A local content:// URI only works on the device that picked the file and
-     * is invalidated when the app's data is cleared or permissions change.
-     */
     fun uploadProfilePhoto(uri: android.net.Uri, onDone: (String?) -> Unit) {
         viewModelScope.launch {
             try {
@@ -447,11 +709,8 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
 
                 Log.d("TricountVM", "uploadProfilePhoto: got downloadUrl=$downloadUrl")
 
-                // 1. Room — permanent, survives logout/login for this user
                 userDao.updatePhotoUri(userId, downloadUrl)
-                // 2. SessionManager — fast cache for current session
                 sessionManager.setProfilePhotoUri(downloadUrl)
-                // 3. Firestore — syncs to other devices on next login
                 syncRepo.pushProfilePhoto(downloadUrl)
 
                 onDone(downloadUrl)
@@ -474,10 +733,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /**
-     * Used only for REMOVING the photo (pass empty string).
-     * For setting a photo, always use uploadProfilePhoto() instead.
-     */
     fun savePhotoUri(uri: String, onDone: () -> Unit = {}) {
         viewModelScope.launch {
             try {

@@ -104,6 +104,18 @@ private val TRIP_EMOJIS = listOf(
 )
 
 // =============================================================================
+// Pending member change — staged but not yet committed to DB
+// =============================================================================
+
+private data class PendingMember(
+    val email  : String,
+    val name   : String,   // display name derived from email
+    val action : PendingAction
+)
+
+private enum class PendingAction { ADD, REMOVE }
+
+// =============================================================================
 // Screen
 // =============================================================================
 
@@ -121,12 +133,11 @@ fun EditTripScreen(
     val isCreator = tricountDetails?.creatorId == currentUserId
 
     // ── Local state — seeded from DB once, then user edits freely ────────────
-    var editName     by remember { mutableStateOf("") }
-    var editDesc     by remember { mutableStateOf("") }
-    var editEmoji    by remember { mutableStateOf("⛺") }
-    var seeded       by remember { mutableStateOf(false) }
+    var editName  by remember { mutableStateOf("") }
+    var editDesc  by remember { mutableStateOf("") }
+    var editEmoji by remember { mutableStateOf("⛺") }
+    var seeded    by remember { mutableStateOf(false) }
 
-    // Seed from DB exactly once when data arrives
     LaunchedEffect(tricountDetails?.id) {
         tricountDetails?.let { t ->
             if (!seeded) {
@@ -138,38 +149,104 @@ fun EditTripScreen(
         }
     }
 
+    // ── Pending member changes (staged, applied only on Save) ─────────────────
+    // Key = email (lowercase). Later entries for same email override earlier ones.
+    val pendingChanges = remember { mutableStateMapOf<String, PendingMember>() }
+
+    // Effective member list = DB members minus pending removals + pending additions
+    val effectiveMembers: List<MemberWithDetails> = remember(members, pendingChanges.toMap()) {
+        val removedEmails = pendingChanges.values
+            .filter { it.action == PendingAction.REMOVE }
+            .map { it.email }
+            .toSet()
+
+        val base = members.filter { it.email.lowercase() !in removedEmails }
+
+        val addedEmails = members.map { it.email.lowercase() }.toSet()
+        val additions   = pendingChanges.values
+            .filter { it.action == PendingAction.ADD && it.email !in addedEmails }
+            .map { pending ->
+                // Create a preview MemberWithDetails for display only
+                MemberWithDetails(
+                    userId    = -1,
+                    name      = pending.name,
+                    email     = pending.email,
+                    photoUri  = "",
+                    isCreator = false
+                )
+            }
+
+        base + additions
+    }
+
     var showEmojiPicker by remember { mutableStateOf(false) }
     var isSaving        by remember { mutableStateOf(false) }
 
     val nameValid = editName.isNotBlank()
-    val hasChanges = tricountDetails != null && (
+
+    val tripFieldsChanged = tricountDetails != null && (
             editName.trim() != tricountDetails.name ||
                     editDesc.trim() != tricountDetails.description ||
                     editEmoji       != (if (tricountDetails.emoji.isNotBlank()) tricountDetails.emoji else "⛺")
             )
+    val hasPendingMemberChanges = pendingChanges.isNotEmpty()
+    val hasChanges = tripFieldsChanged || hasPendingMemberChanges
 
-    // ── Add member ────────────────────────────────────────────────────────────
-    var showAddDialog  by remember { mutableStateOf(false) }
-    var addEmail       by remember { mutableStateOf("") }
-    var addEmailError  by remember { mutableStateOf<String?>(null) }
-    var isAdding       by remember { mutableStateOf(false) }
+    // ── Add member dialog ─────────────────────────────────────────────────────
+    var showAddDialog by remember { mutableStateOf(false) }
+    var addEmail      by remember { mutableStateOf("") }
+    var addEmailError by remember { mutableStateOf<String?>(null) }
 
-    // ── Remove member ─────────────────────────────────────────────────────────
+    // ── Remove member confirmation ────────────────────────────────────────────
     var memberToRemove by remember { mutableStateOf<MemberWithDetails?>(null) }
 
-    // ── Save function ─────────────────────────────────────────────────────────
+    // ── Save: applies ALL staged changes at once ──────────────────────────────
     fun saveAll() {
         if (!nameValid || isSaving) return
         isSaving = true
-        viewModel.editTricountFull(
-            tricountId  = tricountId,
-            name        = editName.trim(),
-            description = editDesc.trim(),
-            emoji       = editEmoji
-        )
-        isSaving = false
-        Toast.makeText(context, "Trip updated!", Toast.LENGTH_SHORT).show()
-        onBackClick()
+
+        // 1. Save trip fields if changed
+        if (tripFieldsChanged) {
+            viewModel.editTricountFull(
+                tricountId  = tricountId,
+                name        = editName.trim(),
+                description = editDesc.trim(),
+                emoji       = editEmoji
+            )
+        }
+
+        // 2. Apply member changes in order: removals first, then additions
+        val toRemove = pendingChanges.values.filter { it.action == PendingAction.REMOVE }
+        val toAdd    = pendingChanges.values.filter { it.action == PendingAction.ADD }
+
+        toRemove.forEach { pending ->
+            val member = members.find { it.email.lowercase() == pending.email }
+            if (member != null) viewModel.removeMember(member.userId, tricountId)
+        }
+
+        var addCount = toAdd.size
+        if (addCount == 0) {
+            pendingChanges.clear()
+            isSaving = false
+            Toast.makeText(context, "Trip updated!", Toast.LENGTH_SHORT).show()
+            onBackClick()
+            return
+        }
+
+        toAdd.forEach { pending ->
+            viewModel.addMemberByEmail(tricountId, pending.email) { result ->
+                addCount--
+                if (addCount == 0) {
+                    pendingChanges.clear()
+                    isSaving = false
+                    Toast.makeText(context, "Trip updated!", Toast.LENGTH_SHORT).show()
+                    onBackClick()
+                }
+                if (result is AddMemberResult.Error) {
+                    Toast.makeText(context, "Could not add ${pending.email}: ${result.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     // ── Scaffold ──────────────────────────────────────────────────────────────
@@ -237,7 +314,6 @@ fun EditTripScreen(
                 Spacer(Modifier.height(10.dp))
 
                 Box(Modifier.fillMaxWidth(), Alignment.Center) {
-                    // Tappable icon circle
                     Surface(
                         shape    = CircleShape,
                         color    = MaterialTheme.colorScheme.primaryContainer,
@@ -249,7 +325,6 @@ fun EditTripScreen(
                             Text(editEmoji, fontSize = 44.sp)
                         }
                     }
-                    // Edit badge
                     Surface(
                         shape    = CircleShape,
                         color    = MaterialTheme.colorScheme.primary,
@@ -278,7 +353,6 @@ fun EditTripScreen(
                     modifier  = Modifier.fillMaxWidth()
                 )
 
-                // Animated emoji grid
                 AnimatedVisibility(
                     visible = showEmojiPicker,
                     enter   = expandVertically(),
@@ -330,7 +404,7 @@ fun EditTripScreen(
                 }
             }
 
-            //  TRIP NAME
+            // ── TRIP NAME ─────────────────────────────────────────────────────
             item {
                 ELabel("Trip Name")
                 Spacer(Modifier.height(8.dp))
@@ -363,7 +437,7 @@ fun EditTripScreen(
                 )
             }
 
-            // ── DESCRIPTION
+            // ── DESCRIPTION ───────────────────────────────────────────────────
             item {
                 ELabel("Description")
                 Spacer(Modifier.height(8.dp))
@@ -401,9 +475,42 @@ fun EditTripScreen(
                         Text("Save Changes", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+
+                // Pending changes summary banner
+                if (hasPendingMemberChanges) {
+                    Spacer(Modifier.height(8.dp))
+                    val addCount    = pendingChanges.values.count { it.action == PendingAction.ADD }
+                    val removeCount = pendingChanges.values.count { it.action == PendingAction.REMOVE }
+                    val parts = buildList {
+                        if (addCount    > 0) add("$addCount to add")
+                        if (removeCount > 0) add("$removeCount to remove")
+                    }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape    = RoundedCornerShape(10.dp),
+                        color    = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Filled.Info, null,
+                                tint     = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Unsaved member changes: ${parts.joinToString(", ")}. Tap Save to apply.",
+                                fontSize = 12.sp,
+                                color    = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                }
             }
 
-            // ── JOIN CODE (read-only) ─────────────────────────────────────────
+            // ── JOIN CODE ─────────────────────────────────────────────────────
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -435,7 +542,7 @@ fun EditTripScreen(
                 }
             }
 
-            // ── MEMBERS HEADER
+            // ── MEMBERS HEADER ────────────────────────────────────────────────
             item {
                 HorizontalDivider()
                 Spacer(Modifier.height(6.dp))
@@ -447,9 +554,12 @@ fun EditTripScreen(
                     Column {
                         ELabel("Members")
                         Text(
-                            "${members.size} participant${if (members.size == 1) "" else "s"}",
+                            "${effectiveMembers.size} participant${if (effectiveMembers.size == 1) "" else "s"}" +
+                                    if (hasPendingMemberChanges) " (unsaved changes)" else "",
                             fontSize = 12.sp,
-                            color    = MaterialTheme.colorScheme.onSurfaceVariant
+                            color    = if (hasPendingMemberChanges)
+                                MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     if (isCreator) {
@@ -465,13 +575,26 @@ fun EditTripScreen(
                 }
             }
 
-            // MEMBER ROWS
-            items(members, key = { it.userId }) { member ->
-                val isMe = member.userId == currentUserId
+            // ── MEMBER ROWS ───────────────────────────────────────────────────
+            items(effectiveMembers, key = { "${it.userId}_${it.email}" }) { member ->
+                val isMe      = member.userId == currentUserId
+                // userId == -1 means this is a pending addition (not yet in DB)
+                val isPending = member.userId == -1
+                val isRemovedPending = pendingChanges[member.email.lowercase()]?.action == PendingAction.REMOVE
+
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape    = RoundedCornerShape(12.dp),
-                    color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    color    = when {
+                        isPending        -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                        isRemovedPending -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                        else             -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    },
+                    border = when {
+                        isPending        -> BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+                        isRemovedPending -> BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
+                        else             -> null
+                    }
                 ) {
                     Row(
                         Modifier
@@ -481,7 +604,11 @@ fun EditTripScreen(
                     ) {
                         Surface(
                             shape    = CircleShape,
-                            color    = MaterialTheme.colorScheme.primary,
+                            color    = when {
+                                isPending        -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                isRemovedPending -> MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                                else             -> MaterialTheme.colorScheme.primary
+                            },
                             modifier = Modifier.size(44.dp)
                         ) {
                             Box(Modifier.fillMaxSize(), Alignment.Center) {
@@ -500,11 +627,14 @@ fun EditTripScreen(
                                     if (isMe) "${member.name} (You)" else member.name,
                                     fontSize   = 15.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color      = MaterialTheme.colorScheme.onSurface
+                                    color      = when {
+                                        isRemovedPending -> MaterialTheme.colorScheme.error
+                                        else             -> MaterialTheme.colorScheme.onSurface
+                                    }
                                 )
-                                if (member.isCreator) {
-                                    Spacer(Modifier.width(8.dp))
-                                    Surface(
+                                Spacer(Modifier.width(8.dp))
+                                when {
+                                    member.isCreator -> Surface(
                                         shape = RoundedCornerShape(50),
                                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                                     ) {
@@ -513,8 +643,31 @@ fun EditTripScreen(
                                             fontSize   = 10.sp,
                                             fontWeight = FontWeight.Bold,
                                             color      = MaterialTheme.colorScheme.primary,
-                                            modifier   = Modifier.padding(
-                                                horizontal = 8.dp, vertical = 3.dp)
+                                            modifier   = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                    isPending -> Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                    ) {
+                                        Text(
+                                            "Pending",
+                                            fontSize   = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color      = MaterialTheme.colorScheme.primary,
+                                            modifier   = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                    isRemovedPending -> Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                                    ) {
+                                        Text(
+                                            "Removing",
+                                            fontSize   = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color      = MaterialTheme.colorScheme.error,
+                                            modifier   = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                         )
                                     }
                                 }
@@ -524,9 +677,33 @@ fun EditTripScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        // Remove button — creator only, not self, not other creator
-                        if (isCreator && !member.isCreator && !isMe) {
-                            IconButton(
+
+                        // Action buttons
+                        when {
+                            // Pending add → undo button
+                            isPending -> IconButton(
+                                onClick  = { pendingChanges.remove(member.email.lowercase()) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Close, "Undo add",
+                                    tint     = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            // Pending removal → undo button
+                            isRemovedPending -> IconButton(
+                                onClick  = { pendingChanges.remove(member.email.lowercase()) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Undo, "Undo remove",
+                                    tint     = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            // Normal member — creator can remove non-creators
+                            isCreator && !member.isCreator && !isMe -> IconButton(
                                 onClick  = { memberToRemove = member },
                                 modifier = Modifier.size(36.dp)
                             ) {
@@ -545,11 +722,11 @@ fun EditTripScreen(
         }
     }
 
-    // ── ADD MEMBER DIALOG ─────────────────────────────────────────────────────
+    // ── ADD MEMBER DIALOG — stages the addition, does NOT call ViewModel yet ──
     if (showAddDialog) {
         AlertDialog(
             onDismissRequest = {
-                if (!isAdding) { showAddDialog = false; addEmail = ""; addEmailError = null }
+                showAddDialog = false; addEmail = ""; addEmailError = null
             },
             icon  = { Icon(Icons.Filled.PersonAdd, null,
                 tint = MaterialTheme.colorScheme.primary) },
@@ -557,7 +734,7 @@ fun EditTripScreen(
             text  = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Enter the email address of the person you want to add. They must already have an account.",
+                        "Enter the email address of the person you want to add. The change will be applied when you tap Save.",
                         fontSize = 14.sp,
                         color    = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -579,7 +756,6 @@ fun EditTripScreen(
                         },
                         singleLine      = true,
                         modifier        = Modifier.fillMaxWidth(),
-                        enabled         = !isAdding,
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Email,
                             imeAction    = ImeAction.Done
@@ -590,46 +766,43 @@ fun EditTripScreen(
             },
             confirmButton = {
                 Button(
-                    enabled  = addEmail.isNotBlank() && !isAdding,
-                    onClick  = {
-                        val email = addEmail.trim()
-                        if (email.isBlank()) { addEmailError = "Please enter an email"; return@Button }
+                    enabled = addEmail.isNotBlank(),
+                    onClick = {
+                        val email = addEmail.trim().lowercase()
+                        // Basic validation
                         val regex = "^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$".toRegex()
-                        if (!regex.matches(email)) { addEmailError = "Invalid email address"; return@Button }
-                        isAdding = true
-                        viewModel.addMemberByEmail(tricountId, email) { result ->
-                            isAdding = false
-                            when (result) {
-                                is AddMemberResult.Success -> {
-                                    Toast.makeText(context,
-                                        "${result.memberName} added!", Toast.LENGTH_SHORT).show()
-                                    showAddDialog = false; addEmail = ""; addEmailError = null
-                                }
-                                is AddMemberResult.Error -> { addEmailError = result.message }
-                            }
+                        if (!regex.matches(email)) {
+                            addEmailError = "Invalid email address"
+                            return@Button
                         }
+                        // Already in effective list?
+                        if (effectiveMembers.any { it.email.lowercase() == email }) {
+                            addEmailError = "This person is already a member"
+                            return@Button
+                        }
+                        // Stage the addition
+                        val displayName = email.substringBefore("@")
+                            .replaceFirstChar { it.uppercase() }
+                        pendingChanges[email] = PendingMember(
+                            email  = email,
+                            name   = displayName,
+                            action = PendingAction.ADD
+                        )
+                        showAddDialog = false
+                        addEmail      = ""
+                        addEmailError = null
                     }
-                ) {
-                    if (isAdding) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Adding…")
-                    } else {
-                        Text("Add Member")
-                    }
-                }
+                ) { Text("Add") }
             },
             dismissButton = {
-                TextButton(
-                    onClick  = { showAddDialog = false; addEmail = ""; addEmailError = null },
-                    enabled  = !isAdding
-                ) { Text("Cancel") }
+                TextButton(onClick = {
+                    showAddDialog = false; addEmail = ""; addEmailError = null
+                }) { Text("Cancel") }
             }
         )
     }
 
-    // ── REMOVE MEMBER CONFIRMATION ────────────────────────────────────────────
+    // ── REMOVE MEMBER DIALOG — stages the removal, does NOT call ViewModel yet ─
     memberToRemove?.let { member ->
         AlertDialog(
             onDismissRequest = { memberToRemove = null },
@@ -638,20 +811,23 @@ fun EditTripScreen(
             title = { Text("Remove Member?") },
             text  = {
                 Text(
-                    "Remove ${member.name} from this trip?\n\nTheir expenses will remain in the records.",
+                    "Stage removal of ${member.name} from this trip?\n\nTheir expenses will remain in the records. The change won't be applied until you tap Save.",
                     fontSize = 14.sp
                 )
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.removeMember(member.userId, tricountId)
-                        Toast.makeText(context, "${member.name} removed.", Toast.LENGTH_SHORT).show()
+                        pendingChanges[member.email.lowercase()] = PendingMember(
+                            email  = member.email.lowercase(),
+                            name   = member.name,
+                            action = PendingAction.REMOVE
+                        )
                         memberToRemove = null
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error)
-                ) { Text("Remove") }
+                ) { Text("Stage Remove") }
             },
             dismissButton = {
                 TextButton(onClick = { memberToRemove = null }) { Text("Cancel") }
@@ -661,7 +837,6 @@ fun EditTripScreen(
 }
 
 // Section label
-
 @Composable
 private fun ELabel(text: String) {
     Text(

@@ -68,11 +68,11 @@ interface TricountDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun addMember(crossRef: TricountMemberCrossRef)
 
-    @Query("DELETE FROM tricount_members WHERE tricountId = :tricountId AND userId = :userId")
-    suspend fun removeMember(tricountId: Int, userId: Int)
+    @Query("DELETE FROM tricount_members WHERE userId = :userId AND tricountId = :tricountId")
+    suspend fun removeMember(userId: Int, tricountId: Int)
 
     @Query("""
-        SELECT u.id AS userId, u.name, u.email,
+        SELECT u.id AS userId, u.name, u.email, COALESCE(u.photoUri, '') AS photoUri,
                CASE WHEN t.creatorId = u.id THEN 1 ELSE 0 END AS isCreator
         FROM users u
         INNER JOIN (

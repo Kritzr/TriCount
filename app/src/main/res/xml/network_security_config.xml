@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        Fixer.io free tier only supports HTTP (not HTTPS).
+        Android blocks cleartext by default, so we explicitly allow it
+        for data.fixer.io only — all other traffic stays HTTPS.
+    -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">data.fixer.io</domain>
+    </domain-config>
+
+    <!-- All other domains: enforce HTTPS as normal -->
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

@@ -7,6 +7,10 @@ plugins {
     id("org.jetbrains.kotlin.kapt")
 }
 
+// Read the Fixer API key from local.properties (never commit that file).
+// In local.properties add one line:  FIXER_API_KEY=your_key_here
+val fixerKey = project.findProperty("FIXER_API_KEY") as String? ?: ""
+
 android {
     namespace = "com.example.tricount"
     compileSdk = 36
@@ -19,6 +23,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Injects BuildConfig.FIXER_API_KEY so the key never appears in source code
+        buildConfigField("String", "FIXER_API_KEY", "\"$fixerKey\"")
     }
 
     buildTypes {
@@ -38,7 +45,8 @@ android {
         jvmTarget = "11"
     }
     buildFeatures {
-        compose = true
+        compose     = true
+        buildConfig = true   // required so BuildConfig.FIXER_API_KEY is generated
     }
 }
 
@@ -78,8 +86,10 @@ dependencies {
     // Image loading
     implementation("io.coil-kt:coil-compose:2.6.0")
 
-    // Retrofit
+    // Retrofit + Gson + OkHttp (used for Fixer.io currency API)
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
     // Google Fonts
     implementation("androidx.compose.ui:ui-text-google-fonts:1.7.8")
@@ -89,7 +99,7 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
-    implementation("com.google.firebase:firebase-storage-ktx")   // ← for profile photo upload
+    implementation("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-crashlytics")
 
     // Google Sign-In — must stay on 20.x, version 21+ removed GoogleSignIn legacy API
@@ -97,5 +107,4 @@ dependencies {
 
     // Coroutines support for Firebase Tasks (.await())
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
-    implementation("com.google.firebase:firebase-storage-ktx")
 }
