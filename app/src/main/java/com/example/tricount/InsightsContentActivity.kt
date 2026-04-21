@@ -39,29 +39,29 @@ import java.util.*
 private data class CategoryMeta(val icon: ImageVector, val color: Color)
 
 private val FALLBACK_COLORS = listOf(
-    Color(0xFF6C5CE7), Color(0xFFE17055), Color(0xFF00B894),
-    Color(0xFF74B9FF), Color(0xFFFD79A8), Color(0xFFA29BFE),
-    Color(0xFF55EFC4), Color(0xFFFDCB6E),
+    Color(0xFFFF6B35), Color(0xFFFF9A3C), Color(0xFFFFB347),
+    Color(0xFFE85D04), Color(0xFFFF8C42), Color(0xFFFFC067),
+    Color(0xFFD4500A), Color(0xFFFFD166),
 )
 
 private fun catMeta(name: String): CategoryMeta = when (name) {
-    "Food & Drinks"  -> CategoryMeta(Icons.Filled.Restaurant,     Color(0xFFFF6B35))
-    "Transport"      -> CategoryMeta(Icons.Filled.DirectionsCar,  Color(0xFFFFB400))
-    "Accommodation"  -> CategoryMeta(Icons.Filled.Hotel,          Color(0xFF4ECDC4))
-    "Entertainment"  -> CategoryMeta(Icons.Filled.Movie,       Color(0xFFFF6B9D))
-    "Shopping"       -> CategoryMeta(Icons.Filled.ShoppingBag,    Color(0xFF9B59B6))
-    "Health"         -> CategoryMeta(Icons.Filled.LocalHospital,Color(0xFF2ECC71))
-    "Groceries"      -> CategoryMeta(Icons.Filled.ShoppingCart,   Color(0xFF27AE60))
-    "Utilities"      -> CategoryMeta(Icons.Filled.Bolt,   Color(0xFFF39C12))
-    "Travel"         -> CategoryMeta(Icons.Filled.Flight,         Color(0xFF3498DB))
-    "Education"      -> CategoryMeta(Icons.Filled.School,         Color(0xFF1ABC9C))
-    "General"        -> CategoryMeta(Icons.Filled.PushPin,        Color(0xFF95A5A6))
-    "No Category"    -> CategoryMeta(Icons.Filled.HelpOutline,    Color(0xFF7F8C8D))
-    else             -> CategoryMeta(Icons.Filled.Category,       Color(0xFF7F8C8D))
+    "Food & Drinks"  -> CategoryMeta(Icons.Filled.Restaurant,    Color(0xFFFF6B35))
+    "Transport"      -> CategoryMeta(Icons.Filled.DirectionsCar, Color(0xFFE85D04))
+    "Accommodation"  -> CategoryMeta(Icons.Filled.Hotel,         Color(0xFFFF9A3C))
+    "Entertainment"  -> CategoryMeta(Icons.Filled.Movie,         Color(0xFFFFB347))
+    "Shopping"       -> CategoryMeta(Icons.Filled.ShoppingBag,   Color(0xFFD4500A))
+    "Health"         -> CategoryMeta(Icons.Filled.LocalHospital, Color(0xFFFF8C42))
+    "Groceries"      -> CategoryMeta(Icons.Filled.ShoppingCart,  Color(0xFFFFC067))
+    "Utilities"      -> CategoryMeta(Icons.Filled.Bolt,          Color(0xFFFFD166))
+    "Travel"         -> CategoryMeta(Icons.Filled.Flight,        Color(0xFFE07B39))
+    "Education"      -> CategoryMeta(Icons.Filled.School,        Color(0xFFCC5200))
+    "General"        -> CategoryMeta(Icons.Filled.PushPin,       Color(0xFFFF7043))
+    "No Category"    -> CategoryMeta(Icons.Filled.HelpOutline,   Color(0xFFBF7040))
+    else             -> CategoryMeta(Icons.Filled.Category,      Color(0xFFBF7040))
 }
 
 private fun catColor(name: String, idx: Int): Color =
-    catMeta(name).color.takeIf { it != Color(0xFF7F8C8D) }
+    catMeta(name).color.takeIf { it != Color(0xFFBF7040) }
         ?: FALLBACK_COLORS[idx % FALLBACK_COLORS.size]
 
 // =============================================================================
@@ -720,8 +720,8 @@ private fun InsightTopPayerCard(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         shape     = RoundedCornerShape(16.dp),
         colors    = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer),
-        elevation = CardDefaults.cardElevation(2.dp)
+            containerColor = MaterialTheme.colorScheme.primary),
+        elevation = CardDefaults.cardElevation(4.dp)
     ) {
         Row(
             modifier          = Modifier
@@ -732,13 +732,13 @@ private fun InsightTopPayerCard(
             // Trophy icon circle
             Surface(
                 shape    = CircleShape,
-                color    = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                color    = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f),
                 modifier = Modifier.size(52.dp)
             ) {
                 Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Icon(
                         Icons.Filled.Star, null,
-                        tint     = MaterialTheme.colorScheme.primary,
+                        tint     = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(28.dp)
                     )
                 }
@@ -750,19 +750,19 @@ private fun InsightTopPayerCard(
                 Text(
                     "Top Payer",
                     fontSize = 11.sp,
-                    color    = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.65f),
+                    color    = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
                     fontWeight = FontWeight.Medium
                 )
                 Text(
                     if (isMe) "You ($payerName)" else payerName,
                     fontSize   = 16.sp,
                     fontWeight = FontWeight.Bold,
-                    color      = MaterialTheme.colorScheme.onPrimaryContainer
+                    color      = MaterialTheme.colorScheme.onPrimary
                 )
                 Text(
                     "${payerExpenses.size} expense${if (payerExpenses.size != 1) "s" else ""}",
                     fontSize = 12.sp,
-                    color    = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.65f)
+                    color    = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f)
                 )
             }
 
@@ -770,7 +770,7 @@ private fun InsightTopPayerCard(
                 fmtAmt(total),
                 fontSize   = 18.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color      = MaterialTheme.colorScheme.primary
+                color      = MaterialTheme.colorScheme.onPrimary
             )
         }
     }

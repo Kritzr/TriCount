@@ -255,7 +255,7 @@ fun ExpensesScreen(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Content list  — also called directly from TricountDetailActivity
+// Content list
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -273,7 +273,6 @@ fun ExpensesContent(
     showArchived           : Boolean = false,
     onToggleArchived       : () -> Unit = {}
 ) {
-    // ── Empty state ──────────────────────────────────────────────────────────
     if (expenses.isEmpty() && archivedExpenses.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
@@ -313,7 +312,6 @@ fun ExpensesContent(
         return
     }
 
-    // ── Group active expenses by date label ──────────────────────────────────
     val grouped = remember(expenses) {
         expenses
             .sortedByDescending { it.createdAt }
@@ -339,7 +337,6 @@ fun ExpensesContent(
         modifier       = modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 120.dp)
     ) {
-        // ── Summary card ─────────────────────────────────────────────────────
         item(key = "summary") {
             Box(
                 modifier = Modifier
@@ -374,7 +371,6 @@ fun ExpensesContent(
                                 color      = MaterialTheme.colorScheme.primary
                             )
                         }
-                        // Vertical divider
                         Box(
                             modifier = Modifier
                                 .width(1.dp)
@@ -403,7 +399,6 @@ fun ExpensesContent(
             }
         }
 
-        // ── Date-grouped expense rows ─────────────────────────────────────────
         grouped.forEach { (dateLabel, dayExpenses) ->
 
             item(key = "header_$dateLabel") {
@@ -498,7 +493,6 @@ fun ExpensesContent(
             }
         }
 
-        // ── Archived section toggle ───────────────────────────────────────────
         if (archivedExpenses.isNotEmpty()) {
             item(key = "archived_toggle") {
                 Spacer(Modifier.height(8.dp))
@@ -538,7 +532,7 @@ fun ExpensesContent(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Archived expense card
+// Archived expense card (inline)
 // ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -636,7 +630,7 @@ fun ArchivedExpenseCard(
             title = { Text(expense.name, fontWeight = FontWeight.Bold) },
             text  = {
                 Column {
-                    // Unarchive — normal action
+                    // ── Unarchive — icon and text both use onSurface ──────────
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -647,17 +641,17 @@ fun ArchivedExpenseCard(
                         Icon(
                             Icons.Filled.Unarchive, null,
                             modifier = Modifier.size(22.dp),
-                            tint     = MaterialTheme.colorScheme.onSurface
+                            tint     = MaterialTheme.colorScheme.onSurface   // ← consistent
                         )
                         Spacer(Modifier.width(16.dp))
                         Text(
                             "Unarchive",
                             fontSize = 15.sp,
-                            color    = MaterialTheme.colorScheme.onSurface
+                            color    = MaterialTheme.colorScheme.onSurface   // ← consistent
                         )
                     }
                     HorizontalDivider()
-                    // Delete — destructive action
+                    // ── Delete — icon and text both use error (red) ───────────
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -714,7 +708,7 @@ fun ArchivedExpenseCard(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Expense item card
+// Expense item card (three-dot dropdown menu)
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -765,7 +759,6 @@ fun ExpenseItemCard(
             .padding(start = 16.dp, top = 13.dp, bottom = 13.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // ── Emoji circle ─────────────────────────────────────────────────────
         Surface(
             shape    = CircleShape,
             color    = if (isMe)
@@ -781,7 +774,6 @@ fun ExpenseItemCard(
 
         Spacer(Modifier.width(14.dp))
 
-        // ── Name + "Paid by …" ───────────────────────────────────────────────
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text       = expense.name,
@@ -802,7 +794,6 @@ fun ExpenseItemCard(
 
         Spacer(Modifier.width(10.dp))
 
-        // ── Amount + optional "you" badge ────────────────────────────────────
         Column(horizontalAlignment = Alignment.End) {
             Text(
                 text       = "₹${"%.2f".format(expense.amount)}",
@@ -827,7 +818,7 @@ fun ExpenseItemCard(
             }
         }
 
-        // ── Three-dot menu ───────────────────────────────────────────────────
+        // ── Three-dot dropdown ────────────────────────────────────────────────
         Box {
             IconButton(
                 onClick  = { showMenu = true },
@@ -844,21 +835,19 @@ fun ExpenseItemCard(
                 expanded         = showMenu,
                 onDismissRequest = { showMenu = false }
             ) {
-                // Edit — normal
+                // ── Edit — onSurface (via NormalMenuItem) ─────────────────────
                 NormalMenuItem(
                     label   = "Edit",
                     icon    = Icons.Filled.Edit,
                     onClick = { showMenu = false; onEditClick() }
                 )
-                HorizontalDivider()
-                // Archive — normal
+                // ── Archive — onSurface (via NormalMenuItem) ──────────────────
                 NormalMenuItem(
                     label   = "Archive",
                     icon    = Icons.Filled.Archive,
                     onClick = { showMenu = false; showArchiveDialog = true }
                 )
-                HorizontalDivider()
-                // Delete — destructive
+                // ── Delete — error/red (via DestructiveMenuItem) ──────────────
                 DestructiveMenuItem(
                     label   = "Delete",
                     icon    = Icons.Filled.Delete,

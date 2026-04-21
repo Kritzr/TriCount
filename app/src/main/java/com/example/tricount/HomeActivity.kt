@@ -213,7 +213,7 @@ fun HomeScreen(
                     onTricountClick = onTricountClick,
                     onArchivedClick = {
                         context.startActivity(
-                            Intent(context, AchivedTricountsActivity::class.java)
+                            Intent(context, ArchivedTricountsActivity::class.java)
                         )
                     }
                 )
@@ -724,24 +724,26 @@ fun AnimatedTricountCard(
         }
     }
 
+    // ── Long-press context menu ───────────────────────────────────────────────
     if (showContextMenu) {
         AlertDialog(
             onDismissRequest = { showContextMenu = false },
             title = { Text(tricount.name, fontWeight = FontWeight.Bold) },
             text  = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // Edit — onSurface
                     ContextMenuOption(Icons.Filled.Edit, "Edit") {
                         showContextMenu = false; onEditClick()
                     }
+                    // Duplicate — onSurface
                     ContextMenuOption(Icons.Filled.ContentCopy, "Duplicate") {
                         showContextMenu = false; onDuplicateClick()
                     }
-                    ContextMenuOption(
-                        Icons.Filled.Archive, "Archive",
-                        tint = MaterialTheme.colorScheme.secondary
-                    ) {
+                    // Archive — onSurface (normal action, not destructive)
+                    ContextMenuOption(Icons.Filled.Archive, "Archive") {
                         showContextMenu = false; onArchiveClick()
                     }
+                    // Delete — error/red (destructive)
                     ContextMenuOption(
                         Icons.Filled.Delete, "Delete",
                         tint = MaterialTheme.colorScheme.error
@@ -828,7 +830,7 @@ fun ProfileScreen(
             .verticalScroll(rememberScrollState())
     ) {
 
-        // ── Header banner — avatar + name only, equal spacing above & below ──
+        // ── Header banner ─────────────────────────────────────────────────────
         Box(
             modifier         = Modifier
                 .fillMaxWidth()
@@ -868,7 +870,6 @@ fun ProfileScreen(
                             }
                         }
                     }
-                    // Camera badge
                     Surface(
                         modifier        = Modifier
                             .size(30.dp)
@@ -889,7 +890,6 @@ fun ProfileScreen(
 
                 Spacer(Modifier.height(10.dp))
 
-                // Tappable display name
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier          = Modifier.clickable { showEditName = true }
@@ -912,7 +912,7 @@ fun ProfileScreen(
 
         Spacer(Modifier.height(8.dp))
 
-        // ── Email row ─────────────────────────────────────────────────────
+        // ── Email row ─────────────────────────────────────────────────────────
         Card(
             modifier  = Modifier
                 .fillMaxWidth()
@@ -953,7 +953,7 @@ fun ProfileScreen(
             }
         }
 
-        // ── Nickname row ──────────────────────────────────────────────────
+        // ── Nickname row ──────────────────────────────────────────────────────
         Card(
             modifier  = Modifier
                 .fillMaxWidth()
@@ -1000,7 +1000,7 @@ fun ProfileScreen(
             }
         }
 
-        // ── Dark Mode row ─────────────────────────────────────────────────
+        // ── Dark Mode row ─────────────────────────────────────────────────────
         Card(
             modifier  = Modifier
                 .fillMaxWidth()
@@ -1052,7 +1052,6 @@ fun ProfileScreen(
 
         Spacer(Modifier.height(24.dp))
 
-        // ── Log Out button ────────────────────────────────────────────────
         Button(
             onClick  = { showLogoutDialog = true },
             modifier = Modifier
@@ -1071,7 +1070,6 @@ fun ProfileScreen(
 
         Spacer(Modifier.height(10.dp))
 
-        // ── Delete account button ─────────────────────────────────────────
         OutlinedButton(
             onClick  = { showDeleteDialog = true },
             modifier = Modifier
@@ -1090,7 +1088,6 @@ fun ProfileScreen(
         Spacer(Modifier.height(32.dp))
     }
 
-    // ── Edit display name dialog ──────────────────────────────────────────
     if (showEditName) {
         var draft by remember { mutableStateOf(displayName) }
         AlertDialog(
@@ -1126,7 +1123,6 @@ fun ProfileScreen(
         )
     }
 
-    // ── Edit nickname dialog ──────────────────────────────────────────────
     if (showEditNickname) {
         var draft by remember { mutableStateOf(nickname) }
         AlertDialog(
@@ -1163,7 +1159,6 @@ fun ProfileScreen(
         )
     }
 
-    // ── Logout confirmation dialog ────────────────────────────────────────
     if (showLogoutDialog) {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
@@ -1200,7 +1195,6 @@ fun ProfileScreen(
         )
     }
 
-    // ── Delete account dialog ─────────────────────────────────────────────
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },

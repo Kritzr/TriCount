@@ -44,6 +44,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
@@ -220,6 +221,13 @@ fun AddExpenseScreen(
             splitInputs[it.userId] = if (splitMode == SplitMode.PERCENTAGE) "" else "1"
         }
     }
+
+    // ── Autofill: tracks which members the user has manually edited ──────────
+    // Members NOT in this set are "auto" slots whose value is recalculated
+    // every time any manual member's percentage/parts value changes.
+    val manuallyEditedIds = remember { mutableStateMapOf<Int, Boolean>() }
+    // Clear manual tracking whenever the split mode changes
+    LaunchedEffect(splitMode) { manuallyEditedIds.clear() }
 
     // ── Validation ────────────────────────────────────────────────────────────
     val amountValue       = amountText.toDoubleOrNull()
@@ -610,12 +618,41 @@ fun AddExpenseScreen(
                                 SplitMode.PERCENTAGE -> Icons.Filled.Percent
                                 SplitMode.PARTS      -> Icons.Filled.PieChart
                             }
+                            val isSelected = splitMode == mode
                             FilterChip(
-                                selected    = splitMode == mode,
+                                selected    = isSelected,
                                 onClick     = { splitMode = mode },
-                                label       = { Text(label, fontSize = 12.sp) },
-                                leadingIcon = { Icon(icon, null, modifier = Modifier.size(16.dp)) },
-                                modifier    = Modifier.weight(1f)
+                                label       = {
+                                    Text(
+                                        label,
+                                        fontSize = 12.sp,
+                                        color    = if (isSelected) colorScheme.onPrimary
+                                        else colorScheme.onSurfaceVariant
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        icon, null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint     = if (isSelected) colorScheme.onPrimary
+                                        else colorScheme.onSurfaceVariant
+                                    )
+                                },
+                                modifier    = Modifier.weight(1f),
+                                colors      = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor         = colorScheme.primary,
+                                    selectedLabelColor             = colorScheme.onPrimary,
+                                    selectedLeadingIconColor       = colorScheme.onPrimary,
+                                    containerColor                 = colorScheme.surfaceVariant,
+                                    labelColor                     = colorScheme.onSurfaceVariant,
+                                    iconColor                      = colorScheme.onSurfaceVariant
+                                ),
+                                border      = FilterChipDefaults.filterChipBorder(
+                                    enabled           = true,
+                                    selected          = isSelected,
+                                    borderColor       = colorScheme.outline.copy(alpha = 0.4f),
+                                    selectedBorderColor = colorScheme.primary
+                                )
                             )
                         }
                     }
@@ -666,7 +703,35 @@ fun AddExpenseScreen(
                                 previewAmount  = preview,
                                 currencySymbol = selectedCurrency.symbol,
                                 isLoading      = isLoading,
-                                onInputChange  = { v -> splitInputs[member.userId] = v }
+                                onInputChange  = { v ->
+                                    splitInputs[member.userId] = v
+                                    if (splitMode == SplitMode.PERCENTAGE) {
+                                        // Mark this member as manually edited
+                                        manuallyEditedIds[member.userId] = true
+                                        // Redistribute remaining % equally among non-manual members
+                                        val manualTotal = members
+                                            .filter { manuallyEditedIds[it.userId] == true }
+                                            .sumOf { splitInputs[it.userId]?.toDoubleOrNull() ?: 0.0 }
+                                        val autoMembers = members
+                                            .filter { manuallyEditedIds[it.userId] != true }
+                                        val remaining = (100.0 - manualTotal).coerceAtLeast(0.0)
+                                        if (autoMembers.isNotEmpty()) {
+                                            val each = remaining / autoMembers.size
+                                            autoMembers.forEach { m ->
+                                                splitInputs[m.userId] = "%.1f".format(each)
+                                            }
+                                        }
+                                    } else if (splitMode == SplitMode.PARTS) {
+                                        // For parts: mirror same value to all untouched members
+                                        manuallyEditedIds[member.userId] = true
+                                        val parts = v.toIntOrNull()
+                                        if (parts != null && parts > 0) {
+                                            members
+                                                .filter { manuallyEditedIds[it.userId] != true }
+                                                .forEach { m -> splitInputs[m.userId] = v }
+                                        }
+                                    }
+                                }
                             )
                             Spacer(Modifier.height(8.dp))
                         }

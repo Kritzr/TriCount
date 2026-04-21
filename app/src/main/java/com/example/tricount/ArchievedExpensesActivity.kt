@@ -143,19 +143,16 @@ fun ArchivedExpensesScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Summary row
                 item(key = "summary") {
                     SummaryRow(expenses = archivedExpenses)
                     Spacer(Modifier.height(4.dp))
                 }
 
-                // Info banner
                 item(key = "info") {
                     InfoBanner()
                     Spacer(Modifier.height(6.dp))
                 }
 
-                // Grouped sections
                 grouped.forEach { (monthLabel, group) ->
                     item(key = "header_$monthLabel") {
                         MonthHeader(label = monthLabel, count = group.size)
@@ -209,7 +206,7 @@ private fun EmptyArchivedState(modifier: Modifier = Modifier, tricountName: Stri
 }
 
 // =============================================================================
-// Summary row — archived count + total amount chips
+// Summary row
 // =============================================================================
 
 @Composable
@@ -220,16 +217,16 @@ private fun SummaryRow(expenses: List<ExpenseWithDetails>) {
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         StatChip(
-            modifier = Modifier.weight(1f),
-            icon     = Icons.Filled.Archive,
-            label    = "${expenses.size} archived",
+            modifier       = Modifier.weight(1f),
+            icon           = Icons.Filled.Archive,
+            label          = "${expenses.size} archived",
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor   = MaterialTheme.colorScheme.onSecondaryContainer
         )
         StatChip(
-            modifier = Modifier.weight(1f),
-            icon     = Icons.Filled.AttachMoney,
-            label    = "$${"%.2f".format(total)} total",
+            modifier       = Modifier.weight(1f),
+            icon           = Icons.Filled.AttachMoney,
+            label          = "${"%.2f".format(total)} total",
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
             contentColor   = MaterialTheme.colorScheme.onTertiaryContainer
         )
@@ -351,7 +348,6 @@ private fun ArchivedExpenseDetailCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment     = Alignment.CenterVertically
         ) {
-            // Left — emoji + info
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 Surface(
                     shape    = RoundedCornerShape(10.dp),
@@ -405,10 +401,9 @@ private fun ArchivedExpenseDetailCard(
                 }
             }
 
-            // Right — amount + icon
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    "$${"%.2f".format(expense.amount)}",
+                    "${"%.2f".format(expense.amount)}",
                     fontSize   = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color      = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
@@ -421,46 +416,60 @@ private fun ArchivedExpenseDetailCard(
         }
     }
 
-    // Context menu
+    // ── Context menu ─────────────────────────────────────────────────────────
     if (showMenu) {
         AlertDialog(
             onDismissRequest = { showMenu = false },
-            icon  = { Icon(Icons.Filled.Archive, null, tint = MaterialTheme.colorScheme.secondary) },
+            icon  = { Icon(Icons.Filled.Archive, null, tint = MaterialTheme.colorScheme.onSurface) },
             title = { Text(expense.name, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text  = {
                 Column {
+                    // ── Restore — icon and text both use onSurface ────────────
                     Row(
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
                             .clickable { showMenu = false; showRestoreDialog = true }
                             .padding(vertical = 14.dp, horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Filled.Unarchive, null,
+                        Icon(
+                            Icons.Filled.Unarchive, null,
                             modifier = Modifier.size(22.dp),
-                            tint     = MaterialTheme.colorScheme.primary)
+                            tint     = MaterialTheme.colorScheme.onSurface   // ← consistent
+                        )
                         Spacer(Modifier.width(16.dp))
                         Column {
-                            Text("Restore", fontSize = 15.sp)
+                            Text(
+                                "Restore",
+                                fontSize = 15.sp,
+                                color    = MaterialTheme.colorScheme.onSurface   // ← consistent
+                            )
                             Text("Move back to active expenses",
                                 fontSize = 12.sp,
                                 color    = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     HorizontalDivider()
+                    // ── Delete — icon and text both use error (red) ───────────
                     Row(
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
                             .clickable { showMenu = false; showDeleteDialog = true }
                             .padding(vertical = 14.dp, horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Filled.DeleteForever, null,
+                        Icon(
+                            Icons.Filled.DeleteForever, null,
                             modifier = Modifier.size(22.dp),
-                            tint     = MaterialTheme.colorScheme.error)
+                            tint     = MaterialTheme.colorScheme.error
+                        )
                         Spacer(Modifier.width(16.dp))
                         Column {
-                            Text("Delete Permanently",
+                            Text(
+                                "Delete Permanently",
                                 fontSize = 15.sp,
-                                color    = MaterialTheme.colorScheme.error)
+                                color    = MaterialTheme.colorScheme.error
+                            )
                             Text("This cannot be undone",
                                 fontSize = 12.sp,
                                 color    = MaterialTheme.colorScheme.onSurfaceVariant)

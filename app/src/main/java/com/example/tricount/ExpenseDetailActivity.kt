@@ -2,6 +2,7 @@ package com.example.tricount
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -16,6 +17,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack  // ✅ fixed deprecated ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,7 +41,6 @@ import com.example.tricount.viewModel.TricountViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
-
 // =============================================================================
 // Activity
 // =============================================================================
@@ -50,7 +51,17 @@ class ExpenseDetailActivity : ComponentActivity() {
 
     override fun finish() {
         super.finish()
-        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+        // ✅ Fixed deprecated overridePendingTransition (API 34+)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+        } else {
+            overrideActivityTransition(
+                OVERRIDE_TRANSITION_CLOSE,
+                R.anim.slide_in_left,
+                R.anim.slide_out_right
+            )
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -112,7 +123,6 @@ class ExpenseDetailActivity : ComponentActivity() {
                             finish()
                         },
                         onBackClick    = { finish() },
-                        viewModel      = viewModel,
                         tricountId     = tricountId,
                         tricountName   = tricountName
                     )
@@ -147,7 +157,7 @@ fun ExpenseDetailScreen(
     onNext         : () -> Unit,
     onDelete       : (Int) -> Unit,
     onBackClick    : () -> Unit,
-    viewModel      : TricountViewModel,
+    // ✅ Removed unused `viewModel` parameter
     tricountId     : Int,
     tricountName   : String
 ) {
@@ -169,7 +179,8 @@ fun ExpenseDetailScreen(
                 title = {},
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.Filled.ArrowBack, "Back")
+                        // ✅ Fixed: use AutoMirrored variant
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
                 actions = {
@@ -198,20 +209,40 @@ fun ExpenseDetailScreen(
                         ) {
                             // ── Edit ─────────────────────────────────────────
                             NormalMenuItem(
-                                label = "Edit",
-                                icon  = Icons.Filled.Edit,
+                                label   = "Edit",
+                                icon    = Icons.Filled.Edit,
                                 onClick = {
                                     showMenu = false
                                     expense?.let { exp ->
-                                        val editIntent = Intent(context, EditExpenseActivity::class.java).apply {
-                                            putExtra(EditExpenseActivity.EXTRA_EXPENSE_ID,    exp.id)  // ← fix: was expenseId
+                                        // ✅ Fixed: derive split mode from the expense's
+                                        //    own splits and pass it directly inside apply{}
+                                        val splits    = expenseSplits[exp.id] ?: emptyList()
+                                        val splitMode = detectSplitModeFromAmounts(splits)
+                                        val editIntent = Intent(
+                                            context,
+                                            EditExpenseActivity::class.java
+                                        ).apply {
+                                            putExtra(EditExpenseActivity.EXTRA_EXPENSE_ID,    exp.id)
                                             putExtra(EditExpenseActivity.EXTRA_TRICOUNT_ID,   tricountId)
                                             putExtra(EditExpenseActivity.EXTRA_TRICOUNT_NAME, tricountName)
+                                            // ✅ Fixed: EXTRA_SPLIT_MODE goes into editIntent,
+                                            //    not the incoming `intent`, using the derived mode
+                                            putExtra(EditExpenseActivity.EXTRA_SPLIT_MODE,    splitMode.name)
                                         }
                                         context.startActivity(editIntent)
-                                        (context as? Activity)?.overridePendingTransition(
-                                            R.anim.slide_in_right, R.anim.slide_out_left
-                                        )
+                                        // ✅ Fixed deprecated overridePendingTransition (API 34+)
+                                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                            @Suppress("DEPRECATION")
+                                            (context as? Activity)?.overridePendingTransition(
+                                                R.anim.slide_in_right, R.anim.slide_out_left
+                                            )
+                                        } else {
+                                            (context as? Activity)?.overrideActivityTransition(
+                                                Activity.OVERRIDE_TRANSITION_OPEN,
+                                                R.anim.slide_in_right,
+                                                R.anim.slide_out_left
+                                            )
+                                        }
                                     }
                                 }
                             )
@@ -460,18 +491,6 @@ private fun ExpensePageContent(
 // =============================================================================
 // Number sliding-window indicator
 // =============================================================================
-//
-//  Visual behaviour (WINDOW_SIZE = 5):
-//
-//    page 1 of 14:   Previous  [1]  2  3  4  5  ›   Next
-//    page 7 of 14:   Previous  ‹  5  6  [7]  8  9  ›   Next
-//    page 14 of 14:  Previous  ‹  10  11  12  13  [14]   Next
-//
-//  Active  → filled primary-colour circle, bold onPrimary text, 180 ms fade
-//  Inactive → plain text, onSurface 45 % alpha
-//  ‹ / ›   → faint chevrons hinting more pages exist outside the window
-//  Previous / Next → coloured text buttons, greyed out at boundaries
-// =============================================================================
 
 private const val WINDOW_SIZE = 5
 
@@ -658,7 +677,6 @@ private fun DetailPersonRow(
             }
         }
 
-        // Default currency: INR ₹
         Text(
             "₹${"%.2f".format(amount)}",
             fontSize   = 17.sp,

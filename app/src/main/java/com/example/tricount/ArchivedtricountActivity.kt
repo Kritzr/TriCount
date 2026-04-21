@@ -1,6 +1,7 @@
 package com.example.tricount
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack  // ✅ Fixed deprecated ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,7 +31,8 @@ import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.ui.theme.AppTheme
 import com.example.tricount.viewModel.TricountViewModel
 
-class AchivedTricountsActivity : ComponentActivity() {
+// ✅ Fixed typo: "Achived" → "Archived" throughout
+class ArchivedTricountsActivity : ComponentActivity() {
 
     private val viewModel: TricountViewModel by viewModels()
 
@@ -39,8 +42,8 @@ class AchivedTricountsActivity : ComponentActivity() {
 
         AppTheme.isDark.value = sessionManager.getDarkMode()
         setContent {
-            TriCountTheme() {
-                AchivedTricountsScreen(
+            TriCountTheme {
+                ArchivedTricountsScreen(
                     viewModel       = viewModel,
                     sessionManager  = sessionManager,
                     onBackClick     = { finish() },
@@ -51,8 +54,17 @@ class AchivedTricountsActivity : ComponentActivity() {
                             putExtra("IS_ARCHIVED",   true)
                         }
                         startActivity(intent)
-                        // Forward transition: new screen slides in from right
-                        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+                        // ✅ Fixed deprecated overridePendingTransition (API 34+)
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                            @Suppress("DEPRECATION")
+                            overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+                        } else {
+                            overrideActivityTransition(
+                                OVERRIDE_TRANSITION_OPEN,
+                                R.anim.slide_in_right,
+                                R.anim.slide_out_left
+                            )
+                        }
                     }
                 )
             }
@@ -64,16 +76,25 @@ class AchivedTricountsActivity : ComponentActivity() {
         viewModel.loadArchivedTricounts()
     }
 
-    // Back transition: current screen slides out to right, previous slides in from left
     override fun finish() {
         super.finish()
-        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+        // ✅ Fixed deprecated overridePendingTransition (API 34+)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+        } else {
+            overrideActivityTransition(
+                OVERRIDE_TRANSITION_CLOSE,
+                R.anim.slide_in_left,
+                R.anim.slide_out_right
+            )
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AchivedTricountsScreen(
+fun ArchivedTricountsScreen(
     viewModel       : TricountViewModel,
     sessionManager  : SessionManager,
     onBackClick     : () -> Unit,
@@ -104,7 +125,11 @@ fun AchivedTricountsScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                        // ✅ Fixed: use AutoMirrored variant
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -116,7 +141,6 @@ fun AchivedTricountsScreen(
         }
     ) { padding ->
         if (archivedTricounts.isEmpty()) {
-            // Empty state
             Box(
                 modifier         = Modifier
                     .fillMaxSize()
@@ -154,7 +178,6 @@ fun AchivedTricountsScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item {
-                    // Info banner
                     Card(
                         colors   = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -181,7 +204,7 @@ fun AchivedTricountsScreen(
                 }
 
                 items(archivedTricounts, key = { it.id }) { tricount ->
-                    AchivedTricountCard(
+                    ArchivedTricountCard(
                         tricount         = tricount,
                         isCreator        = tricount.creatorId == currentUserId,
                         onTricountClick  = { onTricountClick(tricount.id, tricount.name) },
@@ -193,11 +216,11 @@ fun AchivedTricountsScreen(
         }
     }
 
-    // Unarchive confirmation
     tricountToUnarchive?.let { tricount ->
         AlertDialog(
             onDismissRequest = { tricountToUnarchive = null },
-            icon  = { Icon(Icons.Filled.Unarchive, null, tint = MaterialTheme.colorScheme.primary) },
+            // ✅ Fixed: Icons.Filled.Unarchive doesn't exist — use Inventory2 or Outbox as substitute
+            icon  = { Icon(Icons.Filled.Inventory2, null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Unarchive \"${tricount.name}\"?") },
             text  = { Text("This will move the Tricount back to your main list.") },
             confirmButton = {
@@ -212,7 +235,6 @@ fun AchivedTricountsScreen(
         )
     }
 
-    // Delete confirmation
     tricountToDelete?.let { (id, name) ->
         AlertDialog(
             onDismissRequest = { tricountToDelete = null },
@@ -235,7 +257,7 @@ fun AchivedTricountsScreen(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun AchivedTricountCard(
+fun ArchivedTricountCard(   // ✅ Fixed typo in function name
     tricount         : TricountEntity,
     isCreator        : Boolean,
     onTricountClick  : () -> Unit,
@@ -261,7 +283,6 @@ fun AchivedTricountCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Icon badge
             Surface(
                 modifier = Modifier.size(44.dp),
                 shape    = CircleShape,
@@ -300,7 +321,6 @@ fun AchivedTricountCard(
                     color      = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
                 )
             }
-            // Archive badge
             Surface(
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.secondaryContainer
@@ -315,7 +335,6 @@ fun AchivedTricountCard(
         }
     }
 
-    // Long-press context menu
     if (showMenu) {
         AlertDialog(
             onDismissRequest = { showMenu = false },
@@ -329,8 +348,9 @@ fun AchivedTricountCard(
                             .padding(vertical = 12.dp, horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // ✅ Fixed: same icon substitution for Unarchive
                         Icon(
-                            Icons.Filled.Unarchive, null,
+                            Icons.Filled.Inventory2, null,
                             modifier = Modifier.size(22.dp),
                             tint     = MaterialTheme.colorScheme.primary
                         )

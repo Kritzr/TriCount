@@ -87,9 +87,11 @@ class EditExpenseActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val expenseId    = intent.getIntExtra(EXTRA_EXPENSE_ID,  -1)
-        val tricountId   = intent.getIntExtra(EXTRA_TRICOUNT_ID, -1)
-        val tricountName = intent.getStringExtra(EXTRA_TRICOUNT_NAME) ?: "Tricount"
+        val expenseId      = intent.getIntExtra(EXTRA_EXPENSE_ID,  -1)
+        val tricountId     = intent.getIntExtra(EXTRA_TRICOUNT_ID, -1)
+        val tricountName   = intent.getStringExtra(EXTRA_TRICOUNT_NAME) ?: "Tricount"
+        val splitModeExtra = intent.getStringExtra(EXTRA_SPLIT_MODE)
+            ?.let { runCatching { SplitMode.valueOf(it) }.getOrNull() }
 
         if (expenseId == -1 || tricountId == -1) { finish(); return }
 
@@ -119,15 +121,16 @@ class EditExpenseActivity : ComponentActivity() {
 
                 if (expense != null && members.isNotEmpty()) {
                     EditExpenseScreen(
-                        expense       = expense,
-                        splits        = splits,
-                        tricountId    = tricountId,
-                        tricountName  = tricountName,
-                        members       = members,
-                        currentUserId = currentUserId,
-                        viewModel     = viewModel,
-                        onBackClick   = { finish() },
-                        onSaved       = {
+                        expense           = expense,
+                        splits            = splits,
+                        tricountId        = tricountId,
+                        tricountName      = tricountName,
+                        members           = members,
+                        currentUserId     = currentUserId,
+                        viewModel         = viewModel,
+                        initialSplitMode  = splitModeExtra,
+                        onBackClick       = { finish() },
+                        onSaved           = {
                             setResult(android.app.Activity.RESULT_OK)
                             finish()
                         }
@@ -153,6 +156,7 @@ class EditExpenseActivity : ComponentActivity() {
         const val EXTRA_EXPENSE_ID    = "extra_edit_expense_id"
         const val EXTRA_TRICOUNT_ID   = "extra_edit_tricount_id"
         const val EXTRA_TRICOUNT_NAME = "extra_edit_tricount_name"
+        const val EXTRA_SPLIT_MODE    = "extra_edit_split_mode"   // "EQUALLY" | "PERCENTAGE" | "PARTS"
     }
 }
 
@@ -169,12 +173,12 @@ class EditExpenseActivity : ComponentActivity() {
 // The user can freely switch to PARTS if they want.
 // ─────────────────────────────────────────────────────────────────────────────
 
-private fun detectSplitModeFromAmounts(splits: List<ExpenseSplitWithUser>): SplitMode {
+fun detectSplitModeFromAmounts(splits: List<ExpenseSplitWithUser>): SplitMode {
     if (splits.isEmpty()) return SplitMode.EQUALLY
-    val amounts = splits.map { it.amount }
-    val first   = amounts.first()
-    return if (amounts.all { kotlin.math.abs(it - first) < 0.01 }) SplitMode.EQUALLY
-    else SplitMode.PERCENTAGE
+    // Use raw shares (integer) — more reliable than computed INR amounts
+    val firstShares = splits.first().shares
+    return if (splits.all { it.shares == firstShares }) SplitMode.EQUALLY
+    else SplitMode.PARTS  // unequal integer shares → restore as PARTS
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -184,25 +188,39 @@ private fun detectSplitModeFromAmounts(splits: List<ExpenseSplitWithUser>): Spli
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditExpenseScreen(
-    expense       : ExpenseWithDetails,
-    splits        : List<ExpenseSplitWithUser>,
-    tricountId    : Int,
-    tricountName  : String,
-    members       : List<MemberWithDetails>,
-    currentUserId : Int,
-    viewModel     : TricountViewModel,
-    onBackClick   : () -> Unit,
-    onSaved       : () -> Unit
+    expense          : ExpenseWithDetails,
+    splits           : List<ExpenseSplitWithUser>,
+    tricountId       : Int,
+    tricountName     : String,
+    members          : List<MemberWithDetails>,
+    currentUserId    : Int,
+    viewModel        : TricountViewModel,
+    initialSplitMode : SplitMode? = null,   // passed from intent; null = auto-detect
+    onBackClick      : () -> Unit,
+    onSaved          : () -> Unit
 ) {
     val context = LocalContext.current
 
-    // Map userId → split amount for easy lookup
+    // Map userId → raw shares (integer from DB) — source of truth for PARTS/EQUALLY
+    val splitSharesMap = remember(splits) {
+        splits.associate { it.userId to it.shares }
+    }
+    // Map userId → computed INR amount — used for PERCENTAGE restoration
     val splitAmountMap = remember(splits) {
         splits.associate { it.userId to it.amount }
     }
 
-    val detectedMode = remember(splits) {
-        detectSplitModeFromAmounts(splits)
+    // Prefer the mode explicitly passed from intent; fall back to
+    // detecting from shares (all equal = EQUALLY, else PERCENTAGE).
+    val detectedMode = remember(splits, initialSplitMode) {
+        initialSplitMode ?: run {
+            if (splits.isEmpty()) SplitMode.EQUALLY
+            else {
+                val firstShares = splits.first().shares
+                if (splits.all { it.shares == firstShares }) SplitMode.EQUALLY
+                else SplitMode.PARTS   // raw shares are integers — restore as PARTS, not %
+            }
+        }
     }
 
     // ── Form state ────────────────────────────────────────────────────────────
@@ -215,29 +233,48 @@ fun EditExpenseScreen(
     var isLoading        by remember { mutableStateOf(false) }
     var payerExpanded    by remember { mutableStateOf(false) }
 
-    // ── Split inputs pre-populated from existing split amounts ─────────────────
-    // For EQUALLY: just "1" for everyone.
-    // For PERCENTAGE: compute each member's percentage of the total.
-    val splitInputs = remember(members, detectedMode, splitAmountMap, expense.amount) {
+    // ── Split inputs pre-populated from existing DB data ────────────────────
+    // EQUALLY    → "1" for everyone (raw shares are all equal, display is uniform).
+    // PARTS      → the raw integer shares straight from the DB (e.g. 2, 3, 1).
+    // PERCENTAGE → recompute each member's % from the total shares in the DB.
+    //              e.g. shares [2, 3] on a 5-share split → 40% and 60%.
+    val splitInputs = remember(members, detectedMode, splitSharesMap, splitAmountMap, expense.amount) {
+        val totalShares = splitSharesMap.values.sum().coerceAtLeast(1)
         mutableStateMapOf<Int, String>().also { map ->
             members.forEach { member ->
+                val memberShares = splitSharesMap[member.userId]
                 val memberAmount = splitAmountMap[member.userId]
                 map[member.userId] = when (detectedMode) {
                     SplitMode.EQUALLY -> "1"
+                    SplitMode.PARTS -> {
+                        // Use the exact integer shares saved in the DB
+                        memberShares?.coerceAtLeast(1)?.toString() ?: "1"
+                    }
                     SplitMode.PERCENTAGE -> {
-                        if (memberAmount != null && expense.amount > 0) {
+                        // Derive % from shares ratio (most accurate — avoids
+                        // floating-point drift from the stored INR amounts)
+                        if (memberShares != null && memberShares > 0) {
+                            val pct = memberShares.toDouble() / totalShares * 100.0
+                            "%.1f".format(pct)
+                        } else if (memberAmount != null && expense.amount > 0) {
+                            // Fallback: derive from stored INR amount
                             val pct = (memberAmount / expense.amount) * 100.0
                             "%.1f".format(pct)
                         } else ""
                     }
-                    SplitMode.PARTS -> "1"
                 }
             }
         }
     }
 
-    // When user manually switches split mode, reset inputs to defaults
+    // Guard: prevent the reset LaunchedEffect from firing on first composition
+    // and overwriting the pre-populated values restored above.
+    var isFirstComposition by remember { mutableStateOf(true) }
+
+    // When the user manually switches split mode AFTER opening the screen,
+    // reset all inputs to blank/default so they start fresh.
     LaunchedEffect(splitMode) {
+        if (isFirstComposition) { isFirstComposition = false; return@LaunchedEffect }
         members.forEach { member ->
             splitInputs[member.userId] = when (splitMode) {
                 SplitMode.EQUALLY    -> "1"
@@ -246,6 +283,14 @@ fun EditExpenseScreen(
             }
         }
     }
+
+    // ── Autofill: tracks which members the user has manually edited ──────────
+    // Members NOT in this set are "auto" slots whose value is recalculated
+    // every time any manual member's percentage/parts value changes.
+    val manuallyEditedIds = remember { mutableStateMapOf<Int, Boolean>() }
+    // Clear manual tracking whenever the split mode changes
+    LaunchedEffect(splitMode) { manuallyEditedIds.clear() }
+
 
     // ── Validation ────────────────────────────────────────────────────────────
     val amountValue       = amountText.toDoubleOrNull()
