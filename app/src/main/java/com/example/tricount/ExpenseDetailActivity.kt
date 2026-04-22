@@ -246,7 +246,6 @@ fun ExpenseDetailScreen(
                                     }
                                 }
                             )
-                            HorizontalDivider()
                             // ── Delete ───────────────────────────────────────
                             DestructiveMenuItem(
                                 label   = "Delete",

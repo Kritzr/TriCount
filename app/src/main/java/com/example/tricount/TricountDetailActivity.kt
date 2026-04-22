@@ -210,12 +210,10 @@ fun TricountDetailScreen(
                                 // Insights
                                 DropdownMenuItem(
                                     leadingIcon = {
-                                        Icon(Icons.Filled.PieChart, null,
-                                            tint = MaterialTheme.colorScheme.primary)
+                                        Icon(Icons.Filled.PieChart, null)
                                     },
                                     text    = {
-                                        Text("Insights",
-                                            color = MaterialTheme.colorScheme.primary)
+                                        Text("Insights")
                                     },
                                     onClick = {
                                         showMenu = false
@@ -245,12 +243,10 @@ fun TricountDetailScreen(
                                 if (!isArchived) {
                                     DropdownMenuItem(
                                         leadingIcon = {
-                                            Icon(Icons.Filled.Archive, null,
-                                                tint = MaterialTheme.colorScheme.secondary)
+                                            Icon(Icons.Filled.Archive, null)
                                         },
                                         text    = {
-                                            Text("Archive Tricount",
-                                                color = MaterialTheme.colorScheme.secondary)
+                                            Text("Archive Tricount")
                                         },
                                         onClick = { showMenu = false; showArchiveDialog = true }
                                     )

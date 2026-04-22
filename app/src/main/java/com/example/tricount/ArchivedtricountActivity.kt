@@ -352,10 +352,11 @@ fun ArchivedTricountCard(   // ✅ Fixed typo in function name
                         Icon(
                             Icons.Filled.Inventory2, null,
                             modifier = Modifier.size(22.dp),
-                            tint     = MaterialTheme.colorScheme.primary
+                            tint     = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(Modifier.width(16.dp))
-                        Text("Unarchive", fontSize = 15.sp)
+                        Text("Unarchive", fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface)
                     }
                     Row(
                         modifier = Modifier

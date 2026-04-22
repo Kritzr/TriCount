@@ -449,7 +449,6 @@ private fun ArchivedExpenseDetailCard(
                                 color    = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    HorizontalDivider()
                     // ── Delete — icon and text both use error (red) ───────────
                     Row(
                         modifier = Modifier

@@ -18,6 +18,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -333,7 +334,19 @@ fun ExpensesContent(
     val myTotal  = expenses.filter { it.paidBy == currentUserId }.sumOf { it.amount }
     val totalAll = expenses.sumOf { it.amount }
 
+    val listState = rememberLazyListState()
+
+    // Scroll to the top whenever a new expense appears at the front of the list,
+    // so the user always sees the most recent expense after returning from AddExpenseActivity.
+    val firstExpenseId = expenses.firstOrNull()?.id
+    LaunchedEffect(firstExpenseId) {
+        if (firstExpenseId != null) {
+            listState.scrollToItem(0)
+        }
+    }
+
     LazyColumn(
+        state          = listState,
         modifier       = modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 120.dp)
     ) {
@@ -445,7 +458,7 @@ fun ExpensesContent(
                 var highlight by remember(isNewlyAdded) { mutableStateOf(isNewlyAdded) }
                 LaunchedEffect(isNewlyAdded) {
                     if (isNewlyAdded) {
-                        kotlinx.coroutines.delay(3000L)
+                        kotlinx.coroutines.delay(4000L)   // highlight visible for 4 seconds
                         highlight = false
                     }
                 }
@@ -453,7 +466,7 @@ fun ExpensesContent(
                     targetValue   = if (highlight)
                         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
                     else Color.Transparent,
-                    animationSpec = tween(durationMillis = 800),
+                    animationSpec = tween(durationMillis = 1000),  // 1s fade-out
                     label         = "expenseHighlight"
                 )
 
@@ -461,7 +474,6 @@ fun ExpensesContent(
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(highlightColor)
                             .clickable {
                                 val intent = android.content.Intent(ctx, ExpenseDetailActivity::class.java).apply {
                                     putExtra(ExpenseDetailActivity.EXTRA_EXPENSE_ID,  expense.id)
@@ -473,7 +485,9 @@ fun ExpensesContent(
                                 )
                             },
                         shape           = RoundedCornerShape(0.dp),
-                        color           = Color.Transparent,
+                        // ✅ Fixed: pass highlightColor as Surface's own color so it's actually visible.
+                        //    The old .background() modifier was painted behind Surface and had no effect.
+                        color           = highlightColor,
                         shadowElevation = 0.dp
                     ) {
                         ExpenseItemCard(
@@ -650,7 +664,6 @@ fun ArchivedExpenseCard(
                             color    = MaterialTheme.colorScheme.onSurface   // ← consistent
                         )
                     }
-                    HorizontalDivider()
                     // ── Delete — icon and text both use error (red) ───────────
                     Row(
                         modifier = Modifier
