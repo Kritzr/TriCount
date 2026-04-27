@@ -108,7 +108,7 @@ class LoginActivity : ComponentActivity() {
 
         setContent {
             TriCountTheme {
-                val authResult   by authViewModel.authResult.collectAsStateWithLifecycle()
+                val authResult    by authViewModel.authResult.collectAsStateWithLifecycle()
                 val googleLoading by isGoogleLoading
 
                 LaunchedEffect(authResult) {
@@ -128,6 +128,23 @@ class LoginActivity : ComponentActivity() {
                                 Toast.makeText(
                                     this@LoginActivity,
                                     result.message,
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                authViewModel.resetAuthResult()
+                            }
+                            // ── FIX: newly added sealed class branches ────────
+                            is AuthResult.AwaitingOtpVerification -> {
+                                Toast.makeText(
+                                    this@LoginActivity,
+                                    "Please enter the OTP sent to your phone.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                authViewModel.resetAuthResult()
+                            }
+                            is AuthResult.VerificationEmailSent -> {
+                                Toast.makeText(
+                                    this@LoginActivity,
+                                    "Verification email sent. Please check your inbox.",
                                     Toast.LENGTH_LONG
                                 ).show()
                                 authViewModel.resetAuthResult()

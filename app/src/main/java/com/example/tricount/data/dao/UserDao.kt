@@ -28,8 +28,18 @@ interface UserDao {
     suspend fun updateNickname(userId: Int, nickname: String)
 
     @Query("UPDATE users SET photoUri = :photoUri WHERE id = :userId")
-    suspend fun updatePhotoUri(userId: Int, photoUri: String): Int // Changed from Unit to Int
+    suspend fun updatePhotoUri(userId: Int, photoUri: String): Int
 
     @Query("SELECT photoUri FROM users WHERE id = :userId")
     suspend fun getUserPhotoUri(userId: Int): String?
+
+    // ── Firebase UID helpers (EXTRA_CHANGES § A) ──────────────────────────────
+
+    @Query("UPDATE users SET firebaseUid = :firebaseUid WHERE id = :userId")
+    suspend fun updateFirebaseUid(userId: Int, firebaseUid: String)
+
+    // Call this right after FirebaseAuth.signInWithEmailAndPassword() / createUserWithEmailAndPassword() succeeds,
+    // passing auth.currentUser!!.uid
+    @Query("UPDATE users SET firebaseUid = :firebaseUid WHERE email = :email")
+    suspend fun updateFirebaseUidByEmail(email: String, firebaseUid: String)
 }

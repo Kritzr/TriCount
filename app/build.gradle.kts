@@ -60,6 +60,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.foundation)
+    // ❌ REMOVED: implementation(libs.firebase.messaging.ktx)
+    //    firebase-messaging-ktx no longer exists in BOM 32.x+.
+    //    The replacement is already declared below under Firebase BOM.
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
@@ -101,7 +104,7 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-crashlytics")
-
+    implementation("com.google.firebase:firebase-messaging") //
     // Google Sign-In — must stay on 20.x, version 21+ removed GoogleSignIn legacy API
     implementation("com.google.android.gms:play-services-auth:20.7.0")
 

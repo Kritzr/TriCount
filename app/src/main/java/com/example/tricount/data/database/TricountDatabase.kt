@@ -27,7 +27,7 @@ import com.example.tricount.data.entity.UserEntity
         ExpenseSplitEntity::class,
         PaymentEntity::class
     ],
-    version = 15,
+    version = 16,          // ← bumped from 15 (EXTRA_CHANGES § B)
     exportSchema = false
 )
 abstract class TricountDatabase : RoomDatabase() {
@@ -48,9 +48,9 @@ abstract class TricountDatabase : RoomDatabase() {
                     TricountDatabase::class.java,
                     "tricount_database"
                 )
-                    .fallbackToDestructiveMigrationFrom(1,2,3,4,5,6,7,8,9,10,11,12)
+                    .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
                     .fallbackToDestructiveMigration()
-                    .addMigrations(MIGRATION_13_14, MIGRATION_14_15)
+                    .addMigrations(MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)  // ← added
                     .build()
                 INSTANCE = instance
                 instance
@@ -93,8 +93,15 @@ abstract class TricountDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) { /* no-op */ }
         }
 
+        // 15 → 16: add firebaseUid to users; add category + isFavorite to tricounts (EXTRA_CHANGES § B)
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE users ADD COLUMN firebaseUid TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE tricounts ADD COLUMN category TEXT NOT NULL DEFAULT 'created'")
+                db.execSQL("ALTER TABLE tricounts ADD COLUMN isFavorite INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun clearInstance() { INSTANCE = null }
-
-
     }
 }

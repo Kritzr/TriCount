@@ -56,7 +56,7 @@
         <activity android:name=".ArchivedTricountsActivity" />
 
         <activity android:name=".ProfileActivity" />
-
+        <activity android:name=".NotificationsActivity" />
         <activity android:name=".EditExpenseActivity" />
 
         <activity

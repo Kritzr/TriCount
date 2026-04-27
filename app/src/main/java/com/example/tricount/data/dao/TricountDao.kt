@@ -93,6 +93,15 @@ interface TricountDao {
     @Query("SELECT COUNT(*) FROM tricount_members WHERE tricountId = :tricountId AND userId = :userId")
     suspend fun isMember(tricountId: Int, userId: Int): Int
 
+    // ── ADDED: get Firebase UIDs for all members of a tricount ───────────────
+    // Used by FirebaseSyncRepository.pushTricount() to write the full members[] array
+    @Query("""
+        SELECT COALESCE(u.firebaseUid, '') FROM users u
+        INNER JOIN tricount_members tm ON u.id = tm.userId
+        WHERE tm.tricountId = :tricountId AND u.firebaseUid != ''
+    """)
+    suspend fun getMemberFirebaseUids(tricountId: Int): List<String>
+
     // ── Expenses ─────────────────────────────────────────────────────────────
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -110,7 +119,6 @@ interface TricountDao {
     @Query("DELETE FROM expenses WHERE id = :expenseId")
     suspend fun deleteExpense(expenseId: Int)
 
-    // ← isArchived = 1, does NOT delete from DB, just hides from list
     @Query("UPDATE expenses SET isArchived = 1 WHERE id = :expenseId")
     suspend fun archiveExpense(expenseId: Int)
 

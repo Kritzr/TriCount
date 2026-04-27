@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,6 +43,7 @@ import com.example.tricount.data.SessionManager
 import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.AuthViewModel
 import com.example.tricount.viewModel.TricountViewModel
+import androidx.compose.ui.graphics.Color
 
 
 class HomeActivity : ComponentActivity() {
@@ -55,12 +57,13 @@ class HomeActivity : ComponentActivity() {
 
         val sessionManager = SessionManager(this)
 
+
         if (!sessionManager.isLoggedIn()) {
             startActivity(Intent(this, LoginActivity::class.java))
             finish()
             return
         }
-
+        tricountViewModel.startNotificationListener()
         setContent {
             val isDarkMode = remember { mutableStateOf(sessionManager.getDarkMode()) }
 
@@ -80,6 +83,9 @@ class HomeActivity : ComponentActivity() {
                                 putExtra("TRICOUNT_NAME", tricountName)
                             }
                         )
+                    },
+                    onNotificationsClick = {
+                        startActivity(Intent(this, NotificationsActivity::class.java))
                     },
                     onLogoutClick = {
                         authViewModel.logout()
@@ -122,8 +128,9 @@ fun HomeScreen(
     sessionManager       : SessionManager,
     isDarkMode           : Boolean,
     onDarkModeToggle     : (Boolean) -> Unit,
-    onTricountClick      : (Int, String) -> Unit,
-    onLogoutClick        : () -> Unit,
+    onTricountClick         : (Int, String) -> Unit,
+    onNotificationsClick    : () -> Unit = {},
+    onLogoutClick           : () -> Unit,
     onDeleteAccountClick : () -> Unit
 ) {
     var selectedBottomTab by remember { mutableStateOf(0) }
@@ -134,6 +141,19 @@ fun HomeScreen(
         selectedBottomTab = 0
     }
     val sheetState = rememberModalBottomSheetState()
+
+    // Collect notification & join-request counts for the bell badge
+    val notifications   by viewModel.notifications.collectAsStateWithLifecycle()
+    val pendingRequests by viewModel.pendingRequests.collectAsStateWithLifecycle()
+    val badgeCount = remember(notifications, pendingRequests) {
+        notifications.count { !it.read } + pendingRequests.size
+    }
+
+    // Start realtime listener and load pending requests
+    LaunchedEffect(Unit) {
+        viewModel.startNotificationListener()
+        viewModel.loadPendingJoinRequests()
+    }
 
     val addTricountLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -207,11 +227,13 @@ fun HomeScreen(
         ) { target ->
             when (target) {
                 0 -> TriCountListScreen(
-                    modifier        = Modifier.padding(padding),
-                    viewModel       = viewModel,
-                    sessionManager  = sessionManager,
-                    onTricountClick = onTricountClick,
-                    onArchivedClick = {
+                    modifier               = Modifier.padding(padding),
+                    viewModel              = viewModel,
+                    sessionManager         = sessionManager,
+                    onTricountClick        = onTricountClick,
+                    onNotificationsClick   = onNotificationsClick,
+                    notificationBadgeCount = badgeCount,
+                    onArchivedClick        = {
                         context.startActivity(
                             Intent(context, ArchivedTricountsActivity::class.java)
                         )
@@ -338,11 +360,13 @@ fun HomeScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TriCountListScreen(
-    modifier        : Modifier = Modifier,
-    viewModel       : TricountViewModel,
-    sessionManager  : SessionManager,
-    onTricountClick : (Int, String) -> Unit,
-    onArchivedClick : () -> Unit = {}
+    modifier                : Modifier = Modifier,
+    viewModel               : TricountViewModel,
+    sessionManager          : SessionManager,
+    onTricountClick         : (Int, String) -> Unit,
+    onNotificationsClick    : () -> Unit = {},
+    notificationBadgeCount  : Int = 0,
+    onArchivedClick         : () -> Unit = {}
 ) {
     val tricounts         by viewModel.tricounts.collectAsStateWithLifecycle()
     val favoriteTricounts by viewModel.favoriteTricounts.collectAsStateWithLifecycle()
@@ -378,12 +402,34 @@ fun TriCountListScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp, vertical = 16.dp)
                 ) {
-                    Text(
-                        "My TriCounts",
-                        fontSize   = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color      = MaterialTheme.colorScheme.primary
-                    )
+                    Row(
+                        modifier          = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "My TriCounts",
+                            fontSize   = 28.sp,
+                            fontWeight = FontWeight.Bold,
+                            color      = MaterialTheme.colorScheme.primary
+                        )
+                        // ── Notification bell with badge ──────────────────────
+                        BadgedBox(
+                            badge = {
+                                if (notificationBadgeCount > 0) {
+                                    Badge { Text(if (notificationBadgeCount > 99) "99+" else notificationBadgeCount.toString()) }
+                                }
+                            }
+                        ) {
+                            IconButton(onClick = onNotificationsClick) {
+                                Icon(
+                                    Icons.Filled.Notifications,
+                                    contentDescription = "Notifications",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
                     Text(
                         "${tricounts.size} total • ${filteredTricounts.size} ${tabs[selectedTab].lowercase()}",
                         fontSize = 14.sp,
@@ -1063,7 +1109,7 @@ fun ProfileScreen(
                 contentColor   = MaterialTheme.colorScheme.onError
             )
         ) {
-            Icon(Icons.Filled.Logout, null, modifier = Modifier.size(20.dp))
+            Icon(Icons.AutoMirrored.Filled.Logout, null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
             Text("Log Out", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
         }
@@ -1164,7 +1210,7 @@ fun ProfileScreen(
             onDismissRequest = { showLogoutDialog = false },
             icon  = {
                 Icon(
-                    Icons.Filled.Logout, null,
+                    Icons.AutoMirrored.Filled.Logout, null,
                     tint = MaterialTheme.colorScheme.error
                 )
             },

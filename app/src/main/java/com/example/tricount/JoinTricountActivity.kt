@@ -1,5 +1,6 @@
 package com.example.tricount
 
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -50,6 +51,7 @@ class JoinTricountActivity : ComponentActivity() {
         setContent {
             TriCountTheme() {
                 val joinResult by tricountViewModel.joinResult.collectAsStateWithLifecycle()
+                var isLoading by remember { mutableStateOf(false) }
 
                 // Handle join result
                 LaunchedEffect(joinResult) {
@@ -58,10 +60,26 @@ class JoinTricountActivity : ComponentActivity() {
                             val tricount = (joinResult as JoinResult.Success).tricount
                             Toast.makeText(
                                 this@JoinTricountActivity,
-                                "Successfully joined ${tricount.name}!",
+                                "Successfully joined \${tricount.name}!",
                                 Toast.LENGTH_SHORT
                             ).show()
                             tricountViewModel.resetJoinResult()
+                            finish()
+                        }
+                        is JoinResult.Pending -> {
+                            val tricountName = (joinResult as JoinResult.Pending).tricountName
+                            Toast.makeText(
+                                this@JoinTricountActivity,
+                                "Request sent to join \"$tricountName\"! The owner will review it and you'll be notified once approved.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            tricountViewModel.resetJoinResult()
+                            // Go back to HomeActivity, clearing this screen off the stack
+                            startActivity(
+                                Intent(this@JoinTricountActivity, HomeActivity::class.java).apply {
+                                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                }
+                            )
                             finish()
                         }
                         is JoinResult.Error -> {
@@ -72,12 +90,15 @@ class JoinTricountActivity : ComponentActivity() {
                                 Toast.LENGTH_LONG
                             ).show()
                             tricountViewModel.resetJoinResult()
+                            isLoading = false
                         }
                         null -> { /* Do nothing */ }
                     }
                 }
 
                 JoinTricountScreen(
+                    isLoading   = isLoading,
+                    onLoadingChange = { isLoading = it },
                     onBackClick = { finish() },
                     onJoinClick = { code ->
                         tricountViewModel.joinTricountByCode(code)
@@ -91,11 +112,12 @@ class JoinTricountActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JoinTricountScreen(
-    onBackClick: () -> Unit,
-    onJoinClick: (String) -> Unit
+    isLoading       : Boolean = false,
+    onLoadingChange : (Boolean) -> Unit = {},
+    onBackClick     : () -> Unit,
+    onJoinClick     : (String) -> Unit
 ) {
     var joinCode by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(false) }
 
     // Validate code format (6 alphanumeric characters)
     val isValidCode = remember(joinCode) {
@@ -237,7 +259,7 @@ fun JoinTricountScreen(
                     onDone = {
                         if (isValidCode && !isLoading) {
                             focusManager.clearFocus()
-                            isLoading = true
+                            onLoadingChange(true)
                             onJoinClick(joinCode)
                         }
                     }
@@ -255,7 +277,7 @@ fun JoinTricountScreen(
             Button(
                 onClick = {
                     if (!isLoading) {
-                        isLoading = true
+                        onLoadingChange(true)
                         onJoinClick(joinCode)
                     }
                 },
@@ -294,8 +316,8 @@ fun JoinTricountScreen(
             // Reset loading state after a delay
             LaunchedEffect(isLoading) {
                 if (isLoading) {
-                    kotlinx.coroutines.delay(3000)
-                    isLoading = false
+                    kotlinx.coroutines.delay(5000)
+                    onLoadingChange(false)
                 }
             }
 

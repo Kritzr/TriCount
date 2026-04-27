@@ -4,6 +4,8 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.tricount.data.AppNotification
+import com.example.tricount.data.ChatMessage
 import com.example.tricount.data.FirebaseSyncRepository
 import com.example.tricount.data.SessionManager
 import com.example.tricount.data.database.TricountDatabase
@@ -22,29 +24,20 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 
 // =============================================================================
-// Currency API layer — no API key required, fully free, HTTPS
-//
-// Primary  : https://open.er-api.com/v6/latest/USD   (USD-based rates)
-// Secondary: https://api.frankfurter.dev/v1/latest   (EUR-based rates, fallback)
-// Offline  : hardcoded approximate rates             (last resort)
+// Currency API layer
 // =============================================================================
 
-// ── open.er-api.com response ─────────────────────────────────────────────────
-
 data class ErApiResponse(
-    val result          : String?,              // "success" or "error"
-    val base_code       : String?,
+    val result               : String?,
+    val base_code            : String?,
     val time_last_update_utc : String?,
-    val rates           : Map<String, Double>?
+    val rates                : Map<String, Double>?
 )
 
 interface ErApi {
-    // Returns all rates with USD as base — free, no key, HTTPS ✓
     @GET("latest/USD")
     suspend fun getLatestRates(): ErApiResponse
 }
-
-// ── frankfurter.dev response ─────────────────────────────────────────────────
 
 data class FrankfurterResponse(
     val base  : String?,
@@ -53,73 +46,37 @@ data class FrankfurterResponse(
 )
 
 interface FrankfurterApi {
-    // Returns rates with EUR as base — free, no key, HTTPS ✓
     @GET("latest")
     suspend fun getLatestRates(): FrankfurterResponse
 }
 
-// ── Hardcoded fallback (USD-based, approximate) ───────────────────────────────
-
 private val FALLBACK_RATES_USD_BASED: Map<String, Double> = mapOf(
-    "USD" to 1.0,
-    "EUR" to 0.922,
-    "GBP" to 0.789,
-    "INR" to 83.50,
-    "JPY" to 149.50,
-    "CAD" to 1.360,
-    "AUD" to 1.528,
-    "CHF" to 0.888,
-    "SGD" to 1.344,
-    "AED" to 3.673
+    "USD" to 1.0, "EUR" to 0.922, "GBP" to 0.789, "INR" to 83.50,
+    "JPY" to 149.50, "CAD" to 1.360, "AUD" to 1.528,
+    "CHF" to 0.888, "SGD" to 1.344, "AED" to 3.673
 )
-
-// ── Shared OkHttp client ──────────────────────────────────────────────────────
 
 private val sharedOkHttp by lazy {
     OkHttpClient.Builder()
-        .addInterceptor(HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC
-        })
+        .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
 }
 
 private fun makeRetrofit(baseUrl: String): Retrofit =
-    Retrofit.Builder()
-        .baseUrl(baseUrl)
-        .client(sharedOkHttp)
-        .addConverterFactory(GsonConverterFactory.create())
-        .build()
+    Retrofit.Builder().baseUrl(baseUrl).client(sharedOkHttp)
+        .addConverterFactory(GsonConverterFactory.create()).build()
 
 object ErApiClient {
-    val api: ErApi by lazy {
-        makeRetrofit("https://open.er-api.com/v6/").create(ErApi::class.java)
-    }
+    val api: ErApi by lazy { makeRetrofit("https://open.er-api.com/v6/").create(ErApi::class.java) }
 }
 
 object FrankfurterClient {
-    val api: FrankfurterApi by lazy {
-        makeRetrofit("https://api.frankfurter.dev/v1/").create(FrankfurterApi::class.java)
-    }
+    val api: FrankfurterApi by lazy { makeRetrofit("https://api.frankfurter.dev/v1/").create(FrankfurterApi::class.java) }
 }
 
-// ── CurrencyRepository ────────────────────────────────────────────────────────
-
-/**
- * Fetches USD-based rates.
- * Priority chain (each is tried only if the previous fails):
- *   1. Today's in-memory cache
- *   2. open.er-api.com  (primary,   USD base)
- *   3. frankfurter.dev  (secondary, EUR base → normalised to USD base)
- *   4. Hardcoded fallback rates
- *
- * All conversions use USD as the pivot:
- *   result = amount * rates[to] / rates[from]
- */
 class CurrencyRepository {
-
-    // USD-based rates cache
     private var cachedRates   : Map<String, Double>? = null
     private var cacheDate     : String = ""
     private var cacheRateDate : String = ""
@@ -128,82 +85,49 @@ class CurrencyRepository {
     private val todayStr: String
         get() = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
 
-    /** Returns a USD-based rates map. Never throws — always returns something usable. */
     suspend fun getRates(): Map<String, Double> {
         val today = todayStr
         cachedRates?.takeIf { cacheDate == today }?.let { return it }
-
-        // 1. Try open.er-api.com
         try {
             val resp = ErApiClient.api.getLatestRates()
             if (resp.result == "success" && resp.rates != null) {
                 val rates = resp.rates.toMutableMap().apply { put("USD", 1.0) }
-                cachedRates   = rates
-                cacheDate     = today
-                cacheRateDate = resp.time_last_update_utc
-                    ?.take(16) ?: today          // trim to "Fri, 21 Apr 2025"
+                cachedRates = rates; cacheDate = today
+                cacheRateDate = resp.time_last_update_utc?.take(16) ?: today
                 usingFallback = false
-                Log.d("CurrencyRepo", "Rates from open.er-api.com: ${resp.time_last_update_utc}")
                 return rates
             }
-        } catch (e: Exception) {
-            Log.w("CurrencyRepo", "open.er-api.com failed: ${e.message}")
-        }
-
-        // 2. Try frankfurter.dev (EUR-based → convert to USD-based)
+        } catch (e: Exception) { Log.w("CurrencyRepo", "open.er-api.com failed: ${e.message}") }
         try {
             val resp = FrankfurterClient.api.getLatestRates()
             if (resp.rates != null) {
-                // resp.rates is EUR-based. Add EUR itself, then normalise to USD base.
                 val eurBased = resp.rates.toMutableMap().apply { put("EUR", 1.0) }
-                val eurToUsd = eurBased["USD"] ?: 1.085   // EUR→USD rate
-                // Convert every rate: rate_usd = rate_eur / eurToUsd
-                val usdBased = eurBased.mapValues { (_, rateVsEur) ->
-                    rateVsEur / eurToUsd
-                }.toMutableMap().apply { put("USD", 1.0) }
-                cachedRates   = usdBased
-                cacheDate     = today
-                cacheRateDate = resp.date ?: today
-                usingFallback = false
-                Log.d("CurrencyRepo", "Rates from frankfurter.dev date=${resp.date}")
+                val eurToUsd = eurBased["USD"] ?: 1.085
+                val usdBased = eurBased.mapValues { (_, r) -> r / eurToUsd }
+                    .toMutableMap().apply { put("USD", 1.0) }
+                cachedRates = usdBased; cacheDate = today
+                cacheRateDate = resp.date ?: today; usingFallback = false
                 return usdBased
             }
-        } catch (e: Exception) {
-            Log.w("CurrencyRepo", "frankfurter.dev failed: ${e.message}")
-        }
-
-        // 3. Stale cache is better than hardcoded fallback
-        cachedRates?.let {
-            Log.w("CurrencyRepo", "Both APIs failed — using stale cache")
-            return it
-        }
-
-        // 4. Last resort: hardcoded fallback
-        Log.w("CurrencyRepo", "Using hardcoded fallback rates")
+        } catch (e: Exception) { Log.w("CurrencyRepo", "frankfurter.dev failed: ${e.message}") }
+        cachedRates?.let { return it }
         return useFallback()
     }
 
     private fun useFallback(): Map<String, Double> {
-        usingFallback = true
-        cacheRateDate = "approx."
+        usingFallback = true; cacheRateDate = "approx."
         return FALLBACK_RATES_USD_BASED
     }
 
-    /** Label shown in UI: the update timestamp or "approx. (offline)". */
     fun getRateDate(): String = when {
         usingFallback           -> "approx. (offline)"
         cacheRateDate.isBlank() -> todayStr
         else                    -> cacheRateDate
     }
 
-    /**
-     * Convert [amount] from [from] to [to] using USD as the pivot currency.
-     *   result = amount * rates[to] / rates[from]
-     * Returns null only if either currency code is missing from the rates map.
-     */
     suspend fun convert(amount: Double, from: String, to: String): Double? {
         if (from == to) return amount
-        val rates    = getRates()
+        val rates = getRates()
         val fromRate = rates[from] ?: return null
         val toRate   = rates[to]   ?: return null
         return amount * toRate / fromRate
@@ -225,12 +149,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     private val sessionManager = SessionManager(application)
     private val syncRepo       = FirebaseSyncRepository(db, sessionManager)
 
-    // Currency repository — one instance, shared cache across all screens
     val currencyRepository = CurrencyRepository()
-
-    // NOTE: pullFromFirebase is NOT called here.
-    // It is called once in AuthViewModel.handleGoogleSignIn after login.
-    // Calling it here caused a race condition that wiped freshly created local data.
 
     // ── StateFlows ────────────────────────────────────────────────────────────
 
@@ -267,32 +186,38 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     private val _payments          = MutableStateFlow<List<PaymentEntity>>(emptyList())
     val payments: StateFlow<List<PaymentEntity>> = _payments
 
-    // ── Currency conversion StateFlows ────────────────────────────────────────
+    // Messaging
+    private val _messages          = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val messages: StateFlow<List<ChatMessage>> = _messages
 
-    /** Live conversion result: amount in the target currency (INR by default). */
+    // Notifications
+    private val _notifications     = MutableStateFlow<List<AppNotification>>(emptyList())
+    val notifications: StateFlow<List<AppNotification>> = _notifications
+
+    // Pending join requests (for tricount creators)
+    private val _pendingRequests   = MutableStateFlow<List<Map<String, Any>>>(emptyList())
+    val pendingRequests: StateFlow<List<Map<String, Any>>> = _pendingRequests
+
+    // FIX: moved inside the class (was incorrectly at file level)
+    private var notifListener: com.google.firebase.firestore.ListenerRegistration? = null
+
+    // ── Currency StateFlows ───────────────────────────────────────────────────
+
     private val _convertedAmount = MutableStateFlow<Double?>(null)
     val convertedAmount: StateFlow<Double?> = _convertedAmount
 
-    /** True while a live rate network call is in flight. */
-    private val _rateLoading = MutableStateFlow(false)
+    private val _rateLoading     = MutableStateFlow(false)
     val rateLoading: StateFlow<Boolean> = _rateLoading
 
-    /** Non-null when the last rate fetch failed. */
-    private val _rateError = MutableStateFlow<String?>(null)
+    private val _rateError       = MutableStateFlow<String?>(null)
     val rateError: StateFlow<String?> = _rateError
 
-    /** The date of the rates currently in cache, shown in the UI. */
-    private val _rateDate = MutableStateFlow<String?>(null)
+    private val _rateDate        = MutableStateFlow<String?>(null)
     val rateDate: StateFlow<String?> = _rateDate
 
-    /** True when the conversion is using hardcoded fallback rates (APIs unavailable). */
-    private val _rateIsFallback = MutableStateFlow(false)
+    private val _rateIsFallback  = MutableStateFlow(false)
     val rateIsFallback: StateFlow<Boolean> = _rateIsFallback
 
-    /**
-     * Convert [amount] from [from] → [to] (defaults to INR) using live rates.
-     * Updates [convertedAmount], [rateLoading], [rateError], and [rateDate].
-     */
     fun convertCurrency(amount: Double, from: String, to: String = "INR") {
         if (from == to) {
             _convertedAmount.value = amount
@@ -301,8 +226,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             return
         }
         viewModelScope.launch {
-            _rateLoading.value = true
-            _rateError.value   = null
+            _rateLoading.value = true; _rateError.value = null
             try {
                 val result = currencyRepository.convert(amount, from, to)
                 _convertedAmount.value = result
@@ -310,30 +234,22 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 _rateIsFallback.value  = currencyRepository.isUsingFallback()
                 if (result == null) _rateError.value = "Rate for $from or $to not available"
             } catch (e: Exception) {
-                Log.e("TricountVM", "convertCurrency error", e)
-                // Even on exception, try to return a fallback-based result
                 val fallback = currencyRepository.convert(amount, from, to)
                 _convertedAmount.value = fallback
                 _rateIsFallback.value  = true
                 _rateDate.value        = currencyRepository.getRateDate()
                 if (fallback == null) _rateError.value = "Rate unavailable for $from"
-            } finally {
-                _rateLoading.value = false
-            }
+            } finally { _rateLoading.value = false }
         }
     }
 
-    /** Call once when AddExpenseActivity opens to pre-warm the cache. */
     fun prefetchExchangeRates() {
         viewModelScope.launch {
             try {
-                currencyRepository.getRates()   // getRates() never throws — uses fallback internally
+                currencyRepository.getRates()
                 _rateDate.value       = currencyRepository.getRateDate()
                 _rateIsFallback.value = currencyRepository.isUsingFallback()
-                Log.d("CurrencyRepo", "prefetchExchangeRates done, rateDate=${currencyRepository.getRateDate()}")
-            } catch (e: Exception) {
-                Log.w("TricountVM", "prefetchExchangeRates unexpected error: ${e.message}")
-            }
+            } catch (e: Exception) { Log.w("TricountVM", "prefetchExchangeRates error: ${e.message}") }
         }
     }
 
@@ -362,8 +278,12 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             try {
                 val userId = sessionManager.getUserId() ?: return@launch
                 val tricount = TricountEntity(
-                    name = name, description = description,
-                    creatorId = userId, joinCode = generateJoinCode(), emoji = emoji
+                    name        = name,
+                    description = description,
+                    creatorId   = userId,
+                    joinCode    = generateJoinCode(),
+                    emoji       = emoji,
+                    category    = "created"              // FIX: mark as created
                 )
                 val tricountId = tricountDao.insertTricount(tricount).toInt()
                 tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = tricountId))
@@ -380,6 +300,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
 
                 val saved = tricountDao.getTricountById(tricountId)
                 if (saved != null) syncRepo.pushTricount(saved)
+
                 loadTricounts()
                 onComplete(tricountId)
             } catch (e: Exception) { Log.e("TricountVM", "insertTricount error", e) }
@@ -438,15 +359,25 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * Duplicate does NOT push to Firestore — it's a local-only copy
+     * (prevents the "duplicate = new Firestore doc" bug).
+     */
     fun duplicateTricount(tricountId: Int) {
         viewModelScope.launch {
             try {
                 val userId   = sessionManager.getUserId() ?: return@launch
                 val original = tricountDao.getTricountById(tricountId) ?: return@launch
-                val copy = original.copy(id = 0, name = "${original.name} (copy)",
-                    joinCode = generateJoinCode(), createdAt = System.currentTimeMillis(), isArchived = false)
+                val copy = original.copy(
+                    id        = 0,
+                    name      = "${original.name} (copy)",
+                    joinCode  = generateJoinCode(),
+                    createdAt = System.currentTimeMillis(),
+                    isArchived = false
+                )
                 val newId = tricountDao.insertTricount(copy).toInt()
                 tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = newId))
+                // Do NOT push duplicate to Firestore
                 loadTricounts()
             } catch (e: Exception) { Log.e("TricountVM", "duplicateTricount error", e) }
         }
@@ -495,6 +426,17 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                     onResult(AddMemberResult.Error("${user.name} is already a member")); return@launch
                 }
                 tricountDao.addMember(TricountMemberCrossRef(userId = user.id, tricountId = tricountId))
+
+                // FIX: update Firestore members[] with the new member's Firebase UID
+                if (user.firebaseUid.isNotEmpty()) {
+                    syncRepo.updateTricountMembers(tricountId, user.firebaseUid)
+                }
+
+                val tricount = tricountDao.getTricountById(tricountId)
+                if (tricount != null) {
+                    syncRepo.notifyMembersAdded(tricountId, tricount.name, trimmed)
+                }
+
                 loadTricountMembers(tricountId)
                 onResult(AddMemberResult.Success(user.name))
             } catch (e: Exception) {
@@ -513,23 +455,80 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // ── Join by code ──────────────────────────────────────────────────────────
+    // ── Join by code — requires creator approval ──────────────────────────────
 
+    /**
+     * Submit a join request via Firestore. The tricount creator must approve it.
+     * JoinResult.Pending is emitted immediately; Success only after approval.
+     */
     fun joinTricountByCode(joinCode: String) {
         viewModelScope.launch {
             try {
                 val userId = sessionManager.getUserId() ?: run {
                     _joinResult.value = JoinResult.Error("Not logged in"); return@launch
                 }
-                val tricount = tricountDao.getTricountByJoinCode(joinCode)
-                if (tricount == null) { _joinResult.value = JoinResult.Error("No tricount found with code: $joinCode"); return@launch }
-                if (tricountDao.isMember(tricount.id, userId) > 0) {
+
+                // First check Room (offline / already joined)
+                val localTricount = tricountDao.getTricountByJoinCode(joinCode)
+                if (localTricount != null && tricountDao.isMember(localTricount.id, userId) > 0) {
                     _joinResult.value = JoinResult.Error("You are already a member"); return@launch
                 }
-                tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = tricount.id))
-                loadTricounts()
-                _joinResult.value = JoinResult.Success(tricount)
-            } catch (e: Exception) { _joinResult.value = JoinResult.Error("Failed to join: ${e.message}") }
+
+                // Submit request to Firestore — creator must approve
+                val result = syncRepo.submitJoinRequest(joinCode)
+                when {
+                    result == null                       -> _joinResult.value = JoinResult.Error("No tricount found with code: $joinCode")
+                    result.startsWith("ALREADY_MEMBER:") -> _joinResult.value = JoinResult.Error("You are already a member of ${result.substringAfter(":")}")
+                    else                                 -> _joinResult.value = JoinResult.Pending(result)
+                }
+            } catch (e: Exception) {
+                _joinResult.value = JoinResult.Error("Failed to submit request: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Creator approves a pending join request.
+     * Adds member in Firestore and locally in Room.
+     */
+    fun approveJoinRequest(tricountId: String, requesterUid: String, requesterEmail: String) {
+        viewModelScope.launch {
+            try {
+                // FIX: approveJoinRequest now atomically updates members[] in Firestore
+                val approved = syncRepo.approveJoinRequest(tricountId, requesterUid)
+                if (approved) {
+                    // Reflect the change locally in Room too
+                    val localUser = userDao.getUserByEmail(requesterEmail)
+                        ?: createPlaceholderUser(requesterEmail)
+                    // FIX: save the firebase UID on the local user record if missing
+                    if (localUser.firebaseUid.isEmpty()) {
+                        userDao.updateFirebaseUid(localUser.id, requesterUid)
+                    }
+                    val localTricountId = tricountId.toIntOrNull() ?: return@launch
+                    if (tricountDao.isMember(localTricountId, localUser.id) == 0) {
+                        tricountDao.addMember(TricountMemberCrossRef(userId = localUser.id, tricountId = localTricountId))
+                    }
+                    loadPendingJoinRequests()
+                    loadTricountMembers(localTricountId)
+                }
+            } catch (e: Exception) { Log.e("TricountVM", "approveJoinRequest error", e) }
+        }
+    }
+
+    fun rejectJoinRequest(tricountId: String, requesterUid: String) {
+        viewModelScope.launch {
+            try {
+                syncRepo.rejectJoinRequest(tricountId, requesterUid)
+                loadPendingJoinRequests()
+            } catch (e: Exception) { Log.e("TricountVM", "rejectJoinRequest error", e) }
+        }
+    }
+
+    fun loadPendingJoinRequests() {
+        viewModelScope.launch {
+            try {
+                _pendingRequests.value = syncRepo.getPendingJoinRequests()
+            } catch (e: Exception) { _pendingRequests.value = emptyList() }
         }
     }
 
@@ -580,7 +579,10 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 val expenseId = tricountDao.insertExpense(expense).toInt()
                 val splits    = sharesMap.filter { it.value > 0 }.map { (uid, shares) -> ExpenseSplitEntity(expenseId = expenseId, userId = uid, shares = shares) }
                 if (splits.isNotEmpty()) tricountDao.insertExpenseSplits(splits)
+
+                // Push to top-level tricounts/{id}/expenses collection
                 syncRepo.pushExpense(tricountId, expense.copy(id = expenseId), splits)
+
                 loadExpenses(tricountId)
                 onResult(AddExpenseResult.Success)
             } catch (e: Exception) {
@@ -688,32 +690,73 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // ── Messaging ─────────────────────────────────────────────────────────────
+
+    fun loadMessages(tricountId: Int) {
+        viewModelScope.launch {
+            try {
+                _messages.value = syncRepo.getMessages(tricountId.toString())
+            } catch (e: Exception) {
+                Log.e("TricountVM", "loadMessages error", e)
+                _messages.value = emptyList()
+            }
+        }
+    }
+
+    fun sendMessage(tricountId: Int, text: String, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                val ok = syncRepo.sendMessage(tricountId.toString(), text)
+                if (ok) loadMessages(tricountId)
+                onResult(ok)
+            } catch (e: Exception) {
+                Log.e("TricountVM", "sendMessage error", e)
+                onResult(false)
+            }
+        }
+    }
+
+    // ── Notifications ─────────────────────────────────────────────────────────
+
+    fun loadNotifications() {
+        viewModelScope.launch {
+            try {
+                _notifications.value = syncRepo.getNotifications()
+            } catch (e: Exception) {
+                Log.e("TricountVM", "loadNotifications error", e)
+                _notifications.value = emptyList()
+            }
+        }
+    }
+
+    /**
+     * Starts a real-time Firestore listener that keeps _notifications up to date.
+     * Call this from your Activity/Fragment in onStart() after the user is logged in.
+     * Cleans up automatically when the ViewModel is destroyed.
+     */
+    fun startNotificationListener() {
+        notifListener?.remove()
+        notifListener = syncRepo.listenForNotifications { list ->
+            _notifications.value = list
+        }
+    }
+
+    fun markNotificationRead(notificationId: String) {
+        viewModelScope.launch {
+            try {
+                syncRepo.markNotificationRead(notificationId)
+                loadNotifications()
+            } catch (e: Exception) { Log.e("TricountVM", "markNotificationRead error", e) }
+        }
+    }
+
     // ── Profile ───────────────────────────────────────────────────────────────
 
     fun uploadProfilePhoto(uri: android.net.Uri, onDone: (String?) -> Unit) {
         viewModelScope.launch {
             try {
-                val userId = sessionManager.getUserId() ?: run { onDone(null); return@launch }
-                val uid    = sessionManager.getFirebaseUid()
-                    ?: com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
-                    ?: run { onDone(null); return@launch }
-
-                Log.d("TricountVM", "uploadProfilePhoto: uploading for uid=$uid userId=$userId")
-
-                val storageRef = com.google.firebase.storage.FirebaseStorage.getInstance()
-                    .reference
-                    .child("profile_photos/$uid.jpg")
-
-                storageRef.putFile(uri).await()
-                val downloadUrl = storageRef.downloadUrl.await().toString()
-
-                Log.d("TricountVM", "uploadProfilePhoto: got downloadUrl=$downloadUrl")
-
-                userDao.updatePhotoUri(userId, downloadUrl)
-                sessionManager.setProfilePhotoUri(downloadUrl)
-                syncRepo.pushProfilePhoto(downloadUrl)
-
-                onDone(downloadUrl)
+                val base64 = syncRepo.uploadProfileImageToFirestore(getApplication(), uri)
+                onDone(base64)
             } catch (e: Exception) {
                 Log.e("TricountVM", "uploadProfilePhoto error: ${e.message}", e)
                 onDone(null)
@@ -753,6 +796,9 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             try {
                 tricountDao.toggleFavorite(userId, tricountId)
                 loadFavoriteTricounts(userId)
+                // FIX: sync the new state to Firestore
+                val isFav = tricountDao.isFavorite(userId, tricountId) > 0
+                syncRepo.updateTricountFavorite(tricountId, isFav)
             } catch (e: Exception) { Log.e("TricountVM", "toggleFavorite error", e) }
         }
     }
@@ -772,13 +818,17 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         val newId = userDao.insertUser(
             UserEntity(email = email, password = "", name = displayName)
         ).toInt()
-        Log.d("TricountVM", "createPlaceholderUser: id=$newId for $email")
         return userDao.getUserById(newId)!!
     }
 
     private fun generateJoinCode(): String {
         val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
         return (1..6).map { chars.random() }.joinToString("")
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        notifListener?.remove()   // FIX: stop the Firestore listener when VM is destroyed
     }
 }
 
@@ -794,6 +844,7 @@ data class Settlement(
 
 sealed class JoinResult {
     data class Success(val tricount: TricountEntity) : JoinResult()
+    data class Pending(val tricountName: String)     : JoinResult()  // request submitted, awaiting creator approval
     data class Error(val message: String)            : JoinResult()
 }
 

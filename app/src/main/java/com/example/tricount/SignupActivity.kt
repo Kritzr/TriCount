@@ -70,6 +70,23 @@ class SignUpActivity : ComponentActivity() {
                             ).show()
                             authViewModel.resetAuthResult()
                         }
+                        // ── FIX: newly added sealed class branches ────────────
+                        is AuthResult.AwaitingOtpVerification -> {
+                            Toast.makeText(
+                                this@SignUpActivity,
+                                "Please enter the OTP sent to your phone.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            authViewModel.resetAuthResult()
+                        }
+                        is AuthResult.VerificationEmailSent -> {
+                            Toast.makeText(
+                                this@SignUpActivity,
+                                "Verification email sent. Please check your inbox.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            authViewModel.resetAuthResult()
+                        }
                         null -> { /* Do nothing */ }
                     }
                 }

@@ -18,6 +18,8 @@ import kotlinx.coroutines.tasks.await
 sealed class AuthResult {
     data class Success(val userId: Int) : AuthResult()
     data class Error(val message: String) : AuthResult()
+    object VerificationEmailSent : AuthResult()   // Step 1 of OTP email flow
+    object AwaitingOtpVerification : AuthResult() // Waiting for user to verify
 }
 
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
@@ -37,7 +39,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 Log.d("AuthVM", "handleGoogleSignIn: start")
                 val credential   = GoogleAuthProvider.getCredential(idToken, null)
-                val firebaseUser = firebaseAuth.signInWithCredential(credential).await().user
+                val authResult   = firebaseAuth.signInWithCredential(credential).await()
+                val firebaseUser = authResult.user
                     ?: run { _authResult.value = AuthResult.Error("Google sign-in failed: no user"); return@launch }
 
                 val firebaseUid = firebaseUser.uid
@@ -47,13 +50,16 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
                 val roomUserId = findOrCreateRoomUser(email, name)
 
-                // FIX: correct arg order (userId, name, email, firebaseUid)
+                // EXTRA_CHANGES § C — persist UID after Google sign-in
+                userDao.updateFirebaseUidByEmail(email, firebaseUid)
+
                 sessionManager.saveSession(roomUserId, name, email, firebaseUid)
 
-                // Pull Firestore data once — only overwrites Room if remote values are non-empty
-                FirebaseSyncRepository(db, sessionManager).pullFromFirebase(roomUserId)
+                val syncRepo = FirebaseSyncRepository(db, sessionManager)
+                syncRepo.pushFullUserProfile(name = name, email = email)  // EXTRA_CHANGES § C
+                syncRepo.pullFromFirebase(roomUserId)
+                syncRepo.registerFcmToken()
 
-                // Restore photo + nickname from Room into SessionManager
                 restoreProfileFromRoom(roomUserId)
 
                 Log.d("AuthVM", "handleGoogleSignIn: done roomUserId=$roomUserId")
@@ -65,12 +71,21 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ── Email / Password Sign-Up ──────────────────────────────────────────────
+    // ── Email / Password Sign-Up with OTP verification ───────────────────────
+    //
+    // Flow:
+    //   1. signUp()          → creates Firebase Auth account, sends verification email
+    //   2. User clicks link  → Firebase marks email as verified
+    //   3. checkEmailVerifiedAndComplete() → called after user taps "I've verified"
+    //      → creates Room user, saves session, emits Success
 
     fun signUp(name: String, email: String, password: String) {
         viewModelScope.launch {
             try {
-                val n = name.trim(); val e = email.trim().lowercase(); val p = password.trim()
+                val n = name.trim()
+                val e = email.trim().lowercase()
+                val p = password.trim()
+
                 if (n.isBlank() || e.isBlank() || p.isBlank()) {
                     _authResult.value = AuthResult.Error("All fields are required"); return@launch
                 }
@@ -80,20 +95,105 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 if (p.length < 6) {
                     _authResult.value = AuthResult.Error("Password must be at least 6 characters"); return@launch
                 }
-                if (userDao.getUserByEmail(e) != null) {
-                    _authResult.value = AuthResult.Error("Email already registered"); return@launch
+
+                val firebaseResult = try {
+                    firebaseAuth.createUserWithEmailAndPassword(e, p).await()
+                } catch (ex: com.google.firebase.auth.FirebaseAuthUserCollisionException) {
+                    _authResult.value = AuthResult.Error("Email already registered. Please log in.")
+                    return@launch
                 }
-                val userId = userDao.insertUser(UserEntity(email = e, password = p, name = n)).toInt()
-                if (userId > 0) {
-                    sessionManager.saveSession(userId, n, e)
-                    restoreProfileFromRoom(userId)
-                    _authResult.value = AuthResult.Success(userId)
+
+                val firebaseUser = firebaseResult.user ?: run {
+                    _authResult.value = AuthResult.Error("Failed to create Firebase account")
+                    return@launch
+                }
+
+                // EXTRA_CHANGES § C — persist UID immediately after account creation
+                userDao.updateFirebaseUidByEmail(e, firebaseUser.uid)
+
+                // Send email verification (OTP link)
+                firebaseUser.sendEmailVerification().await()
+
+                // Store pending signup info in session for step 3
+                sessionManager.setPendingSignupName(n)
+                sessionManager.setPendingSignupEmail(e)
+
+                Log.d("AuthVM", "signUp: verification email sent to $e, uid=${firebaseUser.uid}")
+                _authResult.value = AuthResult.VerificationEmailSent
+
+            } catch (ex: Exception) {
+                Log.e("AuthVM", "signUp error: ${ex.message}", ex)
+                _authResult.value = AuthResult.Error("Registration failed: ${ex.localizedMessage ?: "Unknown error"}")
+            }
+        }
+    }
+
+    /**
+     * Called when user taps "I've verified my email" button.
+     * Reloads Firebase user, confirms email is verified, then creates Room user.
+     */
+    fun checkEmailVerifiedAndComplete() {
+        viewModelScope.launch {
+            try {
+                val firebaseUser = firebaseAuth.currentUser ?: run {
+                    _authResult.value = AuthResult.Error("Session expired. Please sign up again.")
+                    return@launch
+                }
+
+                // Reload to get fresh verification status
+                firebaseUser.reload().await()
+
+                if (!firebaseUser.isEmailVerified) {
+                    _authResult.value = AuthResult.Error("Email not verified yet. Please check your inbox and click the link.")
+                    return@launch
+                }
+
+                val firebaseUid = firebaseUser.uid
+                val email       = (sessionManager.getPendingSignupEmail() ?: firebaseUser.email ?: "").lowercase()
+                val name        = sessionManager.getPendingSignupName()
+                    ?: email.substringBefore("@").replaceFirstChar { it.uppercase() }
+
+                // Create Room user (or find existing)
+                val roomUserId: Int
+                val roomUser = userDao.getUserByEmail(email)
+                roomUserId = if (roomUser == null) {
+                    userDao.insertUser(UserEntity(email = email, password = "", name = name)).toInt()
                 } else {
-                    _authResult.value = AuthResult.Error("Failed to create account")
+                    roomUser.id
                 }
+
+                // EXTRA_CHANGES § C — ensure UID is recorded after verification completes
+                userDao.updateFirebaseUidByEmail(email, firebaseUid)
+
+                sessionManager.saveSession(roomUserId, name, email, firebaseUid)
+                sessionManager.clearPendingSignup()
+
+                val syncRepo = FirebaseSyncRepository(db, sessionManager)
+                syncRepo.pushFullUserProfile(name = name, email = email)  // EXTRA_CHANGES § C
+                syncRepo.pullFromFirebase(roomUserId)
+                syncRepo.registerFcmToken()
+
+                restoreProfileFromRoom(roomUserId)
+
+                Log.d("AuthVM", "checkEmailVerifiedAndComplete: done roomUserId=$roomUserId")
+                _authResult.value = AuthResult.Success(roomUserId)
             } catch (e: Exception) {
-                Log.e("AuthVM", "signUp error: ${e.message}", e)
-                _authResult.value = AuthResult.Error("Registration failed: ${e.localizedMessage ?: "Unknown error"}")
+                Log.e("AuthVM", "checkEmailVerifiedAndComplete error: ${e.message}", e)
+                _authResult.value = AuthResult.Error("Verification check failed: ${e.localizedMessage ?: "Unknown error"}")
+            }
+        }
+    }
+
+    /**
+     * Resend verification email (user taps "Resend").
+     */
+    fun resendVerificationEmail() {
+        viewModelScope.launch {
+            try {
+                firebaseAuth.currentUser?.sendEmailVerification()?.await()
+                _authResult.value = AuthResult.Error("Verification email resent. Check your inbox.")
+            } catch (e: Exception) {
+                _authResult.value = AuthResult.Error("Failed to resend: ${e.localizedMessage}")
             }
         }
     }
@@ -103,24 +203,76 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     fun login(email: String, password: String) {
         viewModelScope.launch {
             try {
-                val e = email.trim().lowercase(); val p = password.trim()
+                val e = email.trim().lowercase()
+                val p = password.trim()
+
                 if (e.isBlank() || p.isBlank()) {
                     _authResult.value = AuthResult.Error("Email and password are required"); return@launch
                 }
                 if (!isValidEmail(e)) {
                     _authResult.value = AuthResult.Error("Please enter a valid email address"); return@launch
                 }
-                val user = userDao.login(e, p)
-                if (user != null) {
-                    sessionManager.saveSession(user.id, user.name, user.email)
-                    restoreProfileFromRoom(user.id)
-                    _authResult.value = AuthResult.Success(user.id)
-                } else {
+
+                val firebaseResult = try {
+                    firebaseAuth.signInWithEmailAndPassword(e, p).await()
+                } catch (ex: com.google.firebase.auth.FirebaseAuthInvalidCredentialsException) {
                     _authResult.value = AuthResult.Error("Incorrect email or password")
+                    return@launch
+                } catch (ex: com.google.firebase.auth.FirebaseAuthInvalidUserException) {
+                    _authResult.value = AuthResult.Error("No account found for this email. Please sign up.")
+                    return@launch
                 }
+
+                val firebaseUser = firebaseResult.user ?: run {
+                    _authResult.value = AuthResult.Error("Login failed: no Firebase user")
+                    return@launch
+                }
+
+                // Enforce email verification
+                firebaseUser.reload().await()
+                if (!firebaseUser.isEmailVerified) {
+                    firebaseUser.sendEmailVerification().await()
+                    sessionManager.setPendingSignupEmail(e)
+                    _authResult.value = AuthResult.AwaitingOtpVerification
+                    return@launch
+                }
+
+                val firebaseUid = firebaseUser.uid
+                val name = firebaseUser.displayName
+                    ?: e.substringBefore("@").replaceFirstChar { it.uppercase() }
+
+                val roomUserId = findOrCreateRoomUser(e, name)
+
+                // EXTRA_CHANGES § C — persist UID after login
+                userDao.updateFirebaseUidByEmail(e, firebaseUid)
+
+                sessionManager.saveSession(roomUserId, name, e, firebaseUid)
+
+                val syncRepo = FirebaseSyncRepository(db, sessionManager)
+                syncRepo.pushFullUserProfile(name = name, email = e)  // EXTRA_CHANGES § C
+                syncRepo.pullFromFirebase(roomUserId)
+                syncRepo.registerFcmToken()
+
+                restoreProfileFromRoom(roomUserId)
+
+                Log.d("AuthVM", "login: done roomUserId=$roomUserId")
+                _authResult.value = AuthResult.Success(roomUserId)
+            } catch (ex: Exception) {
+                Log.e("AuthVM", "login error: ${ex.message}", ex)
+                _authResult.value = AuthResult.Error("Login failed: ${ex.localizedMessage ?: "Unknown error"}")
+            }
+        }
+    }
+
+    // ── Password reset ────────────────────────────────────────────────────────
+
+    fun sendPasswordReset(email: String) {
+        viewModelScope.launch {
+            try {
+                firebaseAuth.sendPasswordResetEmail(email.trim().lowercase()).await()
+                _authResult.value = AuthResult.Error("Password reset email sent. Check your inbox.")
             } catch (e: Exception) {
-                Log.e("AuthVM", "login error: ${e.message}", e)
-                _authResult.value = AuthResult.Error("Login failed: ${e.localizedMessage ?: "Unknown error"}")
+                _authResult.value = AuthResult.Error("Failed to send reset email: ${e.localizedMessage}")
             }
         }
     }
@@ -140,10 +292,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun restoreProfileFromRoom(userId: Int) {
         try {
             val user = userDao.getUserById(userId) ?: return
-            // FIX: only restore if non-empty, never clear
             if (!user.photoUri.isNullOrEmpty()) {
                 sessionManager.setProfilePhotoUri(user.photoUri)
-                Log.d("AuthVM", "restoreProfileFromRoom: photoUri restored for userId=$userId")
             }
             if (!user.nickname.isNullOrEmpty()) {
                 sessionManager.setNickname(user.nickname)

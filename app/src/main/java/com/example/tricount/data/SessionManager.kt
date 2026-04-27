@@ -23,7 +23,7 @@ class SessionManager(context: Context) {
     }
 
     fun clearSession() {
-        // FIX: preserve photo + nickname across logout so they survive re-login
+        // Preserve photo + nickname across logout so they survive re-login
         val savedPhoto    = getProfilePhotoUri()
         val savedNickname = getNickname()
         val savedEmail    = getUserEmail()
@@ -80,6 +80,27 @@ class SessionManager(context: Context) {
         prefs.edit().remove(KEY_PROFILE_PHOTO_URI).apply()
     }
 
+    // ── Pending signup (used during email OTP verification flow) ──────────────
+
+    fun setPendingSignupName(name: String) {
+        prefs.edit().putString(KEY_PENDING_NAME, name).apply()
+    }
+
+    fun getPendingSignupName(): String? = prefs.getString(KEY_PENDING_NAME, null)
+
+    fun setPendingSignupEmail(email: String) {
+        prefs.edit().putString(KEY_PENDING_EMAIL, email).apply()
+    }
+
+    fun getPendingSignupEmail(): String? = prefs.getString(KEY_PENDING_EMAIL, null)
+
+    fun clearPendingSignup() {
+        prefs.edit()
+            .remove(KEY_PENDING_NAME)
+            .remove(KEY_PENDING_EMAIL)
+            .apply()
+    }
+
     // ── Preferences ───────────────────────────────────────────────────────────
 
     fun getDarkMode(): Boolean = prefs.getBoolean(KEY_DARK_MODE, false)
@@ -107,5 +128,7 @@ class SessionManager(context: Context) {
         private const val KEY_PROFILE_PHOTO_URI = "profile_photo_uri"
         private const val KEY_DARK_MODE         = "dark_mode"
         private const val KEY_LANGUAGE          = "language"
+        private const val KEY_PENDING_NAME      = "pending_signup_name"
+        private const val KEY_PENDING_EMAIL     = "pending_signup_email"
     }
 }
