@@ -26,14 +26,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.data.SessionManager
-import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.ui.theme.AppTheme
+import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.AuthResult
 import com.example.tricount.viewModel.AuthViewModel
 
 class SignUpActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
+
+    // These are captured after the user taps "Create Account" so we can pass
+    // them to EmailVerificationActivity once the ViewModel confirms signup.
+    private var pendingEmail    = ""
+    private var pendingName     = ""
+    private var pendingPassword = ""
 
     override fun finish() {
         super.finish()
@@ -45,54 +51,63 @@ class SignUpActivity : ComponentActivity() {
 
         val sessionManager = SessionManager(this)
         AppTheme.isDark.value = sessionManager.getDarkMode()
+
         setContent {
-            TriCountTheme() {
+            TriCountTheme {
                 val authResult by authViewModel.authResult.collectAsStateWithLifecycle()
 
-                // Handle authentication result
                 LaunchedEffect(authResult) {
-                    when (authResult) {
+                    when (val result = authResult) {
+
+                        // ── Signup succeeded locally in Room — now send the
+                        //    Firebase verification email via EmailVerificationActivity.
                         is AuthResult.Success -> {
-                            Toast.makeText(
-                                this@SignUpActivity,
-                                "Account created successfully!",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            startActivity(Intent(this@SignUpActivity, HomeActivity::class.java))
-                            overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
-                            finish()
+                            authViewModel.resetAuthResult()
+                            navigateToVerification()
                         }
+
+                        // ── The ViewModel already triggered email verification
+                        //    (e.g. Firebase account created) — same destination.
+                        is AuthResult.VerificationEmailSent -> {
+                            authViewModel.resetAuthResult()
+                            navigateToVerification()
+                        }
+
                         is AuthResult.Error -> {
                             Toast.makeText(
                                 this@SignUpActivity,
-                                (authResult as AuthResult.Error).message,
-                                Toast.LENGTH_SHORT
+                                result.message,
+                                Toast.LENGTH_LONG
                             ).show()
                             authViewModel.resetAuthResult()
                         }
-                        // ── FIX: newly added sealed class branches ────────────
+
                         is AuthResult.AwaitingOtpVerification -> {
-                            Toast.makeText(
-                                this@SignUpActivity,
-                                "Please enter the OTP sent to your phone.",
-                                Toast.LENGTH_LONG
-                            ).show()
+                            // Not used for email/password flow — no-op
                             authViewModel.resetAuthResult()
                         }
-                        is AuthResult.VerificationEmailSent -> {
-                            Toast.makeText(
-                                this@SignUpActivity,
-                                "Verification email sent. Please check your inbox.",
-                                Toast.LENGTH_LONG
-                            ).show()
+
+                        is AuthResult.NeedsEmailVerification -> {
                             authViewModel.resetAuthResult()
+                            navigateToVerification()
                         }
-                        null -> { /* Do nothing */ }
+
+                        null -> { /* idle */ }
                     }
                 }
 
                 SignUpScreen(
                     onSignUpClick = { name, email, password ->
+                        // Stash the values so the LaunchedEffect above can use them
+                        pendingName     = name
+                        pendingEmail    = email
+                        pendingPassword = password
+
+                        // Also save to SessionManager so EmailVerificationActivity
+                        // can read them via getPendingSignupName/Email if needed.
+                        sessionManager.setPendingSignupName(name)
+                        sessionManager.setPendingSignupEmail(email)
+
                         authViewModel.signUp(name, email, password)
                     },
                     onBackClick = { finish() }
@@ -100,45 +115,56 @@ class SignUpActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun navigateToVerification() {
+        startActivity(
+            Intent(this, EmailVerificationActivity::class.java).apply {
+                putExtra(EmailVerificationActivity.EXTRA_EMAIL,    pendingEmail)
+                putExtra(EmailVerificationActivity.EXTRA_NAME,     pendingName)
+                putExtra(EmailVerificationActivity.EXTRA_PASSWORD, pendingPassword)
+                putExtra(EmailVerificationActivity.EXTRA_MODE,     EmailVerificationActivity.MODE_SIGNUP)
+                // Clear the back stack so the user can't press Back to the signup form
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+        )
+        overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
+        finish()
+    }
 }
 
-// Email validation with custom regex
-private fun isValidEmailSignup(email: String): Boolean {
-    val emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex()
-    return emailRegex.matches(email)
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Email validation
+// ─────────────────────────────────────────────────────────────────────────────
+
+private fun isValidEmailSignup(email: String): Boolean =
+    "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex().matches(email)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SignUpScreen (Composable — unchanged from your original)
+// ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SignUpScreen(
-    onSignUpClick: (String, String, String) -> Unit,
-    onBackClick: () -> Unit
+    onSignUpClick: (name: String, email: String, password: String) -> Unit,
+    onBackClick  : () -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var confirmPassword by remember { mutableStateOf("") }
-    var passwordVisible by remember { mutableStateOf(false) }
+    var name                   by remember { mutableStateOf("") }
+    var email                  by remember { mutableStateOf("") }
+    var password               by remember { mutableStateOf("") }
+    var confirmPassword        by remember { mutableStateOf("") }
+    var passwordVisible        by remember { mutableStateOf(false) }
     var confirmPasswordVisible by remember { mutableStateOf(false) }
 
-    // Real-time email validation
-    val isEmailValid = remember(email) {
-        email.isBlank() || isValidEmailSignup(email)
-    }
-    val showEmailError = remember(email) {
-        email.isNotBlank() && !isValidEmailSignup(email)
-    }
-
-    // Password match validation
-    val passwordsMatch = remember(password, confirmPassword) {
-        password == confirmPassword
-    }
+    val isEmailValid     = remember(email) { email.isBlank() || isValidEmailSignup(email) }
+    val showEmailError   = remember(email) { email.isNotBlank() && !isValidEmailSignup(email) }
+    val passwordsMatch   = remember(password, confirmPassword) { password == confirmPassword }
     val showPasswordError = remember(confirmPassword, passwordsMatch) {
         confirmPassword.isNotEmpty() && !passwordsMatch
     }
 
     val focusManager = LocalFocusManager.current
-    val canSubmit = name.isNotBlank() && email.isNotBlank() &&
+    val canSubmit    = name.isNotBlank() && email.isNotBlank() &&
             password.isNotBlank() && passwordsMatch && isEmailValid
 
     Scaffold(
@@ -153,7 +179,6 @@ fun SignUpScreen(
             )
         }
     ) { padding ->
-        Spacer(modifier = Modifier.height(10.dp))
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -162,77 +187,76 @@ fun SignUpScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top
         ) {
+            Spacer(Modifier.height(10.dp))
+
             Text(
-                text = "Join TriCount",
-                fontSize = 32.sp,
+                text       = "Join TriCount",
+                fontSize   = 32.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                color      = MaterialTheme.colorScheme.primary
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
 
             Text(
-                text = "Create your account to start splitting expenses",
+                text  = "Create your account to start splitting expenses",
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(Modifier.height(10.dp))
 
-            // Name Field
+            // Name
             OutlinedTextField(
-                value = name,
+                value         = name,
                 onValueChange = { name = it },
-                label = { Text("Full Name") },
-                leadingIcon = { Icon(Icons.Filled.Person, null) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
+                label         = { Text("Full Name") },
+                leadingIcon   = { Icon(Icons.Filled.Person, null) },
+                modifier      = Modifier.fillMaxWidth(),
+                singleLine    = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Text,
-                    imeAction = ImeAction.Next
+                    imeAction    = ImeAction.Next
                 ),
                 keyboardActions = KeyboardActions(
                     onNext = { focusManager.moveFocus(FocusDirection.Down) }
                 )
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(Modifier.height(10.dp))
 
-            // Email Field
+            // Email
             OutlinedTextField(
-                value = email,
+                value         = email,
                 onValueChange = { email = it },
-                label = { Text("Email") },
-                leadingIcon = { Icon(Icons.Filled.Email, null) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                isError = showEmailError,
+                label         = { Text("Email") },
+                leadingIcon   = { Icon(Icons.Filled.Email, null) },
+                modifier      = Modifier.fillMaxWidth(),
+                singleLine    = true,
+                isError       = showEmailError,
                 supportingText = {
-                    if (showEmailError) {
-                        Text(
-                            text = "Please enter a valid email address",
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
+                    if (showEmailError)
+                        Text("Please enter a valid email address",
+                            color = MaterialTheme.colorScheme.error)
                 },
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Email,
-                    imeAction = ImeAction.Next
+                    imeAction    = ImeAction.Next
                 ),
                 keyboardActions = KeyboardActions(
                     onNext = { focusManager.moveFocus(FocusDirection.Down) }
                 )
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(Modifier.height(10.dp))
 
-            // Password Field
+            // Password
             OutlinedTextField(
-                value = password,
+                value         = password,
                 onValueChange = { password = it },
-                label = { Text("Password") },
-                leadingIcon = { Icon(Icons.Filled.Lock, null) },
-                trailingIcon = {
+                label         = { Text("Password") },
+                leadingIcon   = { Icon(Icons.Filled.Lock, null) },
+                trailingIcon  = {
                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
                         Icon(
                             if (passwordVisible) Icons.Filled.Visibility
@@ -241,30 +265,28 @@ fun SignUpScreen(
                         )
                     }
                 },
-                visualTransformation = if (passwordVisible)
-                    VisualTransformation.None
-                else
-                    PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
+                visualTransformation = if (passwordVisible) VisualTransformation.None
+                else PasswordVisualTransformation(),
+                modifier      = Modifier.fillMaxWidth(),
+                singleLine    = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Next
+                    imeAction    = ImeAction.Next
                 ),
                 keyboardActions = KeyboardActions(
                     onNext = { focusManager.moveFocus(FocusDirection.Down) }
                 )
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(Modifier.height(10.dp))
 
-            // Confirm Password Field
+            // Confirm Password
             OutlinedTextField(
-                value = confirmPassword,
+                value         = confirmPassword,
                 onValueChange = { confirmPassword = it },
-                label = { Text("Confirm Password") },
-                leadingIcon = { Icon(Icons.Filled.Lock, null) },
-                trailingIcon = {
+                label         = { Text("Confirm Password") },
+                leadingIcon   = { Icon(Icons.Filled.Lock, null) },
+                trailingIcon  = {
                     IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
                         Icon(
                             if (confirmPasswordVisible) Icons.Filled.Visibility
@@ -273,24 +295,19 @@ fun SignUpScreen(
                         )
                     }
                 },
-                visualTransformation = if (confirmPasswordVisible)
-                    VisualTransformation.None
-                else
-                    PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                isError = showPasswordError,
+                visualTransformation = if (confirmPasswordVisible) VisualTransformation.None
+                else PasswordVisualTransformation(),
+                modifier      = Modifier.fillMaxWidth(),
+                singleLine    = true,
+                isError       = showPasswordError,
                 supportingText = {
-                    if (showPasswordError) {
-                        Text(
-                            text = "Passwords do not match",
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
+                    if (showPasswordError)
+                        Text("Passwords do not match",
+                            color = MaterialTheme.colorScheme.error)
                 },
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done
+                    imeAction    = ImeAction.Done
                 ),
                 keyboardActions = KeyboardActions(
                     onDone = {
@@ -302,25 +319,16 @@ fun SignUpScreen(
                 )
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(Modifier.height(24.dp))
 
-            // Sign Up Button
             Button(
-                onClick = {
-                    if (canSubmit) {
-                        onSignUpClick(name.trim(), email.trim(), password)
-                    }
+                onClick  = {
+                    if (canSubmit) onSignUpClick(name.trim(), email.trim(), password)
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                enabled = canSubmit
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                enabled  = canSubmit
             ) {
-                Text(
-                    text = "Create Account",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text("Create Account", fontSize = 16.sp, fontWeight = FontWeight.Medium)
             }
         }
     }

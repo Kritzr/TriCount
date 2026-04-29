@@ -31,7 +31,18 @@ class FirebaseSyncRepository(
     // ── FCM token ─────────────────────────────────────────────────────────────
 
     suspend fun registerFcmToken() {
-        Log.d("FirebaseSync", "registerFcmToken: skipped (add firebase-messaging to enable)")
+        val uid = uid ?: run {
+            Log.w("FirebaseSync", "registerFcmToken: no uid"); return
+        }
+        try {
+            val token = com.google.firebase.messaging.FirebaseMessaging.getInstance()
+                .token.await()
+            firestore.collection("users").document(uid)
+                .update("fcmToken", token).await()
+            Log.d("FirebaseSync", "FCM token registered: $token")
+        } catch (e: Exception) {
+            Log.e("FirebaseSync", "registerFcmToken failed: ${e.message}")
+        }
     }
 
     // ── Profile photo — Base64 stored in Firestore ────────────────────────────
@@ -117,8 +128,6 @@ class FirebaseSyncRepository(
             Log.d("FirebaseSync", "pullFromFirebase: ${tricountSnaps.size()} tricounts")
 
             for (doc in tricountSnaps.documents) {
-                // FIX: use the Firestore document ID as the tricount ID, not a stored "id" field.
-                // The stored "id" field may be missing or mismatched; the document ID is always correct.
                 val firestoreId = doc.id.toIntOrNull() ?: continue
                 val existing    = runCatching { tricountDao.getTricountById(firestoreId) }.getOrNull()
 
@@ -149,14 +158,12 @@ class FirebaseSyncRepository(
                     )
                 }
 
-                // FIX: pull per-user favorite state from the userMeta sub-collection
                 try {
                     val metaSnap = firestore.collection("tricounts").document(doc.id)
                         .collection("userMeta").document(uid).get().await()
                     if (metaSnap.exists()) {
                         val isFav = metaSnap.getBoolean("isFavorite") ?: false
                         if (isFav) {
-                            // mirror into the local favorites table if not already there
                             if (tricountDao.isFavorite(localUserId, firestoreId) == 0) {
                                 tricountDao.toggleFavorite(localUserId, firestoreId)
                             }
@@ -211,7 +218,6 @@ class FirebaseSyncRepository(
     suspend fun pushTricount(tricount: TricountEntity) {
         val uid = uid ?: run { Log.w("FirebaseSync", "pushTricount: no uid"); return }
 
-        // Collect all member Firebase UIDs from Room
         val memberUids = tricountDao.getMemberFirebaseUids(tricount.id)
             .toMutableList()
             .also { if (!it.contains(uid)) it.add(0, uid) }
@@ -296,14 +302,12 @@ class FirebaseSyncRepository(
             .addOnFailureListener { e -> Log.e("FirebaseSync", "updateTricountFields: ${e.message}") }
     }
 
-    // Atomically appends one UID to the members[] array
     fun updateTricountMembers(tricountId: Int, memberUid: String) {
         firestore.collection("tricounts").document(tricountId.toString())
             .update("members", FieldValue.arrayUnion(memberUid))
             .addOnFailureListener { e -> Log.e("FirebaseSync", "updateTricountMembers: ${e.message}") }
     }
 
-    // FIX: favorites are stored per-user in a sub-collection so they don't collide between members
     fun updateTricountFavorite(tricountId: Int, isFavorite: Boolean) {
         val uid = uid ?: return
         firestore.collection("tricounts").document(tricountId.toString())
@@ -329,20 +333,15 @@ class FirebaseSyncRepository(
             .addOnFailureListener { e -> Log.e("FirebaseSync", "pushNickname failed: ${e.message}") }
     }
 
-    // Writes a complete user profile document on first registration / login.
-    // FIX: uses merge so it never overwrites an existing nickname or photo.
     suspend fun pushFullUserProfile(name: String, email: String) {
         val uid = uid ?: return
         try {
-            // Only set fields that aren't already present (merge handles this)
             val data = mutableMapOf<String, Any>(
                 "uid"       to uid,
                 "name"      to name,
                 "email"     to email,
                 "createdAt" to System.currentTimeMillis()
             )
-            // Don't overwrite nickname/photo if they already exist — SetOptions.merge() handles that.
-            // But we do need to initialise them if the doc is brand new.
             val existing = firestore.collection("users").document(uid).get().await()
             if (!existing.exists()) {
                 data["nickname"]    = ""
@@ -355,69 +354,142 @@ class FirebaseSyncRepository(
         }
     }
 
+    // ── Email verification ────────────────────────────────────────────────────
+
+    /**
+     * Sends Firebase's built-in email verification link to the currently
+     * signed-in user. Returns true on success, false on failure.
+     *
+     * Call this from EmailVerificationActivity (or AuthViewModel) after
+     * FirebaseAuth.createUserWithEmailAndPassword() / signInWithEmailAndPassword()
+     * has succeeded but before allowing access to the app.
+     */
+    suspend fun sendVerificationEmail(): Boolean {
+        return try {
+            auth.currentUser?.sendEmailVerification()?.await()
+            Log.d("FirebaseSync", "sendVerificationEmail: sent")
+            true
+        } catch (e: Exception) {
+            Log.e("FirebaseSync", "sendVerificationEmail failed: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Reloads the currently signed-in Firebase user to get the latest
+     * server-side [emailVerified] flag, then returns it.
+     *
+     * Always call reload() first — the local cached value is only updated
+     * when the user object is refreshed from the server.
+     *
+     * @return true if the user's email is verified, false otherwise.
+     */
+    suspend fun isEmailVerified(): Boolean {
+        return try {
+            val user = auth.currentUser ?: return false
+            user.reload().await()
+            val verified = user.isEmailVerified
+            Log.d("FirebaseSync", "isEmailVerified: $verified")
+            verified
+        } catch (e: Exception) {
+            Log.e("FirebaseSync", "isEmailVerified failed: ${e.message}")
+            false
+        }
+    }
+
     // ── Join request / approval ───────────────────────────────────────────────
 
     suspend fun submitJoinRequest(joinCode: String): String? {
-        val uid = uid ?: return null
+        var currentUid = auth.currentUser?.uid
+        if (currentUid == null) {
+            var waited = 0
+            while (currentUid == null && waited < 10) {
+                kotlinx.coroutines.delay(500)
+                currentUid = auth.currentUser?.uid
+                waited++
+            }
+        }
+        val uid = currentUid ?: sessionManager.getFirebaseUid() ?: run {
+            Log.e("FirebaseSync", "submitJoinRequest: no authenticated uid")
+            return null
+        }
+        Log.d("FirebaseSync", "submitJoinRequest: uid=$uid joinCode=$joinCode")
         return try {
             val snap = firestore.collection("tricounts")
-                .whereEqualTo("joinCode", joinCode).get().await()
-            if (snap.isEmpty) return null
-
-            val tricountDoc  = snap.documents.first()
-            val tricountId   = tricountDoc.id
-            val tricountName = tricountDoc.getString("name")       ?: ""
-            val creatorUid   = tricountDoc.getString("creatorUid") ?: ""
-
-            @Suppress("UNCHECKED_CAST")
-            if ((tricountDoc.get("members") as? List<String>)?.contains(uid) == true)
-                return "ALREADY_MEMBER:$tricountName"
-
-            // FIX: check if a request is already pending to avoid duplicates
-            val existingReq = firestore.collection("joinRequests").document(tricountId)
-                .collection("pending").document(uid).get().await()
-            if (existingReq.exists()) return tricountName  // already pending, just return name
-
-            val userSnap       = firestore.collection("users").document(uid).get().await()
-            val requesterName  = userSnap.getString("name")  ?: sessionManager.getUserName()  ?: "Unknown"
-            val requesterEmail = userSnap.getString("email") ?: sessionManager.getUserEmail() ?: ""
-
-            val batch = firestore.batch()
-
-            // Write the join request
-            val pendingRef = firestore.collection("joinRequests").document(tricountId)
-                .collection("pending").document(uid)
-            batch.set(pendingRef, mapOf(
-                "uid"          to uid,
-                "name"         to requesterName,
-                "email"        to requesterEmail,
-                "requestedAt"  to System.currentTimeMillis(),
-                "tricountId"   to tricountId,
-                "tricountName" to tricountName,
-                "status"       to "pending"      // FIX: explicit status field
-            ))
-
-            // Notify the creator
-            if (creatorUid.isNotEmpty()) {
-                val notifRef = firestore.collection("notifications").document()
-                batch.set(notifRef, mapOf(
-                    "toUid"        to creatorUid,
-                    "fromUid"      to uid,
-                    "fromName"     to requesterName,
-                    "type"         to "JOIN_REQUEST",
-                    "tricountId"   to tricountId,
-                    "tricountName" to tricountName,
-                    "message"      to "$requesterName wants to join $tricountName",
-                    "createdAt"    to System.currentTimeMillis(),
-                    "read"         to false
-                ))
+                .whereEqualTo("joinCode", joinCode.uppercase().trim()).get().await()
+            Log.d("FirebaseSync", "submitJoinRequest: query returned ${snap.size()} docs")
+            if (snap.isEmpty) {
+                val snap2 = firestore.collection("tricounts")
+                    .whereEqualTo("joinCode", joinCode.lowercase().trim()).get().await()
+                if (snap2.isEmpty) {
+                    Log.w("FirebaseSync", "submitJoinRequest: no tricount with joinCode=$joinCode")
+                    return null
+                }
+                return processJoinRequest(snap2.documents.first(), uid)
             }
 
-            batch.commit().await()
-            tricountName
+            processJoinRequest(snap.documents.first(), uid)
         } catch (e: Exception) {
-            Log.e("FirebaseSync", "submitJoinRequest failed: ${e.message}"); null
+            Log.e("FirebaseSync", "submitJoinRequest failed: ${e.message}", e); null
         }
+    }
+
+    private suspend fun processJoinRequest(tricountDoc: com.google.firebase.firestore.DocumentSnapshot, uid: String): String? {
+        val tricountId   = tricountDoc.id
+        val tricountName = tricountDoc.getString("name")       ?: ""
+        val creatorUid   = tricountDoc.getString("creatorUid") ?: ""
+
+        Log.d("FirebaseSync", "processJoinRequest: tricountId=$tricountId name=$tricountName creatorUid=$creatorUid")
+
+        @Suppress("UNCHECKED_CAST")
+        if ((tricountDoc.get("members") as? List<String>)?.contains(uid) == true)
+            return "ALREADY_MEMBER:$tricountName"
+
+        val existingReq = firestore.collection("joinRequests").document(tricountId)
+            .collection("pending").document(uid).get().await()
+        if (existingReq.exists()) {
+            Log.d("FirebaseSync", "processJoinRequest: already pending")
+            return tricountName
+        }
+
+        val userSnap       = firestore.collection("users").document(uid).get().await()
+        val requesterName  = userSnap.getString("name")  ?: sessionManager.getUserName()  ?: "Unknown"
+        val requesterEmail = userSnap.getString("email") ?: sessionManager.getUserEmail() ?: ""
+
+        Log.d("FirebaseSync", "processJoinRequest: requester=$requesterName email=$requesterEmail")
+
+        val batch = firestore.batch()
+
+        val pendingRef = firestore.collection("joinRequests").document(tricountId)
+            .collection("pending").document(uid)
+        batch.set(pendingRef, mapOf(
+            "uid"          to uid,
+            "name"         to requesterName,
+            "email"        to requesterEmail,
+            "requestedAt"  to System.currentTimeMillis(),
+            "tricountId"   to tricountId,
+            "tricountName" to tricountName,
+            "status"       to "pending"
+        ))
+
+        if (creatorUid.isNotEmpty()) {
+            val notifRef = firestore.collection("notifications").document()
+            batch.set(notifRef, mapOf(
+                "toUid"        to creatorUid,
+                "fromUid"      to uid,
+                "fromName"     to requesterName,
+                "type"         to "JOIN_REQUEST",
+                "tricountId"   to tricountId,
+                "tricountName" to tricountName,
+                "message"      to "$requesterName wants to join $tricountName",
+                "createdAt"    to System.currentTimeMillis(),
+                "read"         to false
+            ))
+        }
+
+        batch.commit().await()
+        Log.d("FirebaseSync", "processJoinRequest: batch committed ok")
+        return tricountName
     }
 
     suspend fun approveJoinRequest(tricountId: String, requesterUid: String): Boolean {
@@ -428,15 +500,12 @@ class FirebaseSyncRepository(
 
             val batch = firestore.batch()
 
-            // 1. Add to members[]
             batch.update(tricountRef, "members", FieldValue.arrayUnion(requesterUid))
 
-            // 2. Delete the pending request
             val pendingRef = firestore.collection("joinRequests").document(tricountId)
                 .collection("pending").document(requesterUid)
             batch.delete(pendingRef)
 
-            // 3. Notify the requester they were approved
             val notifRef = firestore.collection("notifications").document()
             batch.set(notifRef, mapOf(
                 "toUid"        to requesterUid,
@@ -461,12 +530,10 @@ class FirebaseSyncRepository(
         return try {
             val batch = firestore.batch()
 
-            // 1. Delete the pending request
             val pendingRef = firestore.collection("joinRequests").document(tricountId)
                 .collection("pending").document(requesterUid)
             batch.delete(pendingRef)
 
-            // 2. Notify the requester they were rejected
             val name = firestore.collection("tricounts").document(tricountId)
                 .get().await().getString("name") ?: ""
             val notifRef = firestore.collection("notifications").document()
@@ -498,9 +565,8 @@ class FirebaseSyncRepository(
                 firestore.collection("joinRequests").document(doc.id)
                     .collection("pending").get().await()
                     .documents.forEach { req ->
-                        // FIX: include the Firestore document ID so the app can reference it
                         val data = (req.data ?: return@forEach).toMutableMap()
-                        data["docId"] = req.id
+                        data["docId"] = "${doc.id}_${req.id}"
                         requests.add(data)
                     }
             }
@@ -555,30 +621,40 @@ class FirebaseSyncRepository(
     // ── Notifications ─────────────────────────────────────────────────────────
 
     suspend fun getNotifications(): List<AppNotification> {
-        val uid = uid ?: return emptyList()
+        val uid = auth.currentUser?.uid ?: sessionManager.getFirebaseUid() ?: return emptyList()
         return try {
             firestore.collection("notifications")
                 .whereEqualTo("toUid", uid)
-                .orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(20).get().await()
+                .limit(50).get().await()
                 .documents.mapNotNull { doc -> doc.toAppNotification() }
+                .distinctBy { it.id }
+                .sortedByDescending { it.createdAt }
+                .take(20)
         } catch (e: Exception) {
-            Log.e("FirebaseSync", "getNotifications failed: ${e.message}"); emptyList()
+            Log.e("FirebaseSync", "getNotifications failed: ${e.message}", e); emptyList()
         }
     }
 
     fun listenForNotifications(onUpdate: (List<AppNotification>) -> Unit): ListenerRegistration {
-        val uid = uid ?: return firestore.collection("notifications").addSnapshotListener { _, _ -> }
+        val uid = auth.currentUser?.uid ?: sessionManager.getFirebaseUid()
+        if (uid == null) {
+            Log.w("FirebaseSync", "listenForNotifications: no uid, returning no-op listener")
+            return firestore.collection("notifications").limit(1).addSnapshotListener { _, _ -> }
+        }
         return firestore.collection("notifications")
             .whereEqualTo("toUid", uid)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(20)
+            .limit(50)
             .addSnapshotListener { snap, err ->
                 if (err != null) {
-                    Log.e("FirebaseSync", "listenForNotifications error: ${err.message}")
+                    Log.e("FirebaseSync", "listenForNotifications error: ${err.message}", err)
                     return@addSnapshotListener
                 }
-                val list = snap?.documents?.mapNotNull { it.toAppNotification() } ?: emptyList()
+                val list = snap?.documents
+                    ?.mapNotNull { it.toAppNotification() }
+                    ?.distinctBy { it.id }
+                    ?.sortedByDescending { it.createdAt }
+                    ?.take(20)
+                    ?: emptyList()
                 onUpdate(list)
             }
     }
@@ -614,6 +690,18 @@ class FirebaseSyncRepository(
                 batch.commit()
                     .addOnFailureListener { e -> Log.e("FirebaseSync", "notifyMembersAdded: ${e.message}") }
             }
+    }
+
+    suspend fun lookupFirebaseUidByEmail(email: String): String? {
+        return try {
+            val snap = firestore.collection("users")
+                .whereEqualTo("email", email.trim().lowercase())
+                .limit(1).get().await()
+            snap.documents.firstOrNull()?.getString("uid")
+        } catch (e: Exception) {
+            Log.w("FirebaseSync", "lookupFirebaseUidByEmail failed: ${e.message}")
+            null
+        }
     }
 
     fun addMemberToTricount(tricountId: Int, memberUid: String) {
@@ -662,3 +750,14 @@ data class AppNotification(
     val createdAt    : Long,
     val read         : Boolean
 )
+
+// ── LoginResult — returned by AuthViewModel.login() ───────────────────────────
+
+sealed class LoginResult {
+    /** Sign-in succeeded and email is verified. */
+    data class Success(val firebaseUid: String) : LoginResult()
+    /** Sign-in succeeded but the email is NOT yet verified. */
+    object NeedsVerification                    : LoginResult()
+    /** Sign-in failed (wrong password, network, etc.). */
+    data class Failure(val message: String)     : LoginResult()
+}

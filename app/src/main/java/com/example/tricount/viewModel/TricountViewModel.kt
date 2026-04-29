@@ -3,6 +3,8 @@ package com.example.tricount.viewModel
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.tricount.data.AppNotification
 import com.example.tricount.data.ChatMessage
@@ -198,7 +200,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     private val _pendingRequests   = MutableStateFlow<List<Map<String, Any>>>(emptyList())
     val pendingRequests: StateFlow<List<Map<String, Any>>> = _pendingRequests
 
-    // FIX: moved inside the class (was incorrectly at file level)
     private var notifListener: com.google.firebase.firestore.ListenerRegistration? = null
 
     // ── Currency StateFlows ───────────────────────────────────────────────────
@@ -283,7 +284,7 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                     creatorId   = userId,
                     joinCode    = generateJoinCode(),
                     emoji       = emoji,
-                    category    = "created"              // FIX: mark as created
+                    category    = "created"
                 )
                 val tricountId = tricountDao.insertTricount(tricount).toInt()
                 tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = tricountId))
@@ -359,10 +360,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /**
-     * Duplicate does NOT push to Firestore — it's a local-only copy
-     * (prevents the "duplicate = new Firestore doc" bug).
-     */
     fun duplicateTricount(tricountId: Int) {
         viewModelScope.launch {
             try {
@@ -377,7 +374,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 )
                 val newId = tricountDao.insertTricount(copy).toInt()
                 tricountDao.addMember(TricountMemberCrossRef(userId = userId, tricountId = newId))
-                // Do NOT push duplicate to Firestore
                 loadTricounts()
             } catch (e: Exception) { Log.e("TricountVM", "duplicateTricount error", e) }
         }
@@ -421,15 +417,26 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 if (trimmed.isEmpty()) {
                     onResult(AddMemberResult.Error("Please enter an email address")); return@launch
                 }
-                val user = userDao.getUserByEmail(trimmed) ?: createPlaceholderUser(trimmed)
+                var user = userDao.getUserByEmail(trimmed) ?: createPlaceholderUser(trimmed)
                 if (tricountDao.isMember(tricountId, user.id) > 0) {
                     onResult(AddMemberResult.Error("${user.name} is already a member")); return@launch
                 }
                 tricountDao.addMember(TricountMemberCrossRef(userId = user.id, tricountId = tricountId))
 
-                // FIX: update Firestore members[] with the new member's Firebase UID
-                if (user.firebaseUid.isNotEmpty()) {
-                    syncRepo.updateTricountMembers(tricountId, user.firebaseUid)
+                // If the local record has no Firebase UID yet, look it up from Firestore.
+                // This is the common case when adding someone who registered on another device.
+                var resolvedFirebaseUid = user.firebaseUid
+                if (resolvedFirebaseUid.isEmpty()) {
+                    val lookedUp = syncRepo.lookupFirebaseUidByEmail(trimmed)
+                    if (!lookedUp.isNullOrEmpty()) {
+                        userDao.updateFirebaseUid(user.id, lookedUp)
+                        resolvedFirebaseUid = lookedUp
+                        // Reload so the rest of the function uses the updated entity
+                        user = userDao.getUserById(user.id) ?: user
+                    }
+                }
+                if (resolvedFirebaseUid.isNotEmpty()) {
+                    syncRepo.updateTricountMembers(tricountId, resolvedFirebaseUid)
                 }
 
                 val tricount = tricountDao.getTricountById(tricountId)
@@ -457,10 +464,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
 
     // ── Join by code — requires creator approval ──────────────────────────────
 
-    /**
-     * Submit a join request via Firestore. The tricount creator must approve it.
-     * JoinResult.Pending is emitted immediately; Success only after approval.
-     */
     fun joinTricountByCode(joinCode: String) {
         viewModelScope.launch {
             try {
@@ -468,13 +471,11 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                     _joinResult.value = JoinResult.Error("Not logged in"); return@launch
                 }
 
-                // First check Room (offline / already joined)
                 val localTricount = tricountDao.getTricountByJoinCode(joinCode)
                 if (localTricount != null && tricountDao.isMember(localTricount.id, userId) > 0) {
                     _joinResult.value = JoinResult.Error("You are already a member"); return@launch
                 }
 
-                // Submit request to Firestore — creator must approve
                 val result = syncRepo.submitJoinRequest(joinCode)
                 when {
                     result == null                       -> _joinResult.value = JoinResult.Error("No tricount found with code: $joinCode")
@@ -487,20 +488,13 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /**
-     * Creator approves a pending join request.
-     * Adds member in Firestore and locally in Room.
-     */
     fun approveJoinRequest(tricountId: String, requesterUid: String, requesterEmail: String) {
         viewModelScope.launch {
             try {
-                // FIX: approveJoinRequest now atomically updates members[] in Firestore
                 val approved = syncRepo.approveJoinRequest(tricountId, requesterUid)
                 if (approved) {
-                    // Reflect the change locally in Room too
                     val localUser = userDao.getUserByEmail(requesterEmail)
                         ?: createPlaceholderUser(requesterEmail)
-                    // FIX: save the firebase UID on the local user record if missing
                     if (localUser.firebaseUid.isEmpty()) {
                         userDao.updateFirebaseUid(localUser.id, requesterUid)
                     }
@@ -580,7 +574,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
                 val splits    = sharesMap.filter { it.value > 0 }.map { (uid, shares) -> ExpenseSplitEntity(expenseId = expenseId, userId = uid, shares = shares) }
                 if (splits.isNotEmpty()) tricountDao.insertExpenseSplits(splits)
 
-                // Push to top-level tricounts/{id}/expenses collection
                 syncRepo.pushExpense(tricountId, expense.copy(id = expenseId), splits)
 
                 loadExpenses(tricountId)
@@ -716,6 +709,18 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // ── FCM ───────────────────────────────────────────────────────────────────
+
+    fun registerFcmToken() {
+        viewModelScope.launch {
+            try {
+                syncRepo.registerFcmToken()
+            } catch (e: Exception) {
+                Log.e("TricountVM", "registerFcmToken error", e)
+            }
+        }
+    }
+
     // ── Notifications ─────────────────────────────────────────────────────────
 
     fun loadNotifications() {
@@ -731,7 +736,8 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
 
     /**
      * Starts a real-time Firestore listener that keeps _notifications up to date.
-     * Call this from your Activity/Fragment in onStart() after the user is logged in.
+     * Call once from onCreate(). The listener pushes updates automatically,
+     * so there is no need to call loadNotifications() alongside it.
      * Cleans up automatically when the ViewModel is destroyed.
      */
     fun startNotificationListener() {
@@ -745,7 +751,8 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 syncRepo.markNotificationRead(notificationId)
-                loadNotifications()
+                // The real-time listener started in startNotificationListener()
+                // will automatically push the updated list when Firestore changes.
             } catch (e: Exception) { Log.e("TricountVM", "markNotificationRead error", e) }
         }
     }
@@ -789,6 +796,21 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * Returns the UserEntity for the given ID directly from Room.
+     * Used by ProfileScreen's LaunchedEffect to load the authoritative
+     * per-user photo URI and nickname on first composition, ensuring
+     * switching accounts never shows stale data from a previous session.
+     */
+    suspend fun getUserById(userId: Int): UserEntity? {
+        return try {
+            userDao.getUserById(userId)
+        } catch (e: Exception) {
+            Log.e("TricountVM", "getUserById error", e)
+            null
+        }
+    }
+
     // ── Favorites ─────────────────────────────────────────────────────────────
 
     fun toggleFavorite(userId: Int, tricountId: Int) {
@@ -796,7 +818,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
             try {
                 tricountDao.toggleFavorite(userId, tricountId)
                 loadFavoriteTricounts(userId)
-                // FIX: sync the new state to Firestore
                 val isFav = tricountDao.isFavorite(userId, tricountId) > 0
                 syncRepo.updateTricountFavorite(tricountId, isFav)
             } catch (e: Exception) { Log.e("TricountVM", "toggleFavorite error", e) }
@@ -828,7 +849,20 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
 
     override fun onCleared() {
         super.onCleared()
-        notifListener?.remove()   // FIX: stop the Firestore listener when VM is destroyed
+        notifListener?.remove()
+    }
+
+    // ── Factory — use this everywhere instead of by viewModels() ─────────────
+    companion object {
+        fun factory(application: Application): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    if (modelClass.isAssignableFrom(TricountViewModel::class.java))
+                        return TricountViewModel(application) as T
+                    throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")
+                }
+            }
     }
 }
 
@@ -844,7 +878,7 @@ data class Settlement(
 
 sealed class JoinResult {
     data class Success(val tricount: TricountEntity) : JoinResult()
-    data class Pending(val tricountName: String)     : JoinResult()  // request submitted, awaiting creator approval
+    data class Pending(val tricountName: String)     : JoinResult()
     data class Error(val message: String)            : JoinResult()
 }
 

@@ -47,8 +47,12 @@ class LoginActivity : ComponentActivity() {
     private lateinit var sessionManager: SessionManager
     private lateinit var googleSignInClient: GoogleSignInClient
 
-    // Exposed to the composable so we can flip the loading flag
     private val isGoogleLoading = mutableStateOf(false)
+
+    // Stash the email + password typed by the user so we can forward them to
+    // EmailVerificationActivity when the account exists but isn't verified yet.
+    private var pendingEmail    = ""
+    private var pendingPassword = ""
 
     private val googleSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -63,7 +67,6 @@ class LoginActivity : ComponentActivity() {
             val account = task.getResult(ApiException::class.java)
             val idToken = account?.idToken
             if (idToken != null) {
-                // Still loading — authViewModel result will clear it
                 authViewModel.handleGoogleSignIn(idToken)
             } else {
                 isGoogleLoading.value = false
@@ -100,7 +103,7 @@ class LoginActivity : ComponentActivity() {
             .build()
         googleSignInClient = GoogleSignIn.getClient(this, gso)
 
-        // Skip login if already signed in
+        // Skip login if already signed in and verified
         if (sessionManager.isLoggedIn() && FirebaseAuth.getInstance().currentUser != null) {
             navigateToHome()
             return
@@ -113,8 +116,9 @@ class LoginActivity : ComponentActivity() {
 
                 LaunchedEffect(authResult) {
                     authResult?.let { result ->
-                        isGoogleLoading.value = false          // always clear loading on result
+                        isGoogleLoading.value = false
                         when (result) {
+
                             is AuthResult.Success -> {
                                 Toast.makeText(
                                     this@LoginActivity,
@@ -124,6 +128,23 @@ class LoginActivity : ComponentActivity() {
                                 authViewModel.resetAuthResult()
                                 navigateToHome()
                             }
+
+                            // ── Email exists but is not verified — send user to
+                            //    the verification screen in LOGIN mode so they can
+                            //    resend the link and confirm without re-entering
+                            //    their password.
+                            is AuthResult.NeedsEmailVerification -> {
+                                authViewModel.resetAuthResult()
+                                navigateToVerification()
+                            }
+
+                            // ── VerificationEmailSent is also treated the same way:
+                            //    go to the verification screen.
+                            is AuthResult.VerificationEmailSent -> {
+                                authViewModel.resetAuthResult()
+                                navigateToVerification()
+                            }
+
                             is AuthResult.Error -> {
                                 Toast.makeText(
                                     this@LoginActivity,
@@ -132,21 +153,9 @@ class LoginActivity : ComponentActivity() {
                                 ).show()
                                 authViewModel.resetAuthResult()
                             }
-                            // ── FIX: newly added sealed class branches ────────
+
                             is AuthResult.AwaitingOtpVerification -> {
-                                Toast.makeText(
-                                    this@LoginActivity,
-                                    "Please enter the OTP sent to your phone.",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                                authViewModel.resetAuthResult()
-                            }
-                            is AuthResult.VerificationEmailSent -> {
-                                Toast.makeText(
-                                    this@LoginActivity,
-                                    "Verification email sent. Please check your inbox.",
-                                    Toast.LENGTH_LONG
-                                ).show()
+                                // Not used for email/password flow — no-op
                                 authViewModel.resetAuthResult()
                             }
                         }
@@ -156,6 +165,9 @@ class LoginActivity : ComponentActivity() {
                 Box(modifier = Modifier.fillMaxSize()) {
                     LoginScreen(
                         onLoginClick = { email, password ->
+                            // Stash so navigateToVerification() can forward them
+                            pendingEmail    = email
+                            pendingPassword = password
                             authViewModel.login(email, password)
                         },
                         onSignUpClick = {
@@ -170,7 +182,7 @@ class LoginActivity : ComponentActivity() {
                         }
                     )
 
-                    // ── Full-screen loading overlay shown during Google sign-in ──
+                    // Full-screen loading overlay shown during Google sign-in
                     if (googleLoading) {
                         Surface(
                             modifier = Modifier.fillMaxSize(),
@@ -210,10 +222,31 @@ class LoginActivity : ComponentActivity() {
         overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
         finish()
     }
+
+    private fun navigateToVerification() {
+        startActivity(
+            Intent(this, EmailVerificationActivity::class.java).apply {
+                putExtra(EmailVerificationActivity.EXTRA_EMAIL,    pendingEmail)
+                putExtra(EmailVerificationActivity.EXTRA_PASSWORD, pendingPassword)
+                putExtra(EmailVerificationActivity.EXTRA_MODE,     EmailVerificationActivity.MODE_LOGIN)
+            }
+        )
+        overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
+        // Do NOT finish() here — the user can press "Back to Login" in the
+        // verification screen to come back.
+    }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Email validation
+// ─────────────────────────────────────────────────────────────────────────────
 
 private fun isValidEmail(email: String): Boolean =
     "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex().matches(email)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LoginScreen (Composable — unchanged from your original)
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun LoginScreen(
@@ -239,11 +272,18 @@ fun LoginScreen(
         ) {
             Spacer(Modifier.height(80.dp))
 
-            Text("TriCount", fontSize = 40.sp, fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary)
+            Text(
+                "TriCount",
+                fontSize   = 40.sp,
+                fontWeight = FontWeight.Bold,
+                color      = MaterialTheme.colorScheme.primary
+            )
             Spacer(Modifier.height(8.dp))
-            Text("Split expenses with friends", fontSize = 16.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Split expenses with friends",
+                fontSize = 16.sp,
+                color    = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             Spacer(Modifier.height(48.dp))
 
@@ -260,8 +300,13 @@ fun LoginScreen(
                         Text("Please enter a valid email address",
                             color = MaterialTheme.colorScheme.error)
                 },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Email,
+                    imeAction    = ImeAction.Next
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                )
             )
 
             Spacer(Modifier.height(16.dp))
@@ -274,18 +319,29 @@ fun LoginScreen(
                 trailingIcon  = {
                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
                         Icon(
-                            imageVector        = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                            contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                            imageVector        = if (passwordVisible) Icons.Filled.Visibility
+                            else Icons.Filled.VisibilityOff,
+                            contentDescription = if (passwordVisible) "Hide password"
+                            else "Show password"
                         )
                     }
                 },
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                visualTransformation = if (passwordVisible) VisualTransformation.None
+                else PasswordVisualTransformation(),
                 modifier        = Modifier.fillMaxWidth(),
                 singleLine      = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = {
-                    if (canSubmit) { focusManager.clearFocus(); onLoginClick(email.trim(), password) }
-                })
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction    = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        if (canSubmit) {
+                            focusManager.clearFocus()
+                            onLoginClick(email.trim(), password)
+                        }
+                    }
+                )
             )
 
             Spacer(Modifier.height(24.dp))
@@ -300,7 +356,10 @@ fun LoginScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier          = Modifier.fillMaxWidth()
+            ) {
                 HorizontalDivider(Modifier.weight(1f))
                 Text("  or  ", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 HorizontalDivider(Modifier.weight(1f))
@@ -312,7 +371,8 @@ fun LoginScreen(
                 onClick  = onGoogleSignInClick,
                 modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
-                Icon(Icons.Filled.AccountCircle, contentDescription = null, modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.AccountCircle, contentDescription = null,
+                    modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Continue with Google", fontSize = 15.sp)
             }
@@ -320,8 +380,11 @@ fun LoginScreen(
             Spacer(Modifier.height(16.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Don't have an account?", fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "Don't have an account?",
+                    fontSize = 14.sp,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(Modifier.width(4.dp))
                 TextButton(onClick = onSignUpClick) {
                     Text("Sign Up", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)

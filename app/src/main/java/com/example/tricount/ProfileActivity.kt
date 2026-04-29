@@ -86,7 +86,7 @@ class ProfileActivity : ComponentActivity() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Reusable settings-style row — matches the Dark Mode row look exactly
+// Reusable settings-style row
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 private fun SettingsInfoRow(
@@ -102,7 +102,6 @@ private fun SettingsInfoRow(
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Icon bubble — same style as the sun icon in Dark Mode row
             Surface(
                 shape    = CircleShape,
                 color    = MaterialTheme.colorScheme.primaryContainer,
@@ -155,15 +154,43 @@ fun ProfileScreen(
 ) {
     val context = LocalContext.current
 
+    // ── FIX: Load photo and nickname from Room DB (per-user source of truth).
+    // SessionManager is only used as the fast initial cache; Room is always
+    // authoritative so switching accounts never shows stale data.
     var photoUrl         by remember { mutableStateOf(sessionManager.getProfilePhotoUri()) }
-    var nickname         by remember { mutableStateOf(sessionManager.getNickname()) }
-    var nicknameEdit     by remember { mutableStateOf(nickname) }
+    var nickname         by remember { mutableStateOf<String?>(sessionManager.getNickname().takeIf { it.isNotEmpty() }) }
+    var nicknameEdit     by remember { mutableStateOf(nickname ?: "") }
     var isSaving         by remember { mutableStateOf(false) }
     var uploadStatusMsg  by remember { mutableStateOf<String?>(null) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
     val userName  = sessionManager.getUserName()  ?: "User"
     val userEmail = sessionManager.getUserEmail() ?: ""
+    val userId    = sessionManager.getUserId()
+
+    // On first composition, fetch the current user's record from Room and
+    // refresh the UI. This is the key fix: Room rows are per-user, so this
+    // always reflects the logged-in account even if SessionManager still holds
+    // a previous account's cached values.
+    LaunchedEffect(userId) {
+        if (userId == null) return@LaunchedEffect
+        val user = viewModel.getUserById(userId)
+        if (user != null) {
+            // Authoritative Room values
+            val dbPhoto    = user.photoUri?.takeIf { it.isNotEmpty() }
+            val dbNickname = user.nickname?.takeIf { it.isNotEmpty() }
+
+            // Sync SessionManager cache so it matches this account
+            if (dbPhoto != null)    sessionManager.setProfilePhotoUri(dbPhoto)
+            else                    sessionManager.clearProfilePhotoUri()
+            if (dbNickname != null) sessionManager.setNickname(dbNickname)
+
+            // Update UI state
+            photoUrl     = dbPhoto
+            nickname     = dbNickname
+            nicknameEdit = dbNickname ?: ""
+        }
+    }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -207,12 +234,12 @@ fun ProfileScreen(
                 .verticalScroll(rememberScrollState())
         ) {
 
-            // ── Hero section — equal padding above and below the avatar ───
+            // ── Hero section ───────────────────────────────────────────────
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .padding(vertical = 36.dp),   // same value top & bottom = equal spacing
+                    .padding(vertical = 36.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -278,7 +305,6 @@ fun ProfileScreen(
                     color      = MaterialTheme.colorScheme.onSurface
                 )
 
-                // Upload status pill
                 if (uploadStatusMsg != null) {
                     Row(
                         modifier = Modifier
@@ -298,7 +324,7 @@ fun ProfileScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            // ── Account info card: email + nickname as settings rows ───────
+            // ── Account info card ──────────────────────────────────────────
             Card(
                 modifier  = Modifier
                     .fillMaxWidth()
@@ -381,8 +407,8 @@ fun ProfileScreen(
                         onClick  = {
                             isSaving = true
                             viewModel.saveNickname(nicknameEdit.trim()) {
-                                nickname = nicknameEdit.trim()
-                                isSaving = false
+                                nickname     = nicknameEdit.trim()
+                                isSaving     = false
                                 Toast.makeText(context, "Nickname saved!", Toast.LENGTH_SHORT).show()
                             }
                         },
@@ -465,7 +491,7 @@ fun ProfileScreen(
                         }
                         HorizontalDivider(
                             modifier  = Modifier.padding(start = 72.dp),
-                                 color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                            color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                             thickness = 0.5.dp
                         )
                     }

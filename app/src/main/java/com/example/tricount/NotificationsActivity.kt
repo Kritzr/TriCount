@@ -15,13 +15,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,19 +43,26 @@ import java.util.*
 
 class NotificationsActivity : ComponentActivity() {
 
-    private val viewModel: TricountViewModel by viewModels()
+    private val viewModel: TricountViewModel by viewModels {
+        TricountViewModel.factory(application)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val sessionManager = SessionManager(this)
 
+        // Start the real-time listener — this is the single source of truth for
+        // notifications. Do NOT also call loadNotifications() here; the listener
+        // fires immediately with the current snapshot and keeps updating on its own.
+        viewModel.startNotificationListener()
+        viewModel.loadPendingJoinRequests()
+
         setContent {
-            val isDarkMode = remember { mutableStateOf(sessionManager.getDarkMode()) }
-            TriCountTheme(darkTheme = isDarkMode.value) {
+            TriCountTheme(darkTheme = sessionManager.getDarkMode()) {
                 NotificationsScreen(
-                    viewModel  = viewModel,
-                    onBack     = { finish() }
+                    viewModel = viewModel,
+                    onBack    = { finish() }
                 )
             }
         }
@@ -62,14 +70,16 @@ class NotificationsActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Reload both feeds whenever the screen comes to the foreground
-        viewModel.loadNotifications()
+        // FIX: removed loadNotifications() — the real-time listener handles it
+        // automatically and calling both caused duplicate IDs in the LazyColumn,
+        // crashing with "Key was already used".
+        // Only reload join requests (no live listener for those).
         viewModel.loadPendingJoinRequests()
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NotificationsScreen
+// Root screen
 // ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -81,18 +91,10 @@ fun NotificationsScreen(
     val notifications   by viewModel.notifications.collectAsStateWithLifecycle()
     val pendingRequests by viewModel.pendingRequests.collectAsStateWithLifecycle()
 
-    // Tab index: 0 = Notifications, 1 = Join Requests
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Unread badge counts
-    val unreadNotifCount = remember(notifications) { notifications.count { !it.read } }
-    val pendingCount     = remember(pendingRequests) { pendingRequests.size }
-
-    // Load data on first compose
-    LaunchedEffect(Unit) {
-        viewModel.loadNotifications()
-        viewModel.loadPendingJoinRequests()
-    }
+    val unreadCount  = remember(notifications)   { notifications.count   { !it.read } }
+    val pendingCount = remember(pendingRequests) { pendingRequests.size }
 
     Scaffold(
         topBar = {
@@ -115,7 +117,6 @@ fun NotificationsScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // ── Tab row ───────────────────────────────────────────────────────
             TabRow(
                 selectedTabIndex = selectedTab,
                 containerColor   = MaterialTheme.colorScheme.surface,
@@ -124,56 +125,51 @@ fun NotificationsScreen(
                 Tab(
                     selected = selectedTab == 0,
                     onClick  = { selectedTab = 0 },
-                    text = {
+                    icon     = { Icon(Icons.Filled.Notifications, null, Modifier.size(18.dp)) },
+                    text     = {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalAlignment     = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
                                 "Activity",
                                 fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal
                             )
-                            if (unreadNotifCount > 0) {
-                                BadgeCount(unreadNotifCount)
-                            }
+                            if (unreadCount > 0) NotifBadge(unreadCount)
                         }
-                    },
-                    icon = { Icon(Icons.Filled.Notifications, null, modifier = Modifier.size(18.dp)) }
+                    }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick  = { selectedTab = 1 },
-                    text = {
+                    icon     = { Icon(Icons.Filled.PersonAdd, null, Modifier.size(18.dp)) },
+                    text     = {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalAlignment     = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
                                 "Join Requests",
                                 fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal
                             )
-                            if (pendingCount > 0) {
-                                BadgeCount(pendingCount)
-                            }
+                            if (pendingCount > 0) NotifBadge(pendingCount)
                         }
-                    },
-                    icon = { Icon(Icons.Filled.PersonAdd, null, modifier = Modifier.size(18.dp)) }
+                    }
                 )
             }
 
-            // ── Tab content ───────────────────────────────────────────────────
             when (selectedTab) {
                 0 -> NotificationsTab(
                     notifications = notifications,
-                    onMarkRead    = { viewModel.markNotificationRead(it) }
+                    onMarkRead    = { id -> viewModel.markNotificationRead(id) }
                 )
                 1 -> JoinRequestsTab(
                     requests  = pendingRequests,
-                    onApprove = { tricountId, requesterUid, requesterEmail ->
-                        viewModel.approveJoinRequest(tricountId, requesterUid, requesterEmail)
+                    onApprove = { tId, uid, email ->
+                        viewModel.approveJoinRequest(tId, uid, email)
                     },
-                    onReject  = { tricountId, requesterUid ->
-                        viewModel.rejectJoinRequest(tricountId, requesterUid)
+                    onReject  = { tId, uid ->
+                        viewModel.rejectJoinRequest(tId, uid)
                     }
                 )
             }
@@ -182,7 +178,7 @@ fun NotificationsScreen(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tab 0 — Notifications list
+// Tab 0 — Activity / notifications
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -192,8 +188,8 @@ private fun NotificationsTab(
 ) {
     if (notifications.isEmpty()) {
         EmptyState(
-            icon    = Icons.Filled.NotificationsNone,
-            title   = "No Notifications",
+            icon     = Icons.Filled.NotificationsNone,
+            title    = "No Notifications",
             subtitle = "You're all caught up! Activity from your Tricounts will appear here."
         )
         return
@@ -221,11 +217,11 @@ private fun NotificationItem(
     val (icon, tint) = notifIconAndTint(notification.type)
 
     Surface(
-        modifier = Modifier
+        modifier       = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp),
-        shape    = RoundedCornerShape(12.dp),
-        color    = if (!notification.read)
+        shape          = RoundedCornerShape(12.dp),
+        color          = if (!notification.read)
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
         else
             MaterialTheme.colorScheme.surfaceVariant,
@@ -237,7 +233,6 @@ private fun NotificationItem(
                 .padding(14.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // Icon bubble
             Surface(
                 modifier = Modifier.size(42.dp),
                 shape    = CircleShape,
@@ -251,7 +246,6 @@ private fun NotificationItem(
             Spacer(Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                // Tricount name chip
                 if (notification.tricountName.isNotBlank()) {
                     Text(
                         notification.tricountName,
@@ -263,7 +257,6 @@ private fun NotificationItem(
                     )
                     Spacer(Modifier.height(2.dp))
                 }
-                // Message
                 Text(
                     notification.message,
                     fontSize   = 14.sp,
@@ -280,9 +273,8 @@ private fun NotificationItem(
                 )
             }
 
-            // Unread dot / mark-read button
-            Column(horizontalAlignment = Alignment.End) {
-                if (!notification.read) {
+            if (!notification.read) {
+                Column(horizontalAlignment = Alignment.End) {
                     Surface(
                         modifier = Modifier.size(10.dp),
                         shape    = CircleShape,
@@ -290,8 +282,8 @@ private fun NotificationItem(
                     ) {}
                     Spacer(Modifier.height(6.dp))
                     TextButton(
-                        onClick      = onMarkRead,
-                        modifier     = Modifier.height(28.dp),
+                        onClick        = onMarkRead,
+                        modifier       = Modifier.height(28.dp),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                     ) {
                         Text("Mark read", fontSize = 11.sp)
@@ -303,7 +295,7 @@ private fun NotificationItem(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tab 1 — Join Requests list
+// Tab 1 — Join requests (for tricount creators)
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -326,7 +318,10 @@ private fun JoinRequestsTab(
         contentPadding      = PaddingValues(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(requests, key = { it["docId"]?.toString() ?: it.hashCode().toString() }) { req ->
+        items(
+            items = requests,
+            key   = { it["docId"]?.toString() ?: (it["uid"]?.toString() + it["tricountId"]?.toString()) }
+        ) { req ->
             JoinRequestItem(
                 request   = req,
                 onApprove = onApprove,
@@ -349,24 +344,20 @@ private fun JoinRequestItem(
     val tricountName   = request["tricountName"]?.toString() ?: "Unknown Tricount"
     val requestedAt    = (request["requestedAt"] as? Long)   ?: 0L
 
-    // Local state so the buttons disappear immediately after acting
-    var decided by remember(requesterUid + tricountId) { mutableStateOf(false) }
-    var decision by remember { mutableStateOf("") } // "approved" | "rejected"
+    var decided  by remember(requesterUid + tricountId) { mutableStateOf(false) }
+    var decision by remember(requesterUid + tricountId) { mutableStateOf("") }
 
     Card(
         modifier  = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp),
         shape     = RoundedCornerShape(14.dp),
-        colors    = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
+        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // ── Header row ────────────────────────────────────────────────────
+
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Avatar initials bubble
                 Surface(
                     modifier = Modifier.size(46.dp),
                     shape    = CircleShape,
@@ -405,7 +396,6 @@ private fun JoinRequestItem(
 
             Spacer(Modifier.height(10.dp))
 
-            // ── Tricount info ─────────────────────────────────────────────────
             Surface(
                 shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
@@ -417,7 +407,7 @@ private fun JoinRequestItem(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Filled.Groups, null,
+                        Icons.Filled.Group, null,
                         modifier = Modifier.size(16.dp),
                         tint     = MaterialTheme.colorScheme.primary
                     )
@@ -443,17 +433,11 @@ private fun JoinRequestItem(
 
             Spacer(Modifier.height(12.dp))
 
-            // ── Action area ───────────────────────────────────────────────────
-            AnimatedVisibility(
-                visible = !decided,
-                enter   = fadeIn(),
-                exit    = fadeOut()
-            ) {
+            AnimatedVisibility(visible = !decided, enter = fadeIn(), exit = fadeOut()) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier              = Modifier.fillMaxWidth()
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Reject button
                     OutlinedButton(
                         onClick  = {
                             decided  = true
@@ -470,7 +454,6 @@ private fun JoinRequestItem(
                         Text("Deny", fontWeight = FontWeight.SemiBold)
                     }
 
-                    // Approve button
                     Button(
                         onClick  = {
                             decided  = true
@@ -489,32 +472,27 @@ private fun JoinRequestItem(
                 }
             }
 
-            // ── After decision feedback ───────────────────────────────────────
-            AnimatedVisibility(
-                visible = decided,
-                enter   = fadeIn(),
-                exit    = fadeOut()
-            ) {
-                val (feedbackIcon, feedbackText, feedbackColor) = when (decision) {
+            AnimatedVisibility(visible = decided, enter = fadeIn(), exit = fadeOut()) {
+                val (fbIcon, fbText, fbColor) = when (decision) {
                     "approved" -> Triple(
                         Icons.Filled.CheckCircle,
                         "Accepted! $requesterName has been added.",
                         MaterialTheme.colorScheme.primary
                     )
-                    else       -> Triple(
+                    else -> Triple(
                         Icons.Filled.Cancel,
                         "Request denied.",
                         MaterialTheme.colorScheme.error
                     )
                 }
                 Row(
-                    modifier          = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier              = Modifier.fillMaxWidth(),
+                    verticalAlignment     = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    Icon(feedbackIcon, null, tint = feedbackColor, modifier = Modifier.size(18.dp))
+                    Icon(fbIcon, null, tint = fbColor, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(feedbackText, fontSize = 13.sp, color = feedbackColor, fontWeight = FontWeight.Medium)
+                    Text(fbText, fontSize = 13.sp, color = fbColor, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -522,11 +500,11 @@ private fun JoinRequestItem(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared UI helpers
+// Shared helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun BadgeCount(count: Int) {
+private fun NotifBadge(count: Int) {
     Box(
         modifier         = Modifier
             .clip(CircleShape)
@@ -544,11 +522,7 @@ private fun BadgeCount(count: Int) {
 }
 
 @Composable
-private fun EmptyState(
-    icon     : ImageVector,
-    title    : String,
-    subtitle : String
-) {
+private fun EmptyState(icon: ImageVector, title: String, subtitle: String) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -560,33 +534,18 @@ private fun EmptyState(
                 tint     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
             )
             Spacer(Modifier.height(20.dp))
-            Text(
-                title,
-                fontSize   = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                color      = MaterialTheme.colorScheme.onSurface
-            )
+            Text(title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(8.dp))
-            Text(
-                subtitle,
-                fontSize  = 14.sp,
-                color     = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                lineHeight = 20.sp
-            )
+            Text(subtitle, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center, lineHeight = 20.sp)
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Utility functions
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Maps notification type → (icon, tint color) for display. */
+/** Maps notification type string → (icon, tint colour). */
 @Composable
-private fun notifIconAndTint(
-    type: String
-): Pair<ImageVector, androidx.compose.ui.graphics.Color> = when (type) {
+private fun notifIconAndTint(type: String): Pair<ImageVector, Color> = when (type) {
     "JOIN_REQUEST"  -> Pair(Icons.Filled.PersonAdd,     MaterialTheme.colorScheme.tertiary)
     "JOIN_APPROVED" -> Pair(Icons.Filled.CheckCircle,   MaterialTheme.colorScheme.primary)
     "JOIN_REJECTED" -> Pair(Icons.Filled.Cancel,        MaterialTheme.colorScheme.error)
@@ -594,16 +553,15 @@ private fun notifIconAndTint(
     else            -> Pair(Icons.Filled.Notifications, MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-/** Returns a human-readable relative time string (e.g. "2 hours ago"). */
+/** Human-readable relative timestamp. */
 private fun formatRelativeTime(epochMillis: Long): String {
     if (epochMillis == 0L) return ""
-    val now  = System.currentTimeMillis()
-    val diff = now - epochMillis
+    val diff = System.currentTimeMillis() - epochMillis
     return when {
-        diff <  60_000L              -> "just now"
-        diff <  3_600_000L           -> "${diff / 60_000} min ago"
-        diff <  86_400_000L          -> "${diff / 3_600_000} hr ago"
-        diff <  7 * 86_400_000L      -> "${diff / 86_400_000} days ago"
+        diff < 60_000L          -> "just now"
+        diff < 3_600_000L       -> "${diff / 60_000} min ago"
+        diff < 86_400_000L      -> "${diff / 3_600_000} hr ago"
+        diff < 7 * 86_400_000L  -> "${diff / 86_400_000} days ago"
         else -> SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(epochMillis))
     }
 }

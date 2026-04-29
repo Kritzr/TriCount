@@ -18,8 +18,9 @@ import kotlinx.coroutines.tasks.await
 sealed class AuthResult {
     data class Success(val userId: Int) : AuthResult()
     data class Error(val message: String) : AuthResult()
-    object VerificationEmailSent : AuthResult()   // Step 1 of OTP email flow
-    object AwaitingOtpVerification : AuthResult() // Waiting for user to verify
+    object VerificationEmailSent : AuthResult()    // signup: verification email sent
+    object AwaitingOtpVerification : AuthResult()  // kept for compatibility
+    object NeedsEmailVerification : AuthResult()   // login: email exists but not verified
 }
 
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
@@ -233,7 +234,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 if (!firebaseUser.isEmailVerified) {
                     firebaseUser.sendEmailVerification().await()
                     sessionManager.setPendingSignupEmail(e)
-                    _authResult.value = AuthResult.AwaitingOtpVerification
+                    _authResult.value = AuthResult.NeedsEmailVerification
                     return@launch
                 }
 
@@ -311,4 +312,4 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun isValidEmail(email: String) =
         "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$".toRegex().matches(email)
-}
+} 

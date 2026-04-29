@@ -24,8 +24,16 @@ interface UserDao {
     @Query("DELETE FROM users WHERE id = :userId")
     suspend fun deleteUser(userId: Int)
 
+    // ── Nickname ──────────────────────────────────────────────────────────────
+
     @Query("UPDATE users SET nickname = :nickname WHERE id = :userId")
     suspend fun updateNickname(userId: Int, nickname: String)
+
+    /** Returns the stored nickname (null if never set). Used by FirestoreSync. */
+    @Query("SELECT nickname FROM users WHERE id = :userId")
+    suspend fun getUserNickname(userId: Int): String?
+
+    // ── Photo URI ─────────────────────────────────────────────────────────────
 
     @Query("UPDATE users SET photoUri = :photoUri WHERE id = :userId")
     suspend fun updatePhotoUri(userId: Int, photoUri: String): Int
@@ -33,13 +41,14 @@ interface UserDao {
     @Query("SELECT photoUri FROM users WHERE id = :userId")
     suspend fun getUserPhotoUri(userId: Int): String?
 
-    // ── Firebase UID helpers (EXTRA_CHANGES § A) ──────────────────────────────
+    // ── Firebase UID ──────────────────────────────────────────────────────────
 
     @Query("UPDATE users SET firebaseUid = :firebaseUid WHERE id = :userId")
     suspend fun updateFirebaseUid(userId: Int, firebaseUid: String)
 
-    // Call this right after FirebaseAuth.signInWithEmailAndPassword() / createUserWithEmailAndPassword() succeeds,
-    // passing auth.currentUser!!.uid
     @Query("UPDATE users SET firebaseUid = :firebaseUid WHERE email = :email")
     suspend fun updateFirebaseUidByEmail(email: String, firebaseUid: String)
+
+    @Query("SELECT firebaseUid FROM users WHERE id = :userId")
+    suspend fun getFirebaseUid(userId: Int): String?
 }

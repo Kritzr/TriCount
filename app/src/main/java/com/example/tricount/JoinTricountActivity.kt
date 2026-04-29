@@ -12,14 +12,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -29,14 +28,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tricount.data.SessionManager
-import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.ui.theme.AppTheme
+import com.example.tricount.ui.theme.TriCountTheme
 import com.example.tricount.viewModel.JoinResult
 import com.example.tricount.viewModel.TricountViewModel
 
 class JoinTricountActivity : ComponentActivity() {
 
-    private val tricountViewModel: TricountViewModel by viewModels()
+    private val tricountViewModel: TricountViewModel by viewModels {
+        TricountViewModel.factory(application)
+    }
 
     override fun finish() {
         super.finish()
@@ -48,59 +49,70 @@ class JoinTricountActivity : ComponentActivity() {
 
         val sessionManager = SessionManager(this)
         AppTheme.isDark.value = sessionManager.getDarkMode()
+
         setContent {
-            TriCountTheme() {
+            TriCountTheme {
                 val joinResult by tricountViewModel.joinResult.collectAsStateWithLifecycle()
+
+                // Hoist isLoading here so the LaunchedEffect can both read and write it
                 var isLoading by remember { mutableStateOf(false) }
 
-                // Handle join result
+                // Capture joinResult into a local val so Kotlin can smart-cast it safely
                 LaunchedEffect(joinResult) {
-                    when (joinResult) {
+                    when (val result = joinResult) {
+
                         is JoinResult.Success -> {
-                            val tricount = (joinResult as JoinResult.Success).tricount
+                            isLoading = false
                             Toast.makeText(
                                 this@JoinTricountActivity,
-                                "Successfully joined \${tricount.name}!",
+                                "Successfully joined ${result.tricount.name}!",
                                 Toast.LENGTH_SHORT
                             ).show()
                             tricountViewModel.resetJoinResult()
                             finish()
                         }
+
                         is JoinResult.Pending -> {
-                            val tricountName = (joinResult as JoinResult.Pending).tricountName
+                            isLoading = false
                             Toast.makeText(
                                 this@JoinTricountActivity,
-                                "Request sent to join \"$tricountName\"! The owner will review it and you'll be notified once approved.",
+                                "Request sent to join \"${result.tricountName}\"! " +
+                                        "The owner will review it — you'll be notified once approved.",
                                 Toast.LENGTH_LONG
                             ).show()
                             tricountViewModel.resetJoinResult()
-                            // Go back to HomeActivity, clearing this screen off the stack
+                            // Bring HomeActivity to the front without re-creating it
                             startActivity(
                                 Intent(this@JoinTricountActivity, HomeActivity::class.java).apply {
-                                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                            Intent.FLAG_ACTIVITY_SINGLE_TOP
                                 }
                             )
                             finish()
                         }
+
                         is JoinResult.Error -> {
-                            val message = (joinResult as JoinResult.Error).message
+                            isLoading = false
                             Toast.makeText(
                                 this@JoinTricountActivity,
-                                message,
+                                result.message,
                                 Toast.LENGTH_LONG
                             ).show()
                             tricountViewModel.resetJoinResult()
-                            isLoading = false
                         }
-                        null -> { /* Do nothing */ }
+
+                        null -> { /* initial / reset state — do nothing */ }
                     }
                 }
 
                 JoinTricountScreen(
-                    isLoading   = isLoading,
+                    isLoading       = isLoading,
                     onLoadingChange = { isLoading = it },
-                    onBackClick = { finish() },
-                    onJoinClick = { code ->
+                    onBackClick     = { finish() },
+                    // Set isLoading = true here in the caller, before the ViewModel call,
+                    // so the button disables and the spinner starts immediately
+                    onJoinClick     = { code ->
+                        isLoading = true
                         tricountViewModel.joinTricountByCode(code)
                     }
                 )
@@ -108,6 +120,10 @@ class JoinTricountActivity : ComponentActivity() {
         }
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Composable screen — isLoading is now fully driven by the Activity above
+// ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -119,12 +135,19 @@ fun JoinTricountScreen(
 ) {
     var joinCode by remember { mutableStateOf("") }
 
-    // Validate code format (6 alphanumeric characters)
     val isValidCode = remember(joinCode) {
         joinCode.length == 6 && joinCode.all { it.isLetterOrDigit() }
     }
 
     val focusManager = LocalFocusManager.current
+
+    // Safety-net: if the ViewModel never responds within 10 s, unlock the UI
+    LaunchedEffect(isLoading) {
+        if (isLoading) {
+            kotlinx.coroutines.delay(10_000L)
+            onLoadingChange(false)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -132,11 +155,11 @@ fun JoinTricountScreen(
                 title = { Text("Join Tricount") },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor    = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
@@ -150,13 +173,14 @@ fun JoinTricountScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Animated Icon
+            // Animated icon
             val infiniteTransition = rememberInfiniteTransition(label = "join_anim")
+            @Suppress("UNUSED_VARIABLE")
             val scale by infiniteTransition.animateFloat(
-                initialValue = 1f,
-                targetValue = 1.1f,
+                initialValue  = 1f,
+                targetValue   = 1.1f,
                 animationSpec = infiniteRepeatable(
-                    animation = tween(1500, easing = FastOutSlowInEasing),
+                    animation  = tween(1500, easing = FastOutSlowInEasing),
                     repeatMode = RepeatMode.Reverse
                 ),
                 label = "icon_scale"
@@ -164,18 +188,15 @@ fun JoinTricountScreen(
 
             Surface(
                 modifier = Modifier.size(80.dp),
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.primaryContainer
+                shape    = MaterialTheme.shapes.extraLarge,
+                color    = MaterialTheme.colorScheme.primaryContainer
             ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.padding(16.dp)
-                ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(16.dp)) {
                     Icon(
-                        imageVector = Icons.Filled.Check,
+                        imageVector        = Icons.Filled.Check,
                         contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        modifier           = Modifier.size(48.dp),
+                        tint               = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
             }
@@ -183,67 +204,58 @@ fun JoinTricountScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "Join an Existing Tricount",
-                fontSize = 24.sp,
+                text       = "Join an Existing Tricount",
+                fontSize   = 24.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                color      = MaterialTheme.colorScheme.primary
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Enter the 6-character code shared by your friend",
+                text     = "Enter the 6-character code shared by your friend",
                 fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color    = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // Join Code Input
             OutlinedTextField(
-                value = joinCode,
+                value         = joinCode,
                 onValueChange = {
-                    // Only allow alphanumeric and max 6 characters
-                    if (it.length <= 6 && it.all { char -> char.isLetterOrDigit() }) {
+                    if (it.length <= 6 && it.all { ch -> ch.isLetterOrDigit() }) {
                         joinCode = it.uppercase()
                     }
                 },
-                label = { Text("Tricount Code") },
+                label       = { Text("Tricount Code") },
                 placeholder = { Text("ABC123") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                isError = joinCode.isNotEmpty() && joinCode.length < 6,
+                modifier    = Modifier.fillMaxWidth(),
+                singleLine  = true,
+                isError     = joinCode.isNotEmpty() && joinCode.length < 6,
                 supportingText = {
                     AnimatedVisibility(
                         visible = joinCode.isNotEmpty(),
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
+                        enter   = fadeIn() + expandVertically(),
+                        exit    = fadeOut() + shrinkVertically()
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             if (isValidCode) {
                                 Icon(
-                                    Icons.Filled.Check,
-                                    contentDescription = null,
+                                    Icons.Filled.Check, null,
                                     modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint     = MaterialTheme.colorScheme.primary
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Valid code format",
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                                Text("Valid code format", color = MaterialTheme.colorScheme.primary)
                             } else {
                                 Icon(
-                                    Icons.Filled.Error,
-                                    contentDescription = null,
+                                    Icons.Filled.Error, null,
                                     modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.error
+                                    tint     = MaterialTheme.colorScheme.error
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "Code must be exactly 6 characters",
+                                    "Code must be exactly 6 characters",
                                     color = MaterialTheme.colorScheme.error
                                 )
                             }
@@ -251,33 +263,31 @@ fun JoinTricountScreen(
                     }
                 },
                 keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Text,
+                    keyboardType   = KeyboardType.Text,
                     capitalization = KeyboardCapitalization.Characters,
-                    imeAction = ImeAction.Done
+                    imeAction      = ImeAction.Done
                 ),
                 keyboardActions = KeyboardActions(
                     onDone = {
                         if (isValidCode && !isLoading) {
                             focusManager.clearFocus()
-                            onLoadingChange(true)
                             onJoinClick(joinCode)
                         }
                     }
                 ),
                 textStyle = LocalTextStyle.current.copy(
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize      = 20.sp,
+                    fontWeight    = FontWeight.Bold,
                     letterSpacing = 2.sp
                 )
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Join Button
             Button(
                 onClick = {
-                    if (!isLoading) {
-                        onLoadingChange(true)
+                    if (isValidCode && !isLoading) {
+                        focusManager.clearFocus()
                         onJoinClick(joinCode)
                     }
                 },
@@ -285,79 +295,58 @@ fun JoinTricountScreen(
                     .fillMaxWidth()
                     .height(56.dp),
                 enabled = isValidCode && !isLoading,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                colors  = ButtonDefaults.buttonColors(
+                    containerColor         = MaterialTheme.colorScheme.primary,
+                    contentColor           = MaterialTheme.colorScheme.onPrimary,
                     disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    disabledContentColor   = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier    = Modifier.size(24.dp),
+                        color       = MaterialTheme.colorScheme.onPrimary,
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "Joining...",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text("Joining...", fontSize = 16.sp, fontWeight = FontWeight.Medium)
                 } else {
-                    Text(
-                        text = "Join Tricount",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-
-            // Reset loading state after a delay
-            LaunchedEffect(isLoading) {
-                if (isLoading) {
-                    kotlinx.coroutines.delay(5000)
-                    onLoadingChange(false)
+                    Text("Join Tricount", fontSize = 16.sp, fontWeight = FontWeight.Medium)
                 }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Info Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
+                colors   = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer
                 )
             ) {
-                Column(
-                    modifier = Modifier.padding(20.dp)
-                ) {
+                Column(modifier = Modifier.padding(20.dp)) {
                     Text(
-                        text = "How to get a code:",
-                        fontSize = 16.sp,
+                        text       = "How to get a code:",
+                        fontSize   = 16.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                        color      = MaterialTheme.colorScheme.onSecondaryContainer
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-
                     InfoBullet("Ask the Tricount creator to share their invite code")
                     Spacer(modifier = Modifier.height(8.dp))
                     InfoBullet("The code is exactly 6 characters long")
                     Spacer(modifier = Modifier.height(8.dp))
-                    InfoBullet("You'll get access to all expenses and balances")
+                    InfoBullet("Your request will be sent to the creator for approval")
                     Spacer(modifier = Modifier.height(8.dp))
-                    InfoBullet("Each Tricount has a unique code")
+                    InfoBullet("You'll get a notification once you're approved")
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Additional help text
             Text(
-                text = "Can't find a code? Ask your friend to check their Tricount details.",
+                text     = "Can't find a code? Ask your friend to check their Tricount details.",
                 fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color    = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
         }
@@ -366,20 +355,18 @@ fun JoinTricountScreen(
 
 @Composable
 private fun InfoBullet(text: String) {
-    Row(
-        verticalAlignment = Alignment.Top
-    ) {
+    Row(verticalAlignment = Alignment.Top) {
         Text(
-            text = "•",
-            fontSize = 14.sp,
+            text       = "•",
+            fontSize   = 14.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-            modifier = Modifier.padding(end = 8.dp)
+            color      = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier   = Modifier.padding(end = 8.dp)
         )
         Text(
-            text = text,
+            text     = text,
             fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSecondaryContainer
+            color    = MaterialTheme.colorScheme.onSecondaryContainer
         )
     }
 }

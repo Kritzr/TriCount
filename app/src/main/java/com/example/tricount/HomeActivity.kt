@@ -2,6 +2,7 @@ package com.example.tricount
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -48,7 +49,9 @@ import androidx.compose.ui.graphics.Color
 
 class HomeActivity : ComponentActivity() {
 
-    private val tricountViewModel: TricountViewModel by viewModels()
+    private val tricountViewModel: TricountViewModel by viewModels {
+        TricountViewModel.factory(application)
+    }
     private val authViewModel: AuthViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,13 +60,26 @@ class HomeActivity : ComponentActivity() {
 
         val sessionManager = SessionManager(this)
 
-
         if (!sessionManager.isLoggedIn()) {
             startActivity(Intent(this, LoginActivity::class.java))
             finish()
             return
         }
+
+        // Start real-time notification listener
         tricountViewModel.startNotificationListener()
+
+        // Request POST_NOTIFICATIONS permission on Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(
+                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                1001
+            )
+        }
+
+        // Register this device's FCM token so push notifications can be delivered
+        tricountViewModel.registerFcmToken()
+
         setContent {
             val isDarkMode = remember { mutableStateOf(sessionManager.getDarkMode()) }
 
@@ -128,16 +144,19 @@ fun HomeScreen(
     sessionManager       : SessionManager,
     isDarkMode           : Boolean,
     onDarkModeToggle     : (Boolean) -> Unit,
-    onTricountClick         : (Int, String) -> Unit,
-    onNotificationsClick    : () -> Unit = {},
-    onLogoutClick           : () -> Unit,
+    onTricountClick      : (Int, String) -> Unit,
+    onNotificationsClick : () -> Unit = {},
+    onLogoutClick        : () -> Unit,
     onDeleteAccountClick : () -> Unit
 ) {
     var selectedBottomTab by remember { mutableStateOf(0) }
+    // Track the previous tab so we know which direction to slide
+    var previousBottomTab by remember { mutableStateOf(0) }
     val context           = LocalContext.current
     var showBottomSheet   by remember { mutableStateOf(false) }
 
     BackHandler(enabled = selectedBottomTab != 0) {
+        previousBottomTab = selectedBottomTab
         selectedBottomTab = 0
     }
     val sheetState = rememberModalBottomSheetState()
@@ -169,7 +188,10 @@ fun HomeScreen(
                     },
                     label    = { Text("TriCounts") },
                     selected = selectedBottomTab == 0,
-                    onClick  = { selectedBottomTab = 0 },
+                    onClick  = {
+                        previousBottomTab = selectedBottomTab
+                        selectedBottomTab = 0
+                    },
                     colors   = NavigationBarItemDefaults.colors(
                         selectedIconColor   = MaterialTheme.colorScheme.primary,
                         selectedTextColor   = MaterialTheme.colorScheme.primary,
@@ -185,7 +207,10 @@ fun HomeScreen(
                     },
                     label    = { Text("Profile") },
                     selected = selectedBottomTab == 1,
-                    onClick  = { selectedBottomTab = 1 },
+                    onClick  = {
+                        previousBottomTab = selectedBottomTab
+                        selectedBottomTab = 1
+                    },
                     colors   = NavigationBarItemDefaults.colors(
                         selectedIconColor   = MaterialTheme.colorScheme.primary,
                         selectedTextColor   = MaterialTheme.colorScheme.primary,
@@ -217,11 +242,28 @@ fun HomeScreen(
             }
         }
     ) { padding ->
+
+        // ── Smooth directional slide transition between tabs ──────────────────
+        // Sliding right (0→1): new screen enters from right, old exits to left.
+        // Sliding left  (1→0): new screen enters from left,  old exits to right.
         AnimatedContent(
-            targetState = selectedBottomTab,
+            targetState   = selectedBottomTab,
             transitionSpec = {
-                fadeIn(animationSpec = tween(300)) togetherWith
-                        fadeOut(animationSpec = tween(300))
+                val goingForward = targetState > previousBottomTab
+                val enterOffset  = if (goingForward)  { w: Int -> w }  else { w: Int -> -w }
+                val exitOffset   = if (goingForward)  { w: Int -> -w } else { w: Int ->  w }
+
+                (slideInHorizontally(
+                    animationSpec = tween(durationMillis = 350, easing = EaseInOutCubic),
+                    initialOffsetX = enterOffset
+                ) + fadeIn(
+                    animationSpec = tween(durationMillis = 350, easing = EaseInOutCubic)
+                )) togetherWith (slideOutHorizontally(
+                    animationSpec = tween(durationMillis = 350, easing = EaseInOutCubic),
+                    targetOffsetX = exitOffset
+                ) + fadeOut(
+                    animationSpec = tween(durationMillis = 350, easing = EaseInOutCubic)
+                ))
             },
             label = "screen_transition"
         ) { target ->
@@ -777,19 +819,15 @@ fun AnimatedTricountCard(
             title = { Text(tricount.name, fontWeight = FontWeight.Bold) },
             text  = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    // Edit — onSurface
                     ContextMenuOption(Icons.Filled.Edit, "Edit") {
                         showContextMenu = false; onEditClick()
                     }
-                    // Duplicate — onSurface
                     ContextMenuOption(Icons.Filled.ContentCopy, "Duplicate") {
                         showContextMenu = false; onDuplicateClick()
                     }
-                    // Archive — onSurface (normal action, not destructive)
                     ContextMenuOption(Icons.Filled.Archive, "Archive") {
                         showContextMenu = false; onArchiveClick()
                     }
-                    // Delete — error/red (destructive)
                     ContextMenuOption(
                         Icons.Filled.Delete, "Delete",
                         tint = MaterialTheme.colorScheme.error
@@ -830,7 +868,7 @@ private fun ContextMenuOption(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ProfileScreen
+// ProfileScreen (embedded in HomeActivity tab)
 // ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
