@@ -576,48 +576,6 @@ class FirebaseSyncRepository(
         }
     }
 
-    // ── Messaging ─────────────────────────────────────────────────────────────
-
-    suspend fun sendMessage(tricountId: String, text: String): Boolean {
-        val uid = uid ?: return false
-        return try {
-            val senderName = firestore.collection("users").document(uid).get().await()
-                .getString("name") ?: sessionManager.getUserName() ?: "Unknown"
-            firestore.collection("tricounts").document(tricountId)
-                .collection("messages")
-                .add(mapOf(
-                    "senderUid"  to uid,
-                    "senderName" to senderName,
-                    "text"       to text,
-                    "timestamp"  to System.currentTimeMillis()
-                )).await()
-            true
-        } catch (e: Exception) {
-            Log.e("FirebaseSync", "sendMessage failed: ${e.message}"); false
-        }
-    }
-
-    suspend fun getMessages(tricountId: String): List<ChatMessage> {
-        return try {
-            firestore.collection("tricounts").document(tricountId)
-                .collection("messages")
-                .orderBy("timestamp")
-                .limitToLast(50)
-                .get().await()
-                .documents.mapNotNull { doc ->
-                    ChatMessage(
-                        id         = doc.id,
-                        senderUid  = doc.getString("senderUid")  ?: return@mapNotNull null,
-                        senderName = doc.getString("senderName") ?: "Unknown",
-                        text       = doc.getString("text")       ?: "",
-                        timestamp  = doc.getLong("timestamp")    ?: 0L
-                    )
-                }
-        } catch (e: Exception) {
-            Log.e("FirebaseSync", "getMessages failed: ${e.message}"); emptyList()
-        }
-    }
-
     // ── Notifications ─────────────────────────────────────────────────────────
 
     suspend fun getNotifications(): List<AppNotification> {

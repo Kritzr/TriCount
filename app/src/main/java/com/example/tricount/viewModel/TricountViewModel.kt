@@ -6,8 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.tricount.TriCountNotificationHelper
 import com.example.tricount.data.AppNotification
-import com.example.tricount.data.ChatMessage
 import com.example.tricount.data.FirebaseSyncRepository
 import com.example.tricount.data.SessionManager
 import com.example.tricount.data.database.TricountDatabase
@@ -187,10 +187,6 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
 
     private val _payments          = MutableStateFlow<List<PaymentEntity>>(emptyList())
     val payments: StateFlow<List<PaymentEntity>> = _payments
-
-    // Messaging
-    private val _messages          = MutableStateFlow<List<ChatMessage>>(emptyList())
-    val messages: StateFlow<List<ChatMessage>> = _messages
 
     // Notifications
     private val _notifications     = MutableStateFlow<List<AppNotification>>(emptyList())
@@ -674,38 +670,169 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * Writes a PAYMENT notification to the CREDITOR's Firestore notifications
+     * (users/{creditorFirebaseUid}/notifications) so they see it in their
+     * NotificationsActivity, AND fires a local system popup on the current device.
+     */
+    fun postPaymentNotification(
+        tricountId   : Int,
+        fromUserName : String,
+        toUserId     : Int,
+        toUserName   : String,
+        amount       : Double,
+        isDebtor     : Boolean,
+        note         : String = ""
+    ) {
+        viewModelScope.launch {
+            try {
+                val amtStr  = "₹${"%.2f".format(amount)}"
+                val message = buildString {
+                    append("$fromUserName paid $toUserName $amtStr")
+                    if (note.isNotBlank()) append(" · $note")
+                }
+                val tricountName = _currentTricount.value?.name ?: ""
+
+                // ── 1. Resolve the creditor's Firebase UID ────────────────────────
+                // The payment goes TO toUserId — that person needs to receive
+                // the notification in their app.
+                val creditorUser         = userDao.getUserById(toUserId)
+                var creditorFirebaseUid  = creditorUser?.firebaseUid ?: ""
+                if (creditorFirebaseUid.isEmpty() && !creditorUser?.email.isNullOrEmpty()) {
+                    // Try Firestore lookup if local record doesn't have a UID yet
+                    val looked = syncRepo.lookupFirebaseUidByEmail(creditorUser!!.email)
+                    if (!looked.isNullOrEmpty()) {
+                        userDao.updateFirebaseUid(toUserId, looked)
+                        creditorFirebaseUid = looked
+                    }
+                }
+
+                val fs = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+
+                // ── 2. Write notification to the CREDITOR via top-level notifications ──
+                // listenForNotifications() queries notifications where toUid == uid,
+                // so we must use the top-level collection and include a toUid field.
+                if (creditorFirebaseUid.isNotEmpty()) {
+                    val payerUidForDoc = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+                    val docData = hashMapOf(
+                        "toUid"        to creditorFirebaseUid,
+                        "fromUid"      to payerUidForDoc,
+                        "fromName"     to fromUserName,
+                        "type"         to "PAYMENT",
+                        "message"      to message,
+                        "tricountName" to tricountName,
+                        "tricountId"   to tricountId.toString(),
+                        "read"         to false,
+                        "createdAt"    to System.currentTimeMillis()
+                    )
+                    fs.collection("notifications").add(docData).await()
+                }
+
+                // ── 3. Also notify the payer so they see "You paid X" in their Activity tab
+                val payerUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                if (payerUid != null) {
+                    val payerMessage = buildString {
+                        append("You paid $toUserName $amtStr")
+                        if (note.isNotBlank()) append(" · $note")
+                    }
+                    val payerDoc = hashMapOf(
+                        "toUid"        to payerUid,
+                        "fromUid"      to payerUid,
+                        "fromName"     to fromUserName,
+                        "type"         to "PAYMENT",
+                        "message"      to payerMessage,
+                        "tricountName" to tricountName,
+                        "tricountId"   to tricountId.toString(),
+                        "read"         to false,
+                        "createdAt"    to System.currentTimeMillis()
+                    )
+                    fs.collection("notifications").add(payerDoc).await()
+                }
+
+                // ── 4. Fire a local system popup on the payer's device ────────────
+                TriCountNotificationHelper.showPaymentNotification(
+                    context  = getApplication(),
+                    title    = "Payment Sent ✓",
+                    message  = "You paid $toUserName $amtStr" +
+                            if (note.isNotBlank()) " · $note" else "",
+                    notifId  = (tricountId * 1000 + System.currentTimeMillis() % 1000).toInt()
+                )
+
+            } catch (e: Exception) {
+                Log.e("TricountVM", "postPaymentNotification error", e)
+            }
+        }
+    }
+
+    /**
+     * Sends a REMINDER notification to the DEBTOR via Firestore (appears in their
+     * NotificationsActivity) and fires a local push notification on the current device.
+     * This replaces the old share-sheet approach that opened WhatsApp/SMS/etc.
+     */
+    fun sendReminderNotification(
+        tricountId   : Int,
+        debtorUserId : Int,
+        debtorName   : String,
+        creditorName : String,
+        amount       : Double,
+        onDone       : (Boolean) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                val amtStr       = "₹${"%.2f".format(amount)}"
+                val tricountName = _currentTricount.value?.name ?: ""
+                val message      = "Hey $debtorName! Just a friendly reminder — you owe $creditorName $amtStr in \"$tricountName\". Please settle up when you get a chance 🙏"
+                val senderUid    = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+                val fs           = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+
+                // Resolve debtor's Firebase UID
+                val debtorUser = userDao.getUserById(debtorUserId)
+                var debtorFirebaseUid = debtorUser?.firebaseUid ?: ""
+                if (debtorFirebaseUid.isEmpty() && !debtorUser?.email.isNullOrEmpty()) {
+                    val looked = syncRepo.lookupFirebaseUidByEmail(debtorUser!!.email)
+                    if (!looked.isNullOrEmpty()) {
+                        userDao.updateFirebaseUid(debtorUserId, looked)
+                        debtorFirebaseUid = looked
+                    }
+                }
+
+                // Write to top-level notifications collection (same path listenForNotifications reads)
+                if (debtorFirebaseUid.isNotEmpty()) {
+                    fs.collection("notifications").add(hashMapOf(
+                        "toUid"        to debtorFirebaseUid,
+                        "fromUid"      to senderUid,
+                        "fromName"     to creditorName,
+                        "type"         to "REMINDER",
+                        "message"      to message,
+                        "tricountName" to tricountName,
+                        "tricountId"   to tricountId.toString(),
+                        "read"         to false,
+                        "createdAt"    to System.currentTimeMillis()
+                    )).await()
+                }
+
+                // Fire a local notification on the sender's device confirming the reminder was sent
+                TriCountNotificationHelper.showPaymentNotification(
+                    context = getApplication(),
+                    title   = "Reminder Sent ✓",
+                    message = "Reminder sent to $debtorName for $amtStr",
+                    notifId = (tricountId * 1000 + debtorUserId).toInt()
+                )
+
+                onDone(debtorFirebaseUid.isNotEmpty())
+            } catch (e: Exception) {
+                Log.e("TricountVM", "sendReminderNotification error", e)
+                onDone(false)
+            }
+        }
+    }
+
     fun loadPayments(tricountId: Int) {
         viewModelScope.launch {
             try {
                 _payments.value = paymentDao.getPaymentsForTricount(tricountId)
                 recomputeSettlements()
             } catch (e: Exception) { _payments.value = emptyList() }
-        }
-    }
-
-    // ── Messaging ─────────────────────────────────────────────────────────────
-
-    fun loadMessages(tricountId: Int) {
-        viewModelScope.launch {
-            try {
-                _messages.value = syncRepo.getMessages(tricountId.toString())
-            } catch (e: Exception) {
-                Log.e("TricountVM", "loadMessages error", e)
-                _messages.value = emptyList()
-            }
-        }
-    }
-
-    fun sendMessage(tricountId: Int, text: String, onResult: (Boolean) -> Unit = {}) {
-        viewModelScope.launch {
-            try {
-                val ok = syncRepo.sendMessage(tricountId.toString(), text)
-                if (ok) loadMessages(tricountId)
-                onResult(ok)
-            } catch (e: Exception) {
-                Log.e("TricountVM", "sendMessage error", e)
-                onResult(false)
-            }
         }
     }
 

@@ -67,14 +67,12 @@ class HomeActivity : ComponentActivity() {
         }
 
         // Start real-time notification listener
+        TriCountNotificationHelper.createNotificationChannel(this)
         tricountViewModel.startNotificationListener()
 
         // Request POST_NOTIFICATIONS permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestPermissions(
-                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
-                1001
-            )
+            notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
 
         // Register this device's FCM token so push notifications can be delivered
@@ -131,6 +129,18 @@ class HomeActivity : ComponentActivity() {
         super.onResume()
         tricountViewModel.loadTricounts()
     }
+
+    // Launcher for POST_NOTIFICATIONS permission (Activity Result API — required
+    // for ComponentActivity; onRequestPermissionsResult does not exist here).
+    private val notifPermissionLauncher =
+        registerForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            // Re-register the channel now that the user has responded.
+            // showPaymentNotification() already guards against the case where
+            // permission was denied, so this is purely a best-effort channel refresh.
+            TriCountNotificationHelper.createNotificationChannel(this)
+        }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

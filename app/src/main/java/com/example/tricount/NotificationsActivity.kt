@@ -52,6 +52,9 @@ class NotificationsActivity : ComponentActivity() {
         enableEdgeToEdge()
         val sessionManager = SessionManager(this)
 
+        // Register the notification channel for payment popups (safe to call repeatedly).
+        TriCountNotificationHelper.createNotificationChannel(this)
+
         // Start the real-time listener — this is the single source of truth for
         // notifications. Do NOT also call loadNotifications() here; the listener
         // fires immediately with the current snapshot and keeps updating on its own.
@@ -546,11 +549,13 @@ private fun EmptyState(icon: ImageVector, title: String, subtitle: String) {
 /** Maps notification type string → (icon, tint colour). */
 @Composable
 private fun notifIconAndTint(type: String): Pair<ImageVector, Color> = when (type) {
-    "JOIN_REQUEST"  -> Pair(Icons.Filled.PersonAdd,     MaterialTheme.colorScheme.tertiary)
-    "JOIN_APPROVED" -> Pair(Icons.Filled.CheckCircle,   MaterialTheme.colorScheme.primary)
-    "JOIN_REJECTED" -> Pair(Icons.Filled.Cancel,        MaterialTheme.colorScheme.error)
-    "MEMBER_ADDED"  -> Pair(Icons.Filled.Group,         MaterialTheme.colorScheme.secondary)
-    else            -> Pair(Icons.Filled.Notifications, MaterialTheme.colorScheme.onSurfaceVariant)
+    "JOIN_REQUEST"  -> Pair(Icons.Filled.PersonAdd,         MaterialTheme.colorScheme.tertiary)
+    "JOIN_APPROVED" -> Pair(Icons.Filled.CheckCircle,       MaterialTheme.colorScheme.primary)
+    "JOIN_REJECTED" -> Pair(Icons.Filled.Cancel,            MaterialTheme.colorScheme.error)
+    "MEMBER_ADDED"  -> Pair(Icons.Filled.Group,             MaterialTheme.colorScheme.secondary)
+    "PAYMENT"       -> Pair(Icons.Filled.Paid,              Color(0xFF2E7D32))
+    "REMINDER"      -> Pair(Icons.Filled.NotificationsActive, MaterialTheme.colorScheme.tertiary)
+    else            -> Pair(Icons.Filled.Notifications,     MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 /** Human-readable relative timestamp. */

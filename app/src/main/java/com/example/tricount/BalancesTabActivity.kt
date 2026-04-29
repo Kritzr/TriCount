@@ -492,7 +492,8 @@ fun BalancesContent(
             confirmButton = {
                 Button(
                     onClick = {
-                        val key = "${s.fromUserId}-${s.toUserId}"
+                        val key      = "${s.fromUserId}-${s.toUserId}"
+                        val note     = paidNote.trim()
                         busyKey         = key
                         settlementToPay = null
                         viewModel.markSettlementPaid(
@@ -504,6 +505,31 @@ fun BalancesContent(
                             amount       = s.amount
                         ) {
                             busyKey = null
+
+                            // 1. Post in-app notification so it appears in NotificationsActivity
+                            viewModel.postPaymentNotification(
+                                tricountId   = tricountId,
+                                fromUserName = s.fromUserName,
+                                toUserId     = s.toUserId,
+                                toUserName   = s.toUserName,
+                                amount       = s.amount,
+                                isDebtor     = isDebtor,
+                                note         = note
+                            )
+
+                            // 2. If the current user is the one paying ("I Paid"),
+                            //    also share the confirmation via a third-party app.
+                            if (isDebtor) {
+                                val shareMsg = buildPaymentShareMessage(s, note)
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, shareMsg)
+                                }
+                                context.startActivity(
+                                    Intent.createChooser(intent, "Share payment confirmation via…")
+                                )
+                            }
+
                             Toast.makeText(
                                 context,
                                 "${formatInr(s.amount)} marked as paid ✓",
@@ -526,69 +552,92 @@ fun BalancesContent(
 
     // ── Reminder dialog ───────────────────────────────────────────────────────
     reminderTarget?.let { s ->
-        val isCreditor = s.toUserId == currentUserId
-        var reminderMsg by remember(s) {
-            mutableStateOf(buildReminderMessage(s, isCreditor))
-        }
+        val isCreditor  = s.toUserId == currentUserId
+        val creditorName = if (isCreditor) "you" else s.toUserName
+        var sending     by remember(s) { mutableStateOf(false) }
+        var sent        by remember(s) { mutableStateOf(false) }
+        var failed      by remember(s) { mutableStateOf(false) }
+
         AlertDialog(
-            onDismissRequest = { reminderTarget = null },
+            onDismissRequest = { if (!sending) reminderTarget = null },
             icon  = {
-                Icon(Icons.Filled.Send, null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Filled.NotificationsActive, null, tint = MaterialTheme.colorScheme.primary)
             },
             title = { Text("Remind ${s.fromUserName}") },
             text  = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        "Edit the message before sending:",
-                        fontSize = 14.sp,
-                        color    = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    OutlinedTextField(
-                        value         = reminderMsg,
-                        onValueChange = { reminderMsg = it },
-                        label         = { Text("Message") },
-                        modifier      = Modifier.fillMaxWidth(),
-                        minLines      = 4,
-                        maxLines      = 8,
-                        shape         = RoundedCornerShape(10.dp)
-                    )
-                    TextButton(
-                        onClick  = { reminderMsg = buildReminderMessage(s, isCreditor) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .wrapContentWidth(Alignment.End)
-                    ) {
-                        Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Reset to default", fontSize = 12.sp)
+                    if (sent) {
+                        Text(
+                            "✅ Reminder sent! ${s.fromUserName} will see it in their notifications.",
+                            fontSize = 15.sp,
+                            color    = MaterialTheme.colorScheme.primary
+                        )
+                    } else if (failed) {
+                        Text(
+                            "⚠️ Could not reach ${s.fromUserName} — they may not have the app or haven't registered yet.",
+                            fontSize = 15.sp,
+                            color    = MaterialTheme.colorScheme.error
+                        )
+                    } else {
+                        Text(
+                            "Send ${s.fromUserName} an in-app notification reminding them they owe ${formatInr(s.amount)}.",
+                            fontSize = 14.sp,
+                            color    = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                "\"Hey ${s.fromUserName}! Just a friendly reminder — you owe ${s.toUserName} ${formatInr(s.amount)}. Please settle up when you get a chance 🙏\"",
+                                fontSize = 13.sp,
+                                color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
                     }
-                    Text(
-                        "Choose any app to send (WhatsApp, SMS, email…)",
-                        fontSize = 12.sp,
-                        color    = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             },
             confirmButton = {
-                Button(
-                    onClick  = {
-                        val msgToSend = reminderMsg
-                        reminderTarget = null
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, msgToSend)
+                if (!sent && !failed) {
+                    Button(
+                        onClick = {
+                            sending = true
+                            viewModel.sendReminderNotification(
+                                tricountId   = tricountId,
+                                debtorUserId = s.fromUserId,
+                                debtorName   = s.fromUserName,
+                                creditorName = s.toUserName,
+                                amount       = s.amount
+                            ) { success ->
+                                sending = false
+                                if (success) sent = true else failed = true
+                            }
+                        },
+                        enabled = !sending
+                    ) {
+                        if (sending) {
+                            CircularProgressIndicator(
+                                modifier    = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color       = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Icon(Icons.Filled.Send, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Send Reminder")
                         }
-                        context.startActivity(Intent.createChooser(intent, "Send reminder via…"))
-                    },
-                    enabled = reminderMsg.isNotBlank()
-                ) {
-                    Icon(Icons.Filled.Send, null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Send Reminder")
+                    }
+                } else {
+                    Button(onClick = { reminderTarget = null }) { Text("Done") }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { reminderTarget = null }) { Text("Cancel") }
+                if (!sent && !failed) {
+                    TextButton(onClick = { reminderTarget = null }, enabled = !sending) {
+                        Text("Cancel")
+                    }
+                }
             }
         )
     }
@@ -674,13 +723,15 @@ private fun SettlementCard(
             )
 
             // Action buttons
+            // Debtors ("I Paid") only see the pay button — no Remind.
+            // Creditors / observers see both buttons.
             Row(
                 modifier              = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
                     onClick  = onMarkPaid,
-                    modifier = Modifier.weight(1f),
+                    modifier = if (isDebtor) Modifier.fillMaxWidth() else Modifier.weight(1f),
                     enabled  = !isBusy,
                     colors   = ButtonDefaults.buttonColors(
                         containerColor = Green,
@@ -704,21 +755,23 @@ private fun SettlementCard(
                     }
                 }
 
-                OutlinedButton(
-                    onClick  = onRemind,
-                    modifier = Modifier.weight(1f),
-                    enabled  = !isBusy,
-                    colors   = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.primary
-                    )
-                ) {
-                    Icon(Icons.Filled.NotificationsActive, null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "Remind",
-                        fontSize   = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                if (!isDebtor) {
+                    OutlinedButton(
+                        onClick  = onRemind,
+                        modifier = Modifier.weight(1f),
+                        enabled  = !isBusy,
+                        colors   = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(Icons.Filled.NotificationsActive, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "Remind",
+                            fontSize   = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
         }
@@ -779,11 +832,13 @@ private fun StatChip(label: String, value: String) {
     }
 }
 
-private fun buildReminderMessage(s: Settlement, senderIsCreditor: Boolean): String {
+/**
+ * Message sent via a third-party app when the current user confirms they paid.
+ * Includes the optional note the user typed in the "Mark as Paid" dialog.
+ */
+private fun buildPaymentShareMessage(s: Settlement, note: String): String {
     val amount = formatInr(s.amount)
-    return if (senderIsCreditor) {
-        "Hey ${s.fromUserName}!  Just a friendly reminder — you owe me $amount on TriCount. Please settle up when you get a chance 🙏"
-    } else {
-        "Hey ${s.toUserName}!  It's ${s.fromUserName} — wanted to check if you received my payment of $amount on TriCount. Please let me know!"
-    }
+    val base   = "Hey ${s.toUserName}! I've just paid you $amount via TriCount. " +
+            "You should see it reflected in the app. 🎉"
+    return if (note.isNotBlank()) "$base\n\nNote: $note" else base
 }
