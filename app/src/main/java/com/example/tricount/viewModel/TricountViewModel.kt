@@ -304,14 +304,44 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun deleteTricount(tricountId: Int) {
+    /**
+     * Deletes a tricount **only if the currently logged-in user is its creator**.
+     *  - Room: [creatorId] is compared against the session user ID before deletion.
+     *  - Firestore: [FirebaseSyncRepository.deleteTricount] re-checks [creatorUid]
+     *    server-side, so the guard cannot be bypassed even if the Room check is skipped.
+     *
+     * @param onResult Called with `true` if deleted, `false` if the user is not the
+     *                 creator or any error occurred.
+     */
+    fun deleteTricount(tricountId: Int, onResult: (deleted: Boolean) -> Unit = {}) {
         viewModelScope.launch {
             try {
+                val userId   = sessionManager.getUserId() ?: run { onResult(false); return@launch }
+                val tricount = tricountDao.getTricountById(tricountId)
+                if (tricount == null || tricount.creatorId != userId) {
+                    Log.w("TricountVM", "deleteTricount: user $userId is not the creator of tricount $tricountId")
+                    onResult(false)
+                    return@launch
+                }
                 tricountDao.deleteTricountById(tricountId)
                 syncRepo.deleteTricount(tricountId)
                 loadTricounts(); loadArchivedTricounts()
-            } catch (e: Exception) { Log.e("TricountVM", "deleteTricount error", e) }
+                onResult(true)
+            } catch (e: Exception) {
+                Log.e("TricountVM", "deleteTricount error", e)
+                onResult(false)
+            }
         }
+    }
+
+    /**
+     * Returns `true` if the currently logged-in user created the given tricount.
+     * Use this in the UI to show or hide the delete option.
+     */
+    suspend fun isCurrentUserCreator(tricountId: Int): Boolean {
+        val userId   = sessionManager.getUserId() ?: return false
+        val tricount = runCatching { tricountDao.getTricountById(tricountId) }.getOrNull()
+        return tricount?.creatorId == userId
     }
 
     fun archiveTricount(tricountId: Int) {

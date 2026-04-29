@@ -243,7 +243,10 @@ fun ArchivedTricountsScreen(
             text  = { Text("This will permanently delete the Tricount and all its expenses. This cannot be undone.") },
             confirmButton = {
                 Button(
-                    onClick = { viewModel.deleteTricount(id); tricountToDelete = null },
+                    onClick = {
+                        viewModel.deleteTricount(id) { /* result handled by screen refresh */ }
+                        tricountToDelete = null
+                    },
                     colors  = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error)
                 ) { Text("Delete") }
@@ -358,24 +361,26 @@ fun ArchivedTricountCard(   // ✅ Fixed typo in function name
                         Text("Unarchive", fontSize = 15.sp,
                             color = MaterialTheme.colorScheme.onSurface)
                     }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showMenu = false; onDeleteClick() }
-                            .padding(vertical = 12.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Filled.Delete, null,
-                            modifier = Modifier.size(22.dp),
-                            tint     = MaterialTheme.colorScheme.error
-                        )
-                        Spacer(Modifier.width(16.dp))
-                        Text(
-                            "Delete Permanently",
-                            fontSize = 15.sp,
-                            color    = MaterialTheme.colorScheme.error
-                        )
+                    if (isCreator) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showMenu = false; onDeleteClick() }
+                                .padding(vertical = 12.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Filled.Delete, null,
+                                modifier = Modifier.size(22.dp),
+                                tint     = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(Modifier.width(16.dp))
+                            Text(
+                                "Delete Permanently",
+                                fontSize = 15.sp,
+                                color    = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             },

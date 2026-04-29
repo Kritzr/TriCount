@@ -133,6 +133,12 @@ fun TricountDetailScreen(
     var showDeleteDialog  by remember { mutableStateOf(false) }
     var showArchiveDialog by remember { mutableStateOf(false) }
 
+    // Only the creator may delete the tricount — resolved once when the screen opens.
+    var isCreator by remember { mutableStateOf(false) }
+    LaunchedEffect(tricountId) {
+        isCreator = viewModel.isCurrentUserCreator(tricountId)
+    }
+
     val tabs = listOf("Expenses", "Balances", "Details")
 
     Scaffold(
@@ -251,18 +257,20 @@ fun TricountDetailScreen(
                                         onClick = { showMenu = false; showArchiveDialog = true }
                                     )
                                 }
-                                // Delete tricount
-                                DropdownMenuItem(
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.Delete, null,
-                                            tint = MaterialTheme.colorScheme.error)
-                                    },
-                                    text    = {
-                                        Text("Delete Tricount",
-                                            color = MaterialTheme.colorScheme.error)
-                                    },
-                                    onClick = { showMenu = false; showDeleteDialog = true }
-                                )
+                                // Delete tricount — only shown to the creator
+                                if (isCreator) {
+                                    DropdownMenuItem(
+                                        leadingIcon = {
+                                            Icon(Icons.Filled.Delete, null,
+                                                tint = MaterialTheme.colorScheme.error)
+                                        },
+                                        text    = {
+                                            Text("Delete Tricount",
+                                                color = MaterialTheme.colorScheme.error)
+                                        },
+                                        onClick = { showMenu = false; showDeleteDialog = true }
+                                    )
+                                }
                             }
                         }
                     }
@@ -454,7 +462,7 @@ fun TricountDetailScreen(
         )
     }
 
-    // Delete tricount confirmation
+    // Delete tricount confirmation — only reachable when isCreator == true
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -468,8 +476,12 @@ fun TricountDetailScreen(
                 Button(
                     onClick = {
                         showDeleteDialog = false
-                        viewModel.deleteTricount(tricountId)
-                        (context as? android.app.Activity)?.finish()
+                        viewModel.deleteTricount(tricountId) { deleted ->
+                            if (deleted) {
+                                (context as? android.app.Activity)?.finish()
+                            }
+                            // If deleted == false the dialog already closed; nothing more to do.
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error)

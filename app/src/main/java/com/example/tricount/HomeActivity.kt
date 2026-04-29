@@ -661,17 +661,23 @@ fun TriCountListScreen(
         }
     }
 
-    // Delete confirmation
+    // Delete confirmation — only reachable when the user is the creator
     tricountToDelete?.let { (id, name) ->
         AlertDialog(
             onDismissRequest = { tricountToDelete = null },
-            title = { Text("Delete Tricount?") },
-            text  = { Text("Are you sure you want to delete \"$name\"? This action cannot be undone.") },
+            icon  = {
+                Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error)
+            },
+            title = { Text("Delete \"$name\"?") },
+            text  = { Text("This will permanently delete the Tricount and all its expenses. This cannot be undone.") },
             confirmButton = {
-                TextButton(
-                    onClick = { viewModel.deleteTricount(id); tricountToDelete = null },
-                    colors  = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
+                Button(
+                    onClick = {
+                        viewModel.deleteTricount(id) { /* list refreshes automatically */ }
+                        tricountToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
                     )
                 ) { Text("Delete") }
             },
@@ -838,11 +844,14 @@ fun AnimatedTricountCard(
                     ContextMenuOption(Icons.Filled.Archive, "Archive") {
                         showContextMenu = false; onArchiveClick()
                     }
-                    ContextMenuOption(
-                        Icons.Filled.Delete, "Delete",
-                        tint = MaterialTheme.colorScheme.error
-                    ) {
-                        showContextMenu = false; onDeleteClick()
+                    // Only the creator can delete — joined members see no Delete option
+                    if (isCreator) {
+                        ContextMenuOption(
+                            Icons.Filled.Delete, "Delete",
+                            tint = MaterialTheme.colorScheme.error
+                        ) {
+                            showContextMenu = false; onDeleteClick()
+                        }
                     }
                 }
             },
