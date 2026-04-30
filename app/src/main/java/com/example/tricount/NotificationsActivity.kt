@@ -8,7 +8,9 @@ import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -85,7 +87,7 @@ class NotificationsActivity : ComponentActivity() {
 // Root screen
 // ─────────────────────────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun NotificationsScreen(
     viewModel : TricountViewModel,
@@ -164,7 +166,9 @@ fun NotificationsScreen(
             when (selectedTab) {
                 0 -> NotificationsTab(
                     notifications = notifications,
-                    onMarkRead    = { id -> viewModel.markNotificationRead(id) }
+                    onMarkRead    = { id -> viewModel.markNotificationRead(id) },
+                    onDelete      = { id -> viewModel.deleteNotification(id) },
+                    onClearAll    = { viewModel.clearAllNotifications() }
                 )
                 1 -> JoinRequestsTab(
                     requests  = pendingRequests,
@@ -187,7 +191,9 @@ fun NotificationsScreen(
 @Composable
 private fun NotificationsTab(
     notifications : List<AppNotification>,
-    onMarkRead    : (String) -> Unit
+    onMarkRead    : (String) -> Unit,
+    onDelete      : (String) -> Unit,
+    onClearAll    : () -> Unit
 ) {
     if (notifications.isEmpty()) {
         EmptyState(
@@ -206,93 +212,171 @@ private fun NotificationsTab(
         items(notifications, key = { it.id }) { notif ->
             NotificationItem(
                 notification = notif,
-                onMarkRead   = { onMarkRead(notif.id) }
+                onMarkRead   = { onMarkRead(notif.id) },
+                onDelete     = { onDelete(notif.id) },
+                onClearAll   = onClearAll
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NotificationItem(
     notification : AppNotification,
-    onMarkRead   : () -> Unit
+    onMarkRead   : () -> Unit,
+    onDelete     : () -> Unit,
+    onClearAll   : () -> Unit
 ) {
     val (icon, tint) = notifIconAndTint(notification.type)
+    var menuExpanded by remember { mutableStateOf(false) }
 
-    Surface(
-        modifier       = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        shape          = RoundedCornerShape(12.dp),
-        color          = if (!notification.read)
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-        else
-            MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = if (!notification.read) 2.dp else 0.dp
-    ) {
-        Row(
-            modifier          = Modifier
+    Box {
+        Surface(
+            modifier       = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.Top
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .combinedClickable(
+                    onClick      = {},
+                    onLongClick  = { menuExpanded = true }
+                ),
+            shape          = RoundedCornerShape(12.dp),
+            color          = if (!notification.read)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            else
+                MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = if (!notification.read) 2.dp else 0.dp
         ) {
-            Surface(
-                modifier = Modifier.size(42.dp),
-                shape    = CircleShape,
-                color    = tint.copy(alpha = 0.15f)
+            Row(
+                modifier          = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalAlignment = Alignment.Top
             ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = tint, modifier = Modifier.size(22.dp))
+                Surface(
+                    modifier = Modifier.size(42.dp),
+                    shape    = CircleShape,
+                    color    = tint.copy(alpha = 0.15f)
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(icon, null, tint = tint, modifier = Modifier.size(22.dp))
+                    }
                 }
-            }
 
-            Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(12.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                if (notification.tricountName.isNotBlank()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    if (notification.tricountName.isNotBlank()) {
+                        Text(
+                            notification.tricountName,
+                            fontSize   = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color      = MaterialTheme.colorScheme.primary,
+                            maxLines   = 1,
+                            overflow   = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(2.dp))
+                    }
                     Text(
-                        notification.tricountName,
-                        fontSize   = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color      = MaterialTheme.colorScheme.primary,
-                        maxLines   = 1,
+                        notification.message,
+                        fontSize   = 14.sp,
+                        fontWeight = if (!notification.read) FontWeight.SemiBold else FontWeight.Normal,
+                        color      = MaterialTheme.colorScheme.onSurface,
+                        maxLines   = 3,
                         overflow   = TextOverflow.Ellipsis
                     )
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        formatRelativeTime(notification.createdAt),
+                        fontSize = 11.sp,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                Text(
-                    notification.message,
-                    fontSize   = 14.sp,
-                    fontWeight = if (!notification.read) FontWeight.SemiBold else FontWeight.Normal,
-                    color      = MaterialTheme.colorScheme.onSurface,
-                    maxLines   = 3,
-                    overflow   = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    formatRelativeTime(notification.createdAt),
-                    fontSize = 11.sp,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
 
-            if (!notification.read) {
-                Column(horizontalAlignment = Alignment.End) {
-                    Surface(
-                        modifier = Modifier.size(10.dp),
-                        shape    = CircleShape,
-                        color    = MaterialTheme.colorScheme.primary
-                    ) {}
-                    Spacer(Modifier.height(6.dp))
-                    TextButton(
-                        onClick        = onMarkRead,
-                        modifier       = Modifier.height(28.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                    ) {
-                        Text("Mark read", fontSize = 11.sp)
+                if (!notification.read) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Surface(
+                            modifier = Modifier.size(10.dp),
+                            shape    = CircleShape,
+                            color    = MaterialTheme.colorScheme.primary
+                        ) {}
+                        Spacer(Modifier.height(6.dp))
+                        TextButton(
+                            onClick        = onMarkRead,
+                            modifier       = Modifier.height(28.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("Mark read", fontSize = 11.sp)
+                        }
                     }
                 }
             }
+        }
+
+        DropdownMenu(
+            expanded         = menuExpanded,
+            onDismissRequest = { menuExpanded = false },
+            modifier         = Modifier.padding(horizontal = 4.dp)
+        ) {
+            // Mark as read (only shown for unread notifications)
+            if (!notification.read) {
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Filled.MarkEmailRead,
+                                contentDescription = null,
+                                modifier           = Modifier.size(18.dp),
+                                tint               = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text("Mark as Read")
+                        }
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        onMarkRead()
+                    }
+                )
+
+            }
+            DropdownMenuItem(
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = null,
+                            modifier           = Modifier.size(18.dp),
+                            tint               = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                onClick = {
+                    menuExpanded = false
+                    onDelete()
+                }
+            )
+
+            DropdownMenuItem(
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.ClearAll,
+                            contentDescription = null,
+                            modifier           = Modifier.size(18.dp),
+                            tint               = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text("Clear All")
+                    }
+                },
+                onClick = {
+                    menuExpanded = false
+                    onClearAll()
+                }
+            )
         }
     }
 }

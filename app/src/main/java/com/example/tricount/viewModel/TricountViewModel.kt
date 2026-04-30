@@ -905,12 +905,53 @@ class TricountViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun markNotificationRead(notificationId: String) {
+        // Optimistic update: flip the read flag locally so the unread dot and
+        // badge count disappear instantly without waiting for the Firestore round-trip.
+        _notifications.value = _notifications.value.map { notif ->
+            if (notif.id == notificationId) notif.copy(read = true) else notif
+        }
         viewModelScope.launch {
             try {
                 syncRepo.markNotificationRead(notificationId)
                 // The real-time listener started in startNotificationListener()
                 // will automatically push the updated list when Firestore changes.
-            } catch (e: Exception) { Log.e("TricountVM", "markNotificationRead error", e) }
+            } catch (e: Exception) {
+                Log.e("TricountVM", "markNotificationRead error", e)
+                // Roll back on failure.
+                loadNotifications()
+            }
+        }
+    }
+
+    fun deleteNotification(notificationId: String) {
+        // Optimistic update: remove immediately from local state so the UI
+        // responds instantly even if the Firestore listener is slow or the
+        // delete hasn't propagated yet.
+        _notifications.value = _notifications.value.filter { it.id != notificationId }
+        viewModelScope.launch {
+            try {
+                syncRepo.deleteNotification(notificationId)
+                // Real-time listener will confirm/reconcile the final state.
+            } catch (e: Exception) {
+                Log.e("TricountVM", "deleteNotification error", e)
+                // Roll back the optimistic removal on failure so the item reappears.
+                loadNotifications()
+            }
+        }
+    }
+
+    fun clearAllNotifications() {
+        // Optimistic update: clear local state immediately.
+        _notifications.value = emptyList()
+        viewModelScope.launch {
+            try {
+                syncRepo.clearAllNotifications()
+                // Real-time listener will confirm/reconcile the final state.
+            } catch (e: Exception) {
+                Log.e("TricountVM", "clearAllNotifications error", e)
+                // Roll back on failure.
+                loadNotifications()
+            }
         }
     }
 

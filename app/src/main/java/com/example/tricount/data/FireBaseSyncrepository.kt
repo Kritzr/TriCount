@@ -16,6 +16,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 import java.io.ByteArrayOutputStream
+import kotlin.text.get
 
 class FirebaseSyncRepository(
     private val db            : TricountDatabase,
@@ -684,6 +685,32 @@ class FirebaseSyncRepository(
                 read         = getBoolean("read")        ?: false
             )
         } catch (e: Exception) { null }
+    }
+    suspend fun deleteNotification(notificationId: String) {
+        // BUG FIX: was targeting users/{uid}/notifications (subcollection) but
+        // notifications are stored at the top-level "notifications" collection
+        // (same path used by getNotifications / listenForNotifications).
+        try {
+            firestore.collection("notifications").document(notificationId)
+                .delete().await()
+        } catch (e: Exception) {
+            Log.e("FirebaseSync", "deleteNotification failed: ${e.message}")
+        }
+    }
+
+    suspend fun clearAllNotifications() {
+        val uid = auth.currentUser?.uid ?: sessionManager.getFirebaseUid() ?: return
+        // BUG FIX: was querying users/{uid}/notifications (wrong path).
+        // Query the same top-level collection that the listener reads from.
+        try {
+            val batch = firestore.batch()
+            val docs = firestore.collection("notifications")
+                .whereEqualTo("toUid", uid).get().await()
+            docs.forEach { batch.delete(it.reference) }
+            batch.commit().await()
+        } catch (e: Exception) {
+            Log.e("FirebaseSync", "clearAllNotifications failed: ${e.message}")
+        }
     }
 }
 
